@@ -1,153 +1,204 @@
 [
   {
     "tool_name": "create_role",
-    "embedding_text": "Yeni bir rol ortaya çıkarma ve sisteme dahil etme. Kullanıcının yeni bir kullanıcı, yetki veya erişim rolü oluşturması, tanımlaması, eklemesi ya da kaydetmesi anlamına gelir."
+    "embedding_text": "Henüz tanımlı olmayan yeni bir yetki veya erişim rolünü sisteme kazandırır. Kullanıcı yeni bir rol tanımlamak istediğinde bu işlem devreye girer.",
+    "domain_name":"role"
   },
   {
     "tool_name": "update_role",
-    "embedding_text": "Bir rolün tanımını ve özelliklerini yeniden düzenleme. Rol adını değiştirme, yeniden adlandırma veya rolün mevcut bilgilerine farklı değerler verme anlamına gelir."
+    "embedding_text": "Var olan bir rolün adını veya bilgilerini değiştirmek için kullanılır. Rol zaten mevcuttur, sadece içeriği yeniden düzenlenir.",
+    "domain_name":"role"
   },
   {
     "tool_name": "delete_role",
-    "embedding_text": "Bir rolü tamamen ortadan kaldırma ve sistemden çıkarma. Rol kaydını silme, kaldırma veya artık sistemde bulunmamasını sağlama anlamına gelir."
+    "embedding_text": "Var olan bir rolü kalıcı olarak ortadan kaldırıp kayıtlardan çıkarır. Rol artık sistemde bulunmaz hale gelir.",
+    "domain_name":"role"
   },
   {
     "tool_name": "assign_role_operations",
-    "embedding_text": "Bir role işlem ve yetki verme. Rolün hangi işlemleri gerçekleştirebileceğini belirleme, izin tanımlama, işlem yetkisi ekleme veya rolü belirli işlemlerle ilişkilendirme anlamına gelir."
+    "embedding_text": "Bir role hangi işlemleri yapabileceğine dair yetki tanımlar. Rolün yetenekleri ve izinleri belirlenir, rolün kendisi değişmez.",
+    "domain_name":"role"
   },
   {
     "tool_name": "update_role_record_status",
-    "embedding_text": "Bir rolün aktiflik ve kullanılabilirlik durumunu değiştirme. Rolü etkinleştirme, pasifleştirme, devre dışı bırakma, kullanıma açma veya kullanımını kapatma anlamına gelir."
+    "embedding_text": "Bir rolü kullanıma açık veya kapalı hale getirir. Rol silinmez, yalnızca etkinlik durumu değişir.",
+    "domain_name":"role"
   },
 
   {
     "tool_name": "create_user",
-    "embedding_text": "Yeni bir kullanıcı hesabı meydana getirme. Yeni kullanıcı veya personel hesabı açma, kullanıcı kaydı oluşturma ve yeni hesabı sisteme dahil etme anlamına gelir."
+    "embedding_text": "Sistemde yer almayan bir kişi için yeni bir kullanıcı hesabı açar. Personel veya kullanıcı ilk kez kaydedilirken kullanılır.",
+    "domain_name":"user"
   },
   {
     "tool_name": "update_user",
-    "embedding_text": "Bir kullanıcının kişisel ve profil bilgilerini yeniden düzenleme. Kullanıcı adını, profil bilgilerini veya diğer kullanıcı özelliklerini farklı değerlerle değiştirme anlamına gelir."
+    "embedding_text": "Mevcut bir kullanıcının adını veya profil bilgilerini düzenler. Kullanıcı zaten kayıtlıdır, sadece bilgileri yenilenir.",
+    "domain_name":"user"
   },
   {
     "tool_name": "delete_user",
-    "embedding_text": "Bir kullanıcı hesabını tamamen ortadan kaldırma. Kullanıcıyı silme, hesabı kaldırma, kullanıcı kaydını yok etme veya hesabı sistemden çıkarma anlamına gelir."
+    "embedding_text": "Bir kullanıcı hesabını sistemden tamamen kaldırır. Hesap artık erişilemez hale gelir ve kayıtlardan silinir.",
+    "domain_name":"user"
   },
   {
     "tool_name": "update_user_record_status",
-    "embedding_text": "Bir kullanıcı hesabının erişim ve etkinlik durumunu değiştirme. Hesabı aktif hale getirme, pasifleştirme, erişimi açma, erişimi kapatma veya hesabı devre dışı bırakma anlamına gelir."
+    "embedding_text": "Bir kullanıcı hesabını etkin veya devre dışı yapar. Hesap silinmez, yalnızca erişim durumu değişir.",
+    "domain_name":"user"
   },
   {
     "tool_name": "change-user-password",
-    "embedding_text": "Bir kullanıcı hesabının giriş parolasını yenileme. Mevcut şifreyi başka bir şifreyle değiştirme, yeni parola belirleme veya hesabın parolasını sıfırlama anlamına gelir."
+    "embedding_text": "Bir kullanıcının hesabına giriş için kullandığı parolayı yeniler. Kullanıcının kimlik bilgileri güncellenir, diğer bilgileri değişmez.",
+    "domain_name":"user"
   },
   {
     "tool_name": "assign-user-roles",
-    "embedding_text": "Bir kullanıcıya rol verme ve kullanıcıyı rollerle ilişkilendirme. Kullanıcıya yeni rol atama, kullanıcıya rol ekleme veya kullanıcının sahip olduğu rolleri belirleme anlamına gelir."
+    "embedding_text": "Var olan bir kullanıcıya bir veya birden fazla rol bağlar. Kullanıcının hangi yetkilere sahip olacağı belirlenir.",
+    "domain_name":"user"
   },
 
   {
     "tool_name": "create_category",
-    "embedding_text": "Yeni bir kategori yapısı meydana getirme. Yeni kategori oluşturma, kategori ekleme, yeni ana kategori tanımlama veya bir üst kategori altında yeni alt kategori oluşturma anlamına gelir."
+    "embedding_text": "Ürünleri sınıflandırmak için henüz var olmayan yeni bir kategori tanımlar. Bir üst kategori altında da oluşturulabilir.",
+    "domain_name":"category"
   },
   {
     "tool_name": "update_category",
-    "embedding_text": "Bir kategorinin tanımını yeniden düzenleme. Kategori adını, kodunu veya diğer açıklayıcı bilgilerini farklı değerlerle değiştirme ve kategori özelliklerini yeniden tanımlama anlamına gelir."
+    "embedding_text": "Var olan bir kategorinin adını veya diğer bilgilerini yeniden düzenler. Kategori zaten mevcuttur, sadece detayları değişir.",
+    "domain_name":"category"
   },
   {
     "tool_name": "delete_category",
-    "embedding_text": "Bir kategoriyi tamamen ortadan kaldırma. Kategoriyi silme, kategori kaydını kaldırma, kategori ağacından çıkarma veya kategorinin sistemde artık bulunmamasını sağlama anlamına gelir."
+    "embedding_text": "Var olan bir kategoriyi kalıcı olarak kaldırır. Kategori artık kayıtlarda bulunmaz.",
+    "domain_name":"category"
+
   },
   {
     "tool_name": "update_category_record_status",
-    "embedding_text": "Bir kategorinin etkinlik ve kullanılabilirlik durumunu değiştirme. Kategoriyi aktif etme, pasifleştirme, etkinliğini kapatma, kullanıma açma veya kullanımını durdurma anlamına gelir."
+    "embedding_text": "Bir kategoriyi kullanıma açık veya kapalı hale getirir. Kategori silinmez, yalnızca durumu değişir.",
+    "domain_name":"category"
   },
   {
     "tool_name": "change_category_parent",
-    "embedding_text": "Bir kategorinin hiyerarşik konumunu başka bir yere taşıma. Kategoriyi farklı bir üst kategoriye bağlama, parent kategorisini değiştirme veya kategori ağacındaki yerini yeniden belirleme anlamına gelir."
+    "embedding_text": "Bir kategoriyi farklı bir üst kategorinin altına taşır. Kategorinin ağaç yapısındaki konumu değişir, adı veya diğer bilgileri değişmez.",
+    "domain_name":"category"
   },
 
   {
     "tool_name": "create_item_unit",
-    "embedding_text": "Yeni bir ölçü birimi meydana getirme. Adet, kilogram, gram, metre veya litre gibi yeni bir ürün birimini tanımlama, ekleme ve sisteme kazandırma anlamına gelir."
+    "embedding_text": "Adet, kilogram, litre gibi henüz tanımlı olmayan yeni bir ölçü birimini sisteme ekler.",
+    "domain_name":"item_unit"
   },
   {
     "tool_name": "update_item_unit",
-    "embedding_text": "Bir ürün biriminin adını ve tanımlayıcı bilgilerini yeniden düzenleme. Birimi yeniden adlandırma, birim adını farklı bir değerle değiştirme veya birim tanımını güncelleme anlamına gelir."
+    "embedding_text": "Var olan bir ölçü biriminin adını değiştirir. Birim zaten kayıtlıdır, sadece adı düzenlenir.",
+    "domain_name":"item_unit"
+
   },
   {
     "tool_name": "delete_item_unit",
-    "embedding_text": "Bir ürün biriminin kaydını tamamen ortadan kaldırma. Birimi silme, kaldırma, sistemden çıkarma veya birim kaydının artık bulunmamasını sağlama anlamına gelir."
+    "embedding_text": "Var olan bir ölçü birimini kalıcı olarak kaldırır. Birim artık kayıtlarda bulunmaz.",
+    "domain_name":"item_unit"
+
   },
   {
     "tool_name": "update_item_unit_record_status",
-    "embedding_text": "Bir ürün biriminin etkinlik ve kullanılabilirlik durumunu değiştirme. Birimi aktif etme, pasifleştirme, kullanıma açma, kullanımdan çıkarma veya devre dışı bırakma anlamına gelir."
+    "embedding_text": "Bir ölçü birimini kullanıma açık veya kapalı hale getirir. Birim silinmez, yalnızca durumu değişir.",
+    "domain_name":"item_unit"
   },
 
   {
     "tool_name": "create_product",
-    "embedding_text": "Yeni bir ürün veya malzeme meydana getirme. Yeni ürün oluşturma, ürün kaydı açma, ürün tanımlama ve ürünü adı, kodu, kategorisi, birimi veya diğer başlangıç bilgileriyle sisteme kazandırma anlamına gelir."
+    "embedding_text": "Henüz kayıtlı olmayan yeni bir ürünü adı, kodu, kategorisi ve birimiyle birlikte kaydeder.",
+    "domain_name":"product"
   },
   {
     "tool_name": "update_product",
-    "embedding_text": "Bir ürünün tanımlayıcı ve içerik özelliklerini yeniden düzenleme. Ürün adını, kodunu, açıklamasını, kısaltmasını, ağırlığını, kategorisini veya birimini farklı değerlerle değiştirme anlamına gelir."
+    "embedding_text": "Var olan bir ürünün adını, kodunu, açıklamasını, ağırlığını, kategorisini veya birimini yeniden düzenler.",
+    "domain_name":"product"
   },
   {
     "tool_name": "delete_product",
-    "embedding_text": "Bir ürün kaydını tamamen ortadan kaldırma. Ürünü silme, ürün kaydını kaldırma, ürünü sistemden çıkarma veya ürünün artık sistemde bulunmamasını sağlama anlamına gelir."
+    "embedding_text": "Var olan bir ürünü kalıcı olarak kaldırır. Ürün artık kayıtlarda bulunmaz.",
+    "domain_name":"product"
   },
   {
     "tool_name": "update_product_record_status",
-    "embedding_text": "Bir ürünün etkinlik ve kullanılabilirlik durumunu değiştirme. Ürünü aktif etme, pasifleştirme, kullanıma açma, kullanımı durdurma veya devre dışı bırakma anlamına gelir."
+    "embedding_text": "Bir ürünü kullanıma açık veya kapalı hale getirir. Ürün silinmez, yalnızca durumu değişir.",
+    "domain_name":"product"
+
   },
 
   {
     "tool_name": "create_pole_or_transformer",
-    "embedding_text": "Yeni bir direk veya transformatör tipi meydana getirme. Demir direk, beton direk veya transformatör gibi yeni bir ürün tipini tanımlama, oluşturma ve sisteme ekleme anlamına gelir."
+    "embedding_text": "Şebekede kullanılacak, henüz tanımlı olmayan yeni bir direk veya transformatör türünü sisteme kaydeder. Demir direk, beton direk ya da trafo ilk kez tanıtılırken kullanılır.",
+    "domain_name":"product_type"
+
   },
   {
     "tool_name": "update_pole_or_transformer",
-    "embedding_text": "Bir direk veya transformatör tipinin tanımını yeniden düzenleme. Adını, tip bilgisini veya diğer tanımlayıcı özelliklerini farklı değerlerle değiştirme anlamına gelir."
+    "embedding_text": "Var olan bir direk veya transformatör türünün adını ya da tipini yeniden düzenler. Kayıt zaten mevcuttur, sadece bilgileri değişir.",
+    "domain_name":"product_type"
+
   },
   {
     "tool_name": "delete_pole_or_transformer",
-    "embedding_text": "Bir direk veya transformatör tipini tamamen ortadan kaldırma. Demir direk, beton direk veya transformatör kaydını silme, kaldırma veya sistemden çıkarma anlamına gelir."
+    "embedding_text": "Var olan bir direk veya transformatör türünü kalıcı olarak kaldırır. Kayıt artık sistemde bulunmaz.",
+    "domain_name":"product_type"
+
   },
   {
     "tool_name": "update_pole_or_transformer_record_status",
-    "embedding_text": "Bir direk veya transformatör tipinin etkinlik ve kullanılabilirlik durumunu değiştirme. Tipi aktif etme, pasifleştirme, kullanıma açma veya kullanımını durdurma anlamına gelir."
+    "embedding_text": "Bir direk veya transformatör türünü kullanıma açık veya kapalı hale getirir. Kayıt silinmez, yalnızca durumu değişir.",
+    "domain_name":"product_type"
+
   },
 
   {
     "tool_name": "create_supplier",
-    "embedding_text": "Yeni bir tedarikçi veya sağlayıcı meydana getirme. Yeni firma tanımlama, tedarikçi ekleme, sağlayıcı kaydı oluşturma ve tedarikçiyi ilgili bölgeyle ilişkilendirerek sisteme dahil etme anlamına gelir."
+    "embedding_text": "Henüz kayıtlı olmayan yeni bir tedarikçi veya firmayı, bağlı olduğu bölgeyle birlikte sisteme dahil eder.",
+    "domain_name":"provider"
+
   },
   {
     "tool_name": "update_supplier",
-    "embedding_text": "Bir tedarikçinin firma bilgilerini yeniden düzenleme. Tedarikçi adını, adresini, telefonunu, firma bilgilerini veya bağlı olduğu bölgeyi farklı değerlerle değiştirme anlamına gelir."
+    "embedding_text": "Var olan bir tedarikçinin adını, adresini, telefonunu veya bağlı olduğu bölgeyi yeniden düzenler.",
+    "domain_name":"provider"
+
   },
   {
     "tool_name": "delete_supplier",
-    "embedding_text": "Bir tedarikçi veya sağlayıcı kaydını tamamen ortadan kaldırma. Tedarikçiyi silme, firma kaydını kaldırma veya sağlayıcıyı sistemden çıkarma anlamına gelir."
+    "embedding_text": "Var olan bir tedarikçiyi kalıcı olarak kaldırır. Tedarikçi artık kayıtlarda bulunmaz.",
+    "domain_name":"provider"
+
   },
   {
     "tool_name": "update_supplier_record_status",
-    "embedding_text": "Bir tedarikçinin etkinlik ve kullanılabilirlik durumunu değiştirme. Tedarikçiyi aktif etme, pasifleştirme, kullanıma açma, kullanımını durdurma veya devre dışı bırakma anlamına gelir."
+    "embedding_text": "Bir tedarikçiyi kullanıma açık veya kapalı hale getirir. Tedarikçi silinmez, yalnızca durumu değişir.",
+    "domain_name":"provider"
+
   },
 
   {
     "tool_name": "create_force_major",
-    "embedding_text": "Yeni bir Mücbir Sebep tanımı meydana getirme. Yeni Mücbir Sebep oluşturma, tanımlama ve sisteme yeni kayıt olarak ekleme anlamına gelir."
+    "embedding_text": "Henüz tanımlı olmayan yeni bir Mücbir Sebep başlığını sisteme kaydeder.",
+    "domain_name":"force_major"
+
   },
   {
     "tool_name": "update_force_major",
-    "embedding_text": "Bir Mücbir Sebep tanımını yeniden düzenleme. Mücbir Sebebin adını, başlığını veya açıklayıcı bilgilerini farklı değerlerle değiştirme anlamına gelir."
+    "embedding_text": "Var olan bir Mücbir Sebep kaydının başlığını veya bilgilerini yeniden düzenler.",
+    "domain_name":"force_major"
+
   },
   {
     "tool_name": "delete_force_major",
-    "embedding_text": "Bir Mücbir Sebep kaydını tamamen ortadan kaldırma. Mücbir Sebebi silme, kaydı kaldırma veya sistemi bu kayıttan arındırma anlamına gelir."
+    "embedding_text": "Var olan bir Mücbir Sebep kaydını kalıcı olarak kaldırır. Kayıt artık sistemde bulunmaz.",
+    "domain_name":"force_major"
+
   },
   {
     "tool_name": "update_force_major_record_status",
-    "embedding_text": "Bir Mücbir Sebebin etkinlik ve kullanılabilirlik durumunu değiştirme. Kaydı aktif etme, pasifleştirme, kullanıma açma veya kullanımını durdurma anlamına gelir."
+    "embedding_text": "Bir Mücbir Sebep kaydını kullanıma açık veya kapalı hale getirir. Kayıt silinmez, yalnızca durumu değişir.",
+    "domain_name":"force_major"
   }
 ]

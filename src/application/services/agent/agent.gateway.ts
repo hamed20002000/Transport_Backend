@@ -1,10 +1,14 @@
 import {
+  ConnectedSocket,
+  SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Server } from 'socket.io';
 import { FunctionCallResultType } from './types';
+import { CancellationService } from './services/cancellation.service';
+import { Socket } from 'socket.io';
 
 @WebSocketGateway({
   cors: { origin: ['http://localhost:5173'], credentials: false },
@@ -16,6 +20,7 @@ export class AgentGateway {
   @WebSocketServer()
   server: Server;
   constructor(
+    private readonly cancellation:CancellationService
   ) {}
 
 
@@ -30,6 +35,15 @@ export class AgentGateway {
     .to(`user:${userId}`)
     .emit('agent-current-tool', data);
 }
+
+  @SubscribeMessage('cancel-execution')
+  handleCancel(@ConnectedSocket() client: Socket) {
+    const userId = client.data?.userId;
+    if (userId) {
+      this.cancellation.cancel(userId);
+    }
+  }
+
 
 
   handleConnection(client: any) {

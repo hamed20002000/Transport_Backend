@@ -737,8 +737,8 @@
                         "description": "Tedarikçinin adresi. Kullanıcı tarafından belirtilmişse adres bilgisini aynen al. Çeviri yapma veya değiştirme."
                     },
                     "selffirm": {
-                        "type": "string",
-                        "description": "Tedarikçinin şirketin kendi bünyesine ait olup olmadığını belirtir. Kullanıcı tedarikçinin kendi şirketine ait olduğunu belirtiyorsa bu bilgiyi aynen al; dışarıdan veya harici bir tedarikçi olduğunu belirtiyorsa bu bilgiyi aynen al. Kullanıcının belirttiği değeri değiştirme, yorumlama veya çevirme."
+                        "type": "boolean",
+                        "description": "Tedarikçinin şirketin kendi bünyesine ait olup olmadığını belirtir. Tedarikçi şirketin kendi bünyesindeyse true, dışarıdan veya harici bir tedarikçiyse false döndür."
                     }
                 },
                 "required": [

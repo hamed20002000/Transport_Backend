@@ -72,8 +72,10 @@ import { InsertTools } from 'src/agent/tools/insert_tools';
 
 import { mkdirSync, readFileSync } from 'fs';
 import { join } from 'path';
-import { AgentSqlService } from 'src/application/services/agent/agentSql.service';
-import { AgentToolsService } from 'src/application/services/agent/agentTools.service';
+import { AgentSqlService } from 'src/application/services/agent/services/agentSql.service';
+import { AgentToolsService } from 'src/application/services/agent/services/agentTools.service';
+import { FunctionCallService } from 'src/application/services/agent/services/functioncall.service';
+import { AgentGateway } from 'src/application/services/agent/agent.gateway';
 
 
 
@@ -92,7 +94,10 @@ export class BaseinfoController {
         private readonly systemNotificationsService: SystemNotificationsService,
         private readonly insertTools: InsertTools,
         private readonly agentSqlService: AgentSqlService,
-        private readonly agentToolsService: AgentToolsService
+        private readonly agentToolsService: AgentToolsService,
+        private readonly functioncall:FunctionCallService,
+        private readonly agentGateway: AgentGateway,
+        
     ) { }
 
     //#region Upload
@@ -202,15 +207,20 @@ export class BaseinfoController {
 
         const prompt = text?.trim() || 'nothink';
 
-        const sqlOrFunctionCall = await this.agentSqlService.FunctionCallingOrSqlSelection(prompt);
+        
+          this.agentGateway.sendCurrentTool(req.user.userid, {
+                        currentOp: `Komut türünün işlenmesi`
+                    })
+
+        const sqlOrFunctionCall = await this.functioncall.FunctionCallingOrSqlSelection(prompt);
 
         switch (sqlOrFunctionCall) {
             case "functionCalling":
-                 this.agentSqlService.RunFunctionCalling(prompt, req, files).catch(error => {
+                this.functioncall.RunFunctionCalling(prompt, req, files).catch(error => {
                     console.error(error);
                 });
                 return {
-                     result: "started"
+                    result: "started"
                 }
             case "sql":
                 break;
@@ -1050,7 +1060,7 @@ export class BaseinfoController {
         checkRegion.recordStatus = regionDto.recordStatus ?? checkRegion.recordStatus;
 
         var updateRegion = await this.regionService.update(checkRegion);
-        
+
         var result = GenericMapper.toDto(RegionListDto, updateRegion, { excludeExtraneousValues: true });
         return result;
     }

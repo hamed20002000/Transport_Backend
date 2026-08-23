@@ -144,7 +144,7 @@ export class UserService extends BaseService<Users> {
 
                 this.history.addNewHistory({
           status:"success",
-          operation:"create_role",
+          operation:"create_user",
           parameters:this.history.getParams(param),
           result:{
             "id":createResult.id.toString(),
@@ -231,7 +231,7 @@ export class UserService extends BaseService<Users> {
         if (param.username == "" || param.username == null) {
            this.history.addNewHistory({
             status:"fault",
-            operation:"update_user",
+            operation:"update_user_record_status",
             parameters:this.history.getParams(param),
             result:{
               errorMessage:message.user.usernamerequired
@@ -246,7 +246,7 @@ export class UserService extends BaseService<Users> {
         if (!user) {
            this.history.addNewHistory({
             status:"fault",
-            operation:"update_user",
+            operation:"update_user_record_status",
             parameters:this.history.getParams(param),
             result:{
               errorMessage:message.user.Usernotfound
@@ -268,7 +268,6 @@ export class UserService extends BaseService<Users> {
             "password":updatedUser.password,
             "createAt":updatedUser.createAt.toString(),
             "recordStatus":updatedUser.recordStatus.toString(),
-            "roles":updatedUser.roles.join(",")
           }
         },param.req.user.username)
 
@@ -410,7 +409,7 @@ export class UserService extends BaseService<Users> {
         if (param.username == "" || param.username == null) {
                      this.history.addNewHistory({
             status:"fault",
-            operation:"change-user-password",
+            operation:"assign-user-roles",
             parameters:this.history.getParams(param),
             result:{
               errorMessage:message.user.usernamerequired
@@ -429,7 +428,7 @@ export class UserService extends BaseService<Users> {
 
              this.history.addNewHistory({
             status:"fault",
-            operation:"change-user-password",
+            operation:"assign-user-roles",
             parameters:this.history.getParams(param),
             result:{
               errorMessage:message.user.Usernotfound
@@ -446,7 +445,7 @@ export class UserService extends BaseService<Users> {
           if (!user) {
             this.history.addNewHistory({
             status:"fault",
-            operation:"change-user-password",
+            operation:"assign-user-roles",
             parameters:this.history.getParams(param),
             result:{
               errorMessage:message.user.Usernotfound
@@ -462,7 +461,7 @@ export class UserService extends BaseService<Users> {
           if (!roles || roles.length !== dto.roleIds.length) {
             this.history.addNewHistory({
             status:"fault",
-            operation:"change-user-password",
+            operation:"assign-user-roles",
             parameters:this.history.getParams(param),
             result:{
               errorMessage:message.user.Somerolesnotfound
@@ -492,7 +491,7 @@ export class UserService extends BaseService<Users> {
         
          this.history.addNewHistory({
           status:"success",
-          operation:"create_role",
+          operation:"assign-user-roles",
           parameters:this.history.getParams(param),
           result:{
             "id":user.id.toString(),

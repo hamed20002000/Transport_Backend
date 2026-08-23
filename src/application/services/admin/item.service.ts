@@ -55,7 +55,7 @@ export class ItemService extends BaseService<Items> {
           throw new HttpException(messages.product.nameisrequired, HttpStatus.BAD_REQUEST);
         }
 
-           if(categoryName==""||categoryName==undefined){
+           if(param.categoryname==""||param.categoryname==undefined){
            this.history.addNewHistory({
             status: "fault",
             operation: "create_product",
@@ -67,7 +67,7 @@ export class ItemService extends BaseService<Items> {
           throw new HttpException( messages.product.categorynamerequired, HttpStatus.BAD_REQUEST);
         }
 
-              if(unitName==""||unitName==undefined){
+              if(param.unitname==""||param.unitname==undefined){
            this.history.addNewHistory({
             status: "fault",
             operation: "create_product",
@@ -82,7 +82,7 @@ export class ItemService extends BaseService<Items> {
 
 
 
-              var specification = new ItemSpecification(itemDto.name.trim());
+              var specification = new ItemSpecification(this.toolRegister.normalizingName(param.productname).trim());
         var check = await this.getWithSpecification(specification);
         if (check.length > 0) {
            this.history.addNewHistory({
@@ -108,7 +108,7 @@ export class ItemService extends BaseService<Items> {
 
           });
             var  itemDto=new CreateItemDto();
-            itemDto.name=param.productname;
+            itemDto.name=this.toolRegister.normalizingName(param.productname);
             itemDto.abbreviation=param.abbreviation
             itemDto.weight=param.weight;
             itemDto.description=param.description;
@@ -133,7 +133,7 @@ export class ItemService extends BaseService<Items> {
           }
         }
         var item = GenericMapper.toEntity(Items, itemDto);
-        item.name = itemDto.name.trim();
+        item.name = this.toolRegister.normalizingName(itemDto.name).trim();
 
      
 
@@ -168,7 +168,6 @@ export class ItemService extends BaseService<Items> {
 
         item.category = new Categories();
         item.category.id = categorycheck[0].id;
-
         item.unit = new ItemUnits();
         item.unit.id = itemUnitCheck[0].id;
         item.weghit = itemDto.weight;
@@ -188,7 +187,7 @@ export class ItemService extends BaseService<Items> {
             "name": createdProduct.name,
             "createAt": createdProduct.createAt.toString(),
             "recordStatus": createdProduct.recordStatus.toString(),
-            "weight":createdProduct.weghit.toString(),
+            "weight":createdProduct.weghit?.toString(),
             "unitName":unitName,
             "categoryName":categoryName
           }
@@ -263,7 +262,7 @@ export class ItemService extends BaseService<Items> {
                 checkProduct[0].abbreviation = updateDto.abbreviation ?? checkProduct[0].abbreviation;
 
 
-                if(unitName!=""||unitName!=undefined){
+                if(unitName!=""&&unitName!=undefined){
                             var unitspecification = new ItemUnitSpecification(unitName.trim());
                       var itemUnitCheck = await this.unitItemService.getWithSpecification(unitspecification);
                       if (itemUnitCheck.length<1) {
@@ -284,7 +283,7 @@ export class ItemService extends BaseService<Items> {
                 }
 
 
-                if(categoryname!=""||categoryname!=undefined){
+                if(categoryname!=""&&categoryname!=undefined){
                             var categoryspecification = new CategorySpecification(categoryname.trim());
                       var itemUnitCheck = await this.unitItemService.getWithSpecification(unitspecification);
                       if (itemUnitCheck.length<1) {
@@ -332,10 +331,10 @@ export class ItemService extends BaseService<Items> {
           result: {
             "id": updateDto.id.toString(),
             "name": updateDto.newName,
-            "abbreviation": updateDto.abbreviation.toString(),
-            "code": updateDto.code.toString(),
-            "description": updateDto.description.toString(),
-            "weight": updateDto.weight.toString(),
+            "abbreviation": updateDto.abbreviation?.toString(),
+            "code": updateDto.code?.toString(),
+            "description": updateDto.description?.toString(),
+            "weight": updateDto.weight?.toString(),
           }
         }, param.req.user.username)
 

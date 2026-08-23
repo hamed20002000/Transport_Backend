@@ -96,7 +96,8 @@ export type ContextInfo={
     operation:string;
     result:Record<string,string>;
     parameters:Record<string,string>;
-    status:"success"|"fault"
+    status:"success"|"fault",
+    domain?:string
 }
 
 export type RequestResult={
@@ -104,9 +105,10 @@ export type RequestResult={
       continuePrompt:string;
 }
 export type FunctionCallResultType={
-    result:"error"|"success",
+    result:"error"|"success"|"cancelled",
     message:string,
     continuePrompt: string | undefined,
     toolName: string,
+    lastsegment:boolean,
     list:any[]
 }

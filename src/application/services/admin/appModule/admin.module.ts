@@ -111,6 +111,9 @@ import { InsertTools } from 'src/agent/tools/insert_tools';
 import { UserModule } from '../../user/appModuls/user.module';
 
 import { AgentModule } from 'src/application/services/agent/appModule/agent.module';
+import { FunctionCallService } from '../../agent/services/functioncall.service';
+import { CondinateService } from '../../agent/services/condinate.service';
+import { CancellationService } from '../../agent/services/cancellation.service';
 
 
 @Module({
@@ -190,7 +193,10 @@ import { AgentModule } from 'src/application/services/agent/appModule/agent.modu
            PersonnelWorkPlacesRepository, 
            UserRoleRepository, 
            UserRoleService,
-            InsertTools
+            InsertTools,
+            FunctionCallService,
+            CondinateService,
+            CancellationService
     ],
     exports: [
         CategoryRepository,
@@ -254,7 +260,10 @@ import { AgentModule } from 'src/application/services/agent/appModule/agent.modu
          PersonnelWorkPlacesRepository, 
          UserRoleRepository,
           UserRoleService, 
-          InsertTools
+          InsertTools,
+            FunctionCallService,
+            CondinateService,
+            CancellationService
     ]
 })
 export class AdminModule { } 

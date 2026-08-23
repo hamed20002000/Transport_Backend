@@ -74,6 +74,20 @@ export class ContextManager {
 
        }
 
+       public getPreviousDomain(userId:string):string{
+                   const currentHistory=this.history.get(userId)??[];
+                   if(currentHistory.length==0)  return undefined;
+                   currentHistory[currentHistory.length-1].domain
+
+       }
+
+          public getPreviousTool(userId:string):string{
+                   const currentHistory=this.history.get(userId)??[];
+                   if(currentHistory.length==0)  return undefined;
+                  return currentHistory[currentHistory.length-1].operation
+
+       }
+
        
 
        

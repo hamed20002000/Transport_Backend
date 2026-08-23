@@ -1,5 +1,5 @@
-import { Injectable } from '@nestjs/common';
-import { BaseService } from '../base.service';
+import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { BaseService } from '../../base.service';
 import { Roles } from 'src/domain/entities/Roles';
 import { RoleRepository } from 'src/infrastructure/repositories/user/role.repository';
 import { RoleMenuOperations } from 'src/domain/entities/RoleMenuOperations';
@@ -12,11 +12,11 @@ import { DataSource } from "typeorm";
 import { InjectDataSource } from '@nestjs/typeorm';
 import tables from 'src/agent/tables.json';
 import schema from 'src/application/services/agent/schema.json';
-import { extractRelations } from './extractRelations';
+import { extractRelations } from '../extractRelations';
 import tools from 'src/application/services/agent/localFiles/tools.json';
-import { CondinateToolsTyes, ExtracteToolsType } from './types';
-import { ToolRegister } from './toolRegister';
-import { RequestResult } from './types';
+import { CondinateToolsTyes, ExtracteToolsType } from '../types';
+import { ToolRegister } from '../toolRegister';
+import { RequestResult } from '../types';
 
 
 @Injectable()
@@ -28,126 +28,109 @@ export class AgentToolsService {
 
     }
 
-    async extractSelectedTool(prompt: string, condinateTools: string[], histoty: string): Promise<string[]> {
-        const systemRules = `
+    async extractSelectedTool(prompt: string, condinateTools: string[], history: string): Promise<string> {
+    const systemRules = `
 You are a tool selection agent.
+
+IMPORTANT CONTEXT: The message you receive has already been segmented
+upstream into a single, isolated operation request. It represents EXACTLY
+ONE distinct operation -- never more than one. Your only job is to select
+the ONE correct tool for it.
 
 Analyze the current user prompt together with the conversation history
 and the available candidate tools and their schemas.
 
 Your task is to:
 
-1. Identify all distinct operations requested by the current user prompt.
-2. Select exactly one tool for each requested operation.
-3. Return all selected tools in the order they should be executed.
+1. Identify the single operation requested by the current user prompt.
+2. Select exactly one tool that matches this operation.
+3. Return that tool's name only.
 4. Return valid JSON only.
 
 Tool selection rules:
 
-- You may select tools ONLY from the provided candidate tools.
-- The functionName in the output MUST exactly match the name of one of the
-  provided candidate tools.
+- You may select the tool ONLY from the provided candidate tools.
+- The functionName in the output MUST exactly match the name of one of
+  the provided candidate tools.
 - Never invent a new tool name.
 - Never generate a tool name based on the user's wording.
 - Never rename, modify, combine, or infer a tool name.
-- If a tool does not exist in the provided candidate tools, do not return it.
+- If no candidate tool genuinely matches the requested operation, return
+  the closest matching tool from the candidates -- do not return an empty
+  or fabricated value.
 
-- The current user prompt is the primary source for determining the requested
-  operations.
-- Identify every distinct operation expressed in the current prompt.
-- Each distinct operation must be mapped to exactly one available tool.
-- Do not omit an operation requested by the user.
-- Do not create an operation that the user did not request.
-- Do not merge independent operations.
-- If the current prompt contains one operation, return one tool.
-- If the current prompt contains multiple operations, return all required tools
-  in the order they should be executed.
-- Select tools according to semantic intent.
+- The current user prompt is the primary source for determining the
+  requested operation.
+- Select the tool according to semantic intent.
 - Do not select a tool merely because of keyword similarity.
 
-- Use conversation history only to understand the intent of the current request.
-- Do not treat previous operations as new operations.
-- Do not use previous parameters to make tool selections unless they are
-  necessary to understand what operation the user is requesting.
+- Use conversation history only to understand the intent of the current
+  request (e.g. resolving what entity "it" or an implicit subject refers
+  to). Do not treat previous operations as the current operation.
+- Do not use previous parameters to make the tool selection unless they
+  are necessary to understand what operation is being requested.
 
 - Do not extract or return parameters.
-  necessary to understand what operation the user is requesting.
 
 Conversation history:
-${histoty.length === 0 ? "empty" : histoty}
+${history.length === 0 ? "empty" : history}
 
 Tool schemas:
 ${JSON.stringify(
-            tools.tools.filter((item) => {
-                if (condinateTools.find((condic, index) => condic == item.name) != undefined) {
-                    return item;
-                }
-            })
-        )}
+        tools.tools.filter((item) => {
+            if (condinateTools.find((condic) => condic == item.name) != undefined) {
+                return item;
+            }
+        })
+    )}
 
 Output format:
 
 {
-  "operations": [
-    {
-      "functionName": "tool_name"
-    }
-  ]
+  "functionName": "tool_name"
 }
 
 Return JSON only.
 `;
 
-        const ollamareq: ChatRequest = {
-            model: "qwen3:8b",
-            messages: [
-                {
-                    role: 'system',
-                    content: systemRules
-                },
-                {
-                    role: "user",
-                    content: prompt
-                }],
-            stream: false,
-        }
-        const resp = await axios.post(
-            "http://localhost:11434/api/chat",
-            JSON.stringify({
-                ...ollamareq,
-
-                format: {
-                    type: "object",
-                    properties: {
-                        operations: {
-                            type: "array",
-                            items: {
-                                type: "object",
-                                properties: {
-                                    functionName: {
-                                        type: "string"
-                                    }
-                                },
-                                required: ["functionName"]
-                            }
-                        }
-                    },
-                    required: ["operations"]
-                }
-            }),
-
+     const ollamareq: ChatRequest = {
+        model: "qwen3:8b",
+        messages: [
             {
-                headers: {
-                    "Content-Type": "application/json",
-                },
+                role: 'system',
+                content: systemRules
             },
-        );
+            {
+                role: "user",
+                content: prompt
+            }],
+        stream: false,
+    }
 
-        const result = JSON.parse(resp.data.message.content);
+    const resp = await axios.post(
+        "http://localhost:11434/api/chat",
+        JSON.stringify({
+            ...ollamareq,
+            format: {
+                type: "object",
+                properties: {
+                    functionName: {
+                        type: "string"
+                    }
+                },
+                required: ["functionName"]
+            }
+        }),
+        {
+            headers: {
+                "Content-Type": "application/json",
+            },
+        },
+    );
 
-        return result.operations.map(
-            (item: any) => item.functionName
-        );
+    const result = JSON.parse(resp.data.message.content);
+
+    return result.functionName;
 
 
     }
@@ -354,7 +337,7 @@ ${JSON.stringify(
                 },
             },
         );
-             const result: ExtracteToolsType = {
+        const result: ExtracteToolsType = {
             functionName: JSON.parse(resp.data.message.content).functionName,
             parameters: JSON.parse(resp.data.message.content).parameters,
             confidence: JSON.parse(resp.data.message.content).confidence
@@ -368,9 +351,25 @@ ${JSON.stringify(
 
     async executeTool(toolName: string, parameter: any, req: any): Promise<RequestResult> {
 
-        const result = await this.toolRegister.execute(toolName, { ...parameter, req });
+         try{
 
-        return result ?? "";
+                 const currentDomain: { DomainName: string }[] = await this.dataSource.query(
+            `SELECT "DomainName" FROM "EmbeddingTool" WHERE "ToolName" = $1 LIMIT 1;`,
+            [toolName]
+        );
+
+            
+              const result = await this.toolRegister.execute(toolName, { ...parameter, req,toolDomain:currentDomain.length > 0 ? currentDomain[0].DomainName : null });
+
+              return result;
+
+
+         }
+         catch(error:any){
+        throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
+
+         }
+
 
 
 

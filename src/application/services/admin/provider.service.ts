@@ -87,8 +87,9 @@ export class ProviderService extends BaseService<Providers> {
                 }
 
                 var item = GenericMapper.toEntity(Providers, suppplierDto);
-                item.firm = param.selffirm
-                item.address = param.address,
+                item.name=this.toolRegister.normalizingName(param.name)
+                item.firm = param.selffirm,
+                item.address = param.address??"",
                     item.region = { id: checkRegion[0].id } as Regions;
                 item.createAt = new Date();
                 item.recordStatus = recordStatus.Active;

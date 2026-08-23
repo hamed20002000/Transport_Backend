@@ -1,0 +1,42 @@
+[
+  {
+    "domain_name": "role",
+    "embedding_text": "Kullanıcı rolleri ve yetki tanımlarıyla ilgili kayıtlar. Roller, rollerin sahip olduğu işlem yetkileri ve rollerin aktiflik durumu bu kapsamdadır."
+  },
+  {
+    "domain_name": "user",
+    "embedding_text": "Sistem kullanıcıları ve hesap bilgileriyle ilgili kayıtlar. Kullanıcı hesapları, kullanıcı adı, şifre, profil bilgileri, rol ataması ve hesap durumu bu kapsamdadır."
+  },
+  {
+    "domain_name": "category",
+    "embedding_text": "Ürünlerin sınıflandırıldığı kategori yapısıyla ilgili kayıtlar. Kategoriler, kategori hiyerarşisi ve kategorilerin aktiflik durumu bu kapsamdadır."
+  },
+  {
+    "domain_name": "item_unit",
+    "embedding_text": "Ürünlerin ölçüldüğü birimlerle ilgili kayıtlar. Adet, kilogram, litre, metre gibi ürün birimleri ve bu birimlerin aktiflik durumu bu kapsamdadır."
+  },
+  {
+    "domain_name": "product",
+    "embedding_text": "Ürün ve malzeme kayıtlarıyla ilgili işlemler. Ürün adı, kodu, açıklaması, ağırlığı, kategorisi, birimi ve ürünün aktiflik durumu bu kapsamdadır."
+  },
+  {
+    "domain_name": "product_type",
+    "embedding_text": "Elektrik şebekesinde kullanılan direk ve transformatör tipleriyle ilgili kayıtlar. Demir direk, beton direk, trafo tipleri ve bu tiplerin aktiflik durumu bu kapsamdadır."
+  },
+  {
+    "domain_name": "region",
+    "embedding_text": "Coğrafi bölge tanımlarıyla ilgili kayıtlar. Bölgeler, bölgelerin birbirine bağlı hiyerarşik yapısı ve bölgelerin aktiflik durumu bu kapsamdadır."
+  },
+  {
+    "domain_name": "provider",
+    "embedding_text": "Tedarikçi ve firma kayıtlarıyla ilgili işlemler. Tedarikçi adı, adresi, telefonu, bağlı olduğu bölge ve tedarikçinin aktiflik durumu bu kapsamdadır."
+  },
+  {
+    "domain_name": "force_major",
+    "embedding_text": "Mücbir Sebep tanımlarıyla ilgili kayıtlar. Mücbir Sebep başlıkları ve bunların aktiflik durumu bu kapsamdadır."
+  },
+  {
+    "domain_name": "tender",
+    "embedding_text": "İhale kayıtlarıyla ilgili işlemler. İhale bilgileri, ihale süreci ve ihalelerin durumu bu kapsamdadır."
+  }
+]
