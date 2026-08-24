@@ -11,7 +11,6 @@ import { AgentGateway } from '../agent.gateway';
 import tables from 'src/agent/tables.json';
 import schema from 'src/application/services/agent/schema.json';
 import { CondinateService } from './condinate.service';
-import { AgentSqlService } from './agentSql.service';
 import { AgentToolsService } from './agentTools.service';
 import { ContextManager } from '../contextManager';
 import socketMapping from '../localFiles/socketMapping.json'
@@ -31,7 +30,7 @@ export class FunctionCallService {
 
         @InjectDataSource() private readonly dataSource: DataSource
     ) {
-
+          
     }
 
     async extractSchema(prompt: string): Promise<string> {
