@@ -43,7 +43,7 @@ export class ItemUnitService extends BaseService<ItemUnits> {
             result: {
               errorMessage: messages.unit.namerequired
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException(messages.unit.namerequired, HttpStatus.BAD_REQUEST);
         }
 
@@ -69,7 +69,7 @@ export class ItemUnitService extends BaseService<ItemUnits> {
             result: {
               errorMessage: messages.unit.unitalreadyexist
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException(messages.unit.unitalreadyexist, HttpStatus.BAD_REQUEST);
         }
         var item = GenericMapper.toEntity(ItemUnits, itemUnitDto);
@@ -91,7 +91,7 @@ export class ItemUnitService extends BaseService<ItemUnits> {
             "recordStatus": createdItem.recordStatus.toString(),
 
           }
-        }, param.req.user.username)
+        }, param.req.user.username,param.sessionId)
 
         return {
           continuePrompt: undefined,
@@ -111,7 +111,7 @@ export class ItemUnitService extends BaseService<ItemUnits> {
             result: {
               errorMessage: messages.unit.nameandnewNameisrequired
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException(messages.unit.nameandnewNameisrequired, HttpStatus.BAD_REQUEST);
         }
 
@@ -134,7 +134,7 @@ export class ItemUnitService extends BaseService<ItemUnits> {
             result: {
               errorMessage: messages.unit.itemunitfound
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException(messages.unit.itemunitfound, HttpStatus.NOT_FOUND);
         }
 
@@ -149,7 +149,7 @@ export class ItemUnitService extends BaseService<ItemUnits> {
               result: {
                 errorMessage: messages.unit.unitalreadyexist
               }
-            }, param.req.user.username)
+            }, param.req.user.username,param.sessionId)
             throw new HttpException(messages.unit.unitalreadyexist, HttpStatus.BAD_REQUEST);
           }
           checkItemUnit.title = itemUnitDto?.newTitle.trim() ?? checkItemUnit.title;
@@ -170,7 +170,7 @@ export class ItemUnitService extends BaseService<ItemUnits> {
             "createAt": updateItmeUnit.createAt.toString(),
             "recordStatus": updateItmeUnit.recordStatus.toString(),
           }
-        }, param.req.user.username)
+        }, param.req.user.username,param.sessionId)
 
         return {
           continuePrompt: undefined,
@@ -193,7 +193,7 @@ export class ItemUnitService extends BaseService<ItemUnits> {
             result: {
               errorMessage: messages.unit.namerequired
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException(messages.unit.namerequired, HttpStatus.BAD_REQUEST);
         }
 
@@ -211,7 +211,7 @@ export class ItemUnitService extends BaseService<ItemUnits> {
             result: {
               errorMessage: messages.unit.itemunitfound
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException(messages.unit.itemunitfound, HttpStatus.NOT_FOUND);
         }
 
@@ -224,7 +224,7 @@ export class ItemUnitService extends BaseService<ItemUnits> {
             "id": checkUnitItem[0].id.toString(),
             "title": deleteUnitItemTitle,
           }
-        }, param.req.user.username)
+        }, param.req.user.username,param.sessionId)
 
 
         return {
@@ -248,7 +248,7 @@ export class ItemUnitService extends BaseService<ItemUnits> {
             result: {
               errorMessage: messages.unit.namerequired
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException(messages.unit.namerequired, HttpStatus.BAD_REQUEST);
         }
         var specification = new ItemUnitSpecification(param.name);
@@ -261,7 +261,7 @@ export class ItemUnitService extends BaseService<ItemUnits> {
             result: {
               errorMessage: messages.unit.itemunitfound
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
 
           throw new HttpException(messages.unit.itemunitfound, HttpStatus.NOT_FOUND);
         }
@@ -277,7 +277,7 @@ export class ItemUnitService extends BaseService<ItemUnits> {
             "title": checkItemUnit[0].title,
             "recordStatus": updateItemUnit.recordStatus.toString(),
           }
-        }, param.req.user.username)
+        }, param.req.user.username,param.sessionId)
 
         return {
           continuePrompt: undefined,

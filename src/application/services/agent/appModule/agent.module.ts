@@ -6,6 +6,8 @@ import { AgentController } from 'src/presentation/controllers/agent/agent.contro
 import { AgentGateway } from '../agent.gateway';
 import { EmbeddingService } from '../services/embedding.service';
 import { CancellationService } from '../services/cancellation.service';
+import { FunctionCallService } from '../services/functioncall.service';
+import { CondinateService } from '../services/condinate.service';
 
 @Module({
   imports: [
@@ -17,13 +19,17 @@ import { CancellationService } from '../services/cancellation.service';
     AgentToolsService,
     AgentGateway,
     EmbeddingService,
-    CancellationService
+    CancellationService,
+    FunctionCallService,
+    CondinateService
   ],
   exports: [
     AgentSqlService,
     AgentToolsService,
     AgentGateway,
-    CancellationService
+    CancellationService,
+    FunctionCallService,
+    CondinateService
   ],
 
   controllers: [AgentController],

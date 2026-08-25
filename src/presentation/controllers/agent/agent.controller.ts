@@ -1,9 +1,15 @@
-import { Controller, Get, Post, Body, Param, UseGuards, HttpException, HttpStatus, Request, Put, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards, HttpException, HttpStatus, Request, Put, Delete, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { AdminRolesGuard } from 'src/auth/guards/roles.guard';
 import { ConverToolsToembeddingDocumentEnum, CreateVectorBasedEnum } from './types';
 import { EmbeddingService } from 'src/application/services/agent/services/embedding.service';
+import { FunctionCallService } from 'src/application/services/agent/services/functioncall.service';
+import { ConversationSession } from 'src/application/services/agent/entities/ConversationSession';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import { PromptSubmission } from 'src/application/services/agent/entities/PromptSubmission';
+import { ToolExecution } from 'src/application/services/agent/entities/ToolExecution';
 
 
 
@@ -11,7 +17,9 @@ import { EmbeddingService } from 'src/application/services/agent/services/embedd
 @Controller('api/agent')
 export class AgentController {
   constructor(
-    private readonly embedding:EmbeddingService
+    private readonly embedding: EmbeddingService,
+    private readonly functionCallService: FunctionCallService,
+    @InjectDataSource() private readonly dataSource: DataSource
   ) { }
 
 
@@ -60,6 +68,47 @@ export class AgentController {
       return CreateVectorBasedEnum.Failed;
     }
   }
+
+  @Post('sessions/new')
+  @UseGuards(JwtAuthGuard, AdminRolesGuard)
+  @ApiBearerAuth()
+  // @UseGuards(AuthGuard) // اگه سایر endpoint هات از یک Guard استفاده می‌کنن، اینجا هم اضافه کن
+  async createNewSession(@Request() req: any) {
+    const result = await this.functionCallService.createNewSession(req.user.username);
+    return result; // { sessionId: "..." }
+  }
+
+  /**
+   * لیست همه‌ی session های کاربر -- برای sidebar
+   */
+  @Get('sessions')
+  @UseGuards(JwtAuthGuard, AdminRolesGuard)
+  @ApiBearerAuth()
+  async getSessions(@Req() req: any) {
+    return this.functionCallService.getUserSessions(req.user.username);
+  }
+
+  /**
+   * لیست متن‌های خام prompt یک session خاص -- برای کپی/reuse
+   */
+  @Get('sessions/:sessionId/prompts')
+  @UseGuards(JwtAuthGuard, AdminRolesGuard)
+  @ApiBearerAuth()
+  async getSessionPrompts(@Req() req: any, @Param('sessionId') sessionId: string) {
+    return this.functionCallService.getSessionPrompts(sessionId, req.user.username);
+  }
+
+  /**
+   * جزئیات کامل نتایج اجراشده‌ی یک session -- برای پر کردن دوباره‌ی
+   * پنل نتایج وقتی کاربر یک session قدیمی رو باز می‌کنه
+   */
+  @Get('sessions/:sessionId/executions')
+  @UseGuards(JwtAuthGuard, AdminRolesGuard)
+  @ApiBearerAuth()
+  async getSessionExecutions(@Req() req: any, @Param('sessionId') sessionId: string) {
+    return this.functionCallService.getSessionExecutions(sessionId, req.user.username);
+  }
+
 
 }
 

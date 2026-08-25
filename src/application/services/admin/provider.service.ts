@@ -47,7 +47,7 @@ export class ProviderService extends BaseService<Providers> {
                         result: {
                             errorMessage: messages.supplier.nameisrequired
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.supplier.nameisrequired, HttpStatus.BAD_REQUEST);
                 }
                 if (param.regionname == undefined || param.regionname.replaceAll(" ", "") == "") {
@@ -58,7 +58,7 @@ export class ProviderService extends BaseService<Providers> {
                         result: {
                             errorMessage: messages.supplier.regionnameisrequired
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.supplier.regionnameisrequired, HttpStatus.BAD_REQUEST);
                 }
 
@@ -82,7 +82,7 @@ export class ProviderService extends BaseService<Providers> {
                         result: {
                             errorMessage: messages.supplier.regionnotfound
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.supplier.regionnotfound, HttpStatus.BAD_REQUEST);
                 }
 
@@ -107,7 +107,7 @@ export class ProviderService extends BaseService<Providers> {
                         "address": param.address,
                         "selffirm": param.selffirm
                     }
-                }, param.req.user.username)
+                }, param.req.user.username,param.sessionId)
 
                 return {
                     continuePrompt: undefined,
@@ -130,7 +130,7 @@ export class ProviderService extends BaseService<Providers> {
                         result: {
                             errorMessage: messages.supplier.nameisrequired
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.supplier.nameisrequired, HttpStatus.BAD_REQUEST);
                 }
 
@@ -150,7 +150,7 @@ export class ProviderService extends BaseService<Providers> {
                         result: {
                             errorMessage: messages.supplier.notfound
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.supplier.notfound, HttpStatus.BAD_REQUEST);
                 }
 
@@ -165,7 +165,7 @@ export class ProviderService extends BaseService<Providers> {
                             result: {
                                 errorMessage: messages.supplier.regionnotfound
                             }
-                        }, param.req.user.username)
+                        }, param.req.user.username,param.sessionId)
                         throw new HttpException(messages.supplier.regionnotfound, HttpStatus.BAD_REQUEST);
                     }
                     else{
@@ -191,7 +191,7 @@ export class ProviderService extends BaseService<Providers> {
                         "phone":updateProvider.phone,
                         "firm":updateProvider.firm?"1":"0"
                     }
-                }, param.req.user.username)
+                }, param.req.user.username,param.sessionId)
 
                 return {
                     continuePrompt: undefined,
@@ -213,7 +213,7 @@ export class ProviderService extends BaseService<Providers> {
                         result: {
                             errorMessage: messages.supplier.nameisrequired
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.supplier.nameisrequired, HttpStatus.BAD_REQUEST);
                 }
 
@@ -228,7 +228,7 @@ export class ProviderService extends BaseService<Providers> {
                         result: {
                             errorMessage: messages.supplier.notfound
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.supplier.notfound, HttpStatus.BAD_REQUEST);
                 }
 
@@ -241,7 +241,7 @@ export class ProviderService extends BaseService<Providers> {
                         "id": deleteSupplier.id.toString(),
                         "name": deleteSupplierName,
                     }
-                }, param.req.user.username)
+                }, param.req.user.username,param.sessionId)
 
 
                 return {
@@ -262,7 +262,7 @@ export class ProviderService extends BaseService<Providers> {
                         result: {
                             errorMessage: messages.supplier.nameisrequired
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.supplier.nameisrequired, HttpStatus.BAD_REQUEST);
                 }
 
@@ -279,7 +279,7 @@ export class ProviderService extends BaseService<Providers> {
                         result: {
                             errorMessage: messages.supplier.notfound
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.supplier.notfound, HttpStatus.BAD_REQUEST);
                 }
 
@@ -297,7 +297,7 @@ export class ProviderService extends BaseService<Providers> {
                         "name": updateProvider.name,
                         "recordstatus":updateProvider.recordStatus.toString()
                     }
-                }, param.req.user.username)
+                }, param.req.user.username,param.sessionId)
 
                 return {
                     continuePrompt: undefined,

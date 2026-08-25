@@ -50,7 +50,7 @@ export class ForceMajorService extends BaseService<ForceMajors> {
             result: {
               errorMessage: messages.forceMajor.nameisrequired
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException(messages.forceMajor.nameisrequired, HttpStatus.BAD_REQUEST);
         }
 
@@ -83,7 +83,7 @@ export class ForceMajorService extends BaseService<ForceMajors> {
             "title": forceMajor.title,
             "recordstatus": forceMajor.recordStatus.toString(),
           }
-        }, param.req.user.username)
+        }, param.req.user.username,param.sessionId)
 
         return {
           continuePrompt: undefined,
@@ -106,7 +106,7 @@ export class ForceMajorService extends BaseService<ForceMajors> {
             result: {
               errorMessage: messages.supplier.nameisrequired
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
 
           throw new HttpException(messages.supplier.nameisrequired, HttpStatus.BAD_REQUEST);
         }
@@ -122,7 +122,7 @@ export class ForceMajorService extends BaseService<ForceMajors> {
             result: {
               errorMessage: messages.forceMajor.notfound
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
 
           throw new HttpException(messages.forceMajor.notfound, HttpStatus.NOT_FOUND);
         }
@@ -139,7 +139,7 @@ export class ForceMajorService extends BaseService<ForceMajors> {
             "id": updateForceMajor.id.toString(),
             "title": updateForceMajor.title,
           }
-        }, param.req.user.username)
+        }, param.req.user.username,param.sessionId)
 
         return {
           continuePrompt: undefined,
@@ -160,7 +160,7 @@ export class ForceMajorService extends BaseService<ForceMajors> {
             result: {
               errorMessage: messages.forceMajor.nameisrequired
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException(messages.forceMajor.nameisrequired, HttpStatus.BAD_REQUEST);
         }
 
@@ -175,7 +175,7 @@ export class ForceMajorService extends BaseService<ForceMajors> {
             result: {
               errorMessage: messages.forceMajor.notfound
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException(messages.forceMajor.notfound, HttpStatus.BAD_REQUEST);
         }
 
@@ -188,7 +188,7 @@ export class ForceMajorService extends BaseService<ForceMajors> {
             "id": deleteSupplier.id.toString(),
             "title": deleteForcemajorName,
           }
-        }, param.req.user.username)
+        }, param.req.user.username,param.sessionId)
 
 
         return {
@@ -209,7 +209,7 @@ export class ForceMajorService extends BaseService<ForceMajors> {
             result: {
               errorMessage: messages.supplier.nameisrequired
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
 
           throw new HttpException(messages.supplier.nameisrequired, HttpStatus.BAD_REQUEST);
         }
@@ -224,7 +224,7 @@ export class ForceMajorService extends BaseService<ForceMajors> {
             result: {
               errorMessage: messages.forceMajor.notfound
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
 
           throw new HttpException(messages.forceMajor.notfound, HttpStatus.NOT_FOUND);
         }
@@ -241,7 +241,7 @@ export class ForceMajorService extends BaseService<ForceMajors> {
             "id": updateForceMajor.id.toString(),
             "title": updateForceMajor.title,
           }
-        }, param.req.user.username)
+        }, param.req.user.username,param.sessionId)
 
         return {
           continuePrompt: undefined,

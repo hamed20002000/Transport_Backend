@@ -55,7 +55,7 @@ export class RoleService extends BaseService<Roles> implements OnModuleInit {
             result:{
               errorMessage:messages.role.namerequired
             }
-          },param.req.user.username)
+          },param.req.user.username,param.sessionId)
           throw new HttpException(messages.role.namerequired, HttpStatus.BAD_REQUEST);
         }
 
@@ -79,7 +79,7 @@ export class RoleService extends BaseService<Roles> implements OnModuleInit {
             result:{
               errorMessage:messages.role.roleexist
             }
-          },param.req.user.username)
+          },param.req.user.username,param.sessionId)
           throw new HttpException(messages.role.roleexist, HttpStatus.BAD_REQUEST);
         }
         var role = GenericMapper.toEntity(Roles, roleDto);
@@ -100,7 +100,7 @@ export class RoleService extends BaseService<Roles> implements OnModuleInit {
             "recordStatus":role.recordStatus.toString(),
             
           }
-        },param.req.user.username)
+        },param.req.user.username,param.sessionId)
 
         return {
           continuePrompt:undefined,
@@ -135,7 +135,7 @@ export class RoleService extends BaseService<Roles> implements OnModuleInit {
             result:{
               errorMessage:messages.role.rolenotfound
             }
-          },param.req.user.username)
+          },param.req.user.username,param.sessionId)
           throw new HttpException(messages.role.rolenotfound, HttpStatus.NOT_FOUND);
         }
         checkRole[0].name = roleDto.newname ?? checkRole[0].name;
@@ -154,7 +154,7 @@ export class RoleService extends BaseService<Roles> implements OnModuleInit {
             "createAt":updateRole.createAt.toString(),
             "recordStatus":updateRole.recordStatus.toString(),
           }
-        },param.req.user.username)
+        },param.req.user.username,param.sessionId)
         
            return {
           continuePrompt:undefined,
@@ -177,7 +177,7 @@ export class RoleService extends BaseService<Roles> implements OnModuleInit {
             result:{
               errorMessage:messages.role.namerequired
             }
-          },param.req.user.username)
+          },param.req.user.username,param.sessionId)
           throw new HttpException(messages.role.namerequired, HttpStatus.BAD_REQUEST);
         }
 
@@ -201,7 +201,7 @@ export class RoleService extends BaseService<Roles> implements OnModuleInit {
             "id":checkRole[0].id.toString(),
             "name":roleDto.name,
           }
-        },param.req.user.username)
+        },param.req.user.username,param.sessionId)
 
 
         return {
@@ -226,7 +226,7 @@ export class RoleService extends BaseService<Roles> implements OnModuleInit {
             result:{
               errorMessage:messages.role.namerequired
             }
-          },param.req.user.username)
+          },param.req.user.username,param.sessionId)
           throw new HttpException(messages.role.namerequired, HttpStatus.BAD_REQUEST);
         }
         var specification = new RoleSpecification(roleDto.name);
@@ -239,7 +239,7 @@ export class RoleService extends BaseService<Roles> implements OnModuleInit {
             result:{
               errorMessage:messages.role.rolenotfound
             }
-          },param.req.user.username)
+          },param.req.user.username,param.sessionId)
 
           throw new HttpException(messages.role.rolenotfound, HttpStatus.NOT_FOUND);
         }
@@ -256,7 +256,7 @@ export class RoleService extends BaseService<Roles> implements OnModuleInit {
             "name":roleDto.name,
             "recordStatus":updateRole.recordStatus.toString(),
           }
-        },param.req.user.username)
+        },param.req.user.username,param.sessionId)
         
         return {
           continuePrompt:undefined,

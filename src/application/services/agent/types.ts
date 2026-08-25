@@ -107,6 +107,7 @@ export type RequestResult={
 export type FunctionCallResultType={
     result:"error"|"success"|"cancelled",
     message:string,
+    prompt:string,
     continuePrompt: string | undefined,
     toolName: string,
     lastsegment:boolean,

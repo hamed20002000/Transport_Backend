@@ -202,7 +202,7 @@ export class BaseinfoController {
     @UseGuards(JwtAuthGuard, AdminRolesGuard)
     @UseInterceptors(FilesInterceptor("files", 10))
     @ApiBearerAuth()
-    async agent(@Request() req, @Body("prompt") text: string, @Body("files") files: string[]): Promise<any> {
+    async agent(@Request() req, @Body("prompt") text: string, @Body("files") files: string[],@Body("sessionId") sessionId:string): Promise<any> {
 
 
         const prompt = text?.trim() || 'nothink';
@@ -216,7 +216,7 @@ export class BaseinfoController {
 
         switch (sqlOrFunctionCall) {
             case "functionCalling":
-                this.functioncall.RunFunctionCalling(prompt, req, files).catch(error => {
+                this.functioncall.RunFunctionCalling(prompt, req, files,sessionId).catch(error => {
                     console.error(error);
                 });
                 return {

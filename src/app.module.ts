@@ -108,6 +108,9 @@ import { OllamaAssistantService } from './agent/ollama-assistant.service';
 import { AgentAssistantController } from './presentation/controllers/admin/agent-assistant.controller';
 import { ToolRegisterModule } from './application/services/agent/appModule/toolregister.module';
 import { ContextManagerModule } from './application/services/agent/appModule/contextManager.module';
+import { ConversationSession } from './application/services/agent/entities/ConversationSession';
+import { PromptSubmission } from './application/services/agent/entities/PromptSubmission';
+import { ToolExecution } from './application/services/agent/entities/ToolExecution';
 
 @Module({
   imports: [
@@ -154,7 +157,7 @@ import { ContextManagerModule } from './application/services/agent/appModule/con
         StoreReceiptNos,StoreDispatchNo,ProjectPlanningImplementationDates,SystemNotifications,Requests,RequestStatusHistories,ConsignmentNos,
         WorkhouseRents,WorkhouseRentStatusHistories,CourseDateTimes,CommiteMembers,ConfirmationProjectReport,
         ConfirmationReportCommiteMember,ConfirmationReportCommiteMemberAnswer,PersonnelSalary,NotificationLists,
-        RoleNotificationLists,UserNotificationLists
+        RoleNotificationLists,UserNotificationLists,ConversationSession,PromptSubmission,ToolExecution
        ],
         migrations: ['domain/migrations/*.ts'],
           migrationsRun: false,   

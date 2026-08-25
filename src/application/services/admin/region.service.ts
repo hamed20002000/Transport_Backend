@@ -47,7 +47,7 @@ export class RegionService extends BaseService<Regions> {
                         result: {
                             errorMessage: messages.region.nameisrequired
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.region.nameisrequired, HttpStatus.BAD_REQUEST);
                 }
 
@@ -76,7 +76,7 @@ export class RegionService extends BaseService<Regions> {
                             result: {
                                 errorMessage: messages.region.parentnamenotfound
                             }
-                        }, param.req.user.username)
+                        }, param.req.user.username,param.sessionId)
                         throw new HttpException(messages.region.parentnamenotfound, HttpStatus.BAD_REQUEST);
                     }
 
@@ -93,7 +93,7 @@ export class RegionService extends BaseService<Regions> {
                         result: {
                             errorMessage: messages.region.regionalreadyexists
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.region.regionalreadyexists, HttpStatus.BAD_REQUEST);
                 }
                 var region = GenericMapper.toEntity(Regions, regionDto);
@@ -122,7 +122,7 @@ export class RegionService extends BaseService<Regions> {
                         "name": param.name,
                         "parentid": region.parent.id.toString()
                     }
-                }, param.req.user.username)
+                }, param.req.user.username,param.sessionId)
 
                 return {
                     continuePrompt: undefined,
@@ -145,7 +145,7 @@ export class RegionService extends BaseService<Regions> {
                         result: {
                             errorMessage: messages.region.nameisrequired
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.region.nameisrequired, HttpStatus.BAD_REQUEST);
                 }
 
@@ -161,7 +161,7 @@ export class RegionService extends BaseService<Regions> {
                         result: {
                             errorMessage: messages.region.notfound
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.region.notfound, HttpStatus.BAD_REQUEST);
                 }
 
@@ -181,7 +181,7 @@ export class RegionService extends BaseService<Regions> {
                             result: {
                                 errorMessage: messages.region.regionalreadyexists
                             }
-                        }, param.req.user.username)
+                        }, param.req.user.username,param.sessionId)
 
 
                         throw new HttpException(messages.region.regionalreadyexists, HttpStatus.BAD_REQUEST);
@@ -233,7 +233,7 @@ export class RegionService extends BaseService<Regions> {
                         "name": param.newName,
                         "parentid": regionDto.parentId.toString(),
                     }
-                }, param.req.user.username)
+                }, param.req.user.username,param.sessionId)
 
                 return {
                     continuePrompt: undefined,
@@ -255,7 +255,7 @@ export class RegionService extends BaseService<Regions> {
                         result: {
                             errorMessage: messages.region.nameisrequired
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.region.nameisrequired, HttpStatus.BAD_REQUEST);
                 }
 
@@ -271,7 +271,7 @@ export class RegionService extends BaseService<Regions> {
                         result: {
                             errorMessage: messages.region.notfound
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.region.notfound, HttpStatus.BAD_REQUEST);
                 }
 
@@ -284,7 +284,7 @@ export class RegionService extends BaseService<Regions> {
                         "id": checkRegion[0].id.toString(),
                         "name": deleteProductname,
                     }
-                }, param.req.user.username)
+                }, param.req.user.username,param.sessionId)
 
 
                 return {
@@ -307,7 +307,7 @@ export class RegionService extends BaseService<Regions> {
                         result: {
                             errorMessage: messages.region.nameisrequired
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.region.nameisrequired, HttpStatus.BAD_REQUEST);
                 }
 
@@ -321,7 +321,7 @@ export class RegionService extends BaseService<Regions> {
                         result: {
                             errorMessage: messages.region.notfound
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.region.notfound, HttpStatus.BAD_REQUEST);
                 }
 
@@ -336,7 +336,7 @@ export class RegionService extends BaseService<Regions> {
                         "name": checkRegion[0].name,
                         "recordstatus": checkRegion[0].recordStatus.toString(),
                     }
-                }, param.req.user.username)
+                }, param.req.user.username,param.sessionId)
 
                 return {
                     continuePrompt: undefined,
@@ -356,7 +356,7 @@ export class RegionService extends BaseService<Regions> {
                         result: {
                             errorMessage: messages.region.nameisrequired
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.region.nameisrequired, HttpStatus.BAD_REQUEST);
                 }
 
@@ -370,7 +370,7 @@ export class RegionService extends BaseService<Regions> {
                         result: {
                             errorMessage: messages.region.notfound
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.region.notfound, HttpStatus.BAD_REQUEST);
                 }
 
@@ -384,7 +384,7 @@ export class RegionService extends BaseService<Regions> {
                         result: {
                             errorMessage: messages.region.parentnamenotfound
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.region.parentnamenotfound, HttpStatus.BAD_REQUEST);
                 }
 
@@ -399,7 +399,7 @@ export class RegionService extends BaseService<Regions> {
                         "name": checkRegion[0].name,
                         "parentname":parentcheckRegion[0].name
                     }
-                }, param.req.user.username)
+                }, param.req.user.username,param.sessionId)
 
                 return {
                     continuePrompt: undefined,

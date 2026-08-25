@@ -70,7 +70,7 @@ export class UserService extends BaseService<Users> {
             result:{
               errorMessage:message.user.usernamerequired
             }
-          },param.req.user.username)
+          },param.req.user.username,param.sessionId)
 
           throw new HttpException(message.user.usernamerequired, HttpStatus.BAD_REQUEST);
         }
@@ -82,7 +82,7 @@ export class UserService extends BaseService<Users> {
             result:{
               errorMessage:message.user.passwordrequired
             }
-          },param.req.user.username)
+          },param.req.user.username,param.sessionId)
           throw new HttpException(message.user.passwordrequired, HttpStatus.BAD_REQUEST);
         }
         createUserDto.username = param.username;
@@ -109,7 +109,7 @@ export class UserService extends BaseService<Users> {
             result:{
               errorMessage:message.user.Theusenameexists
             }
-          },param.req.user.username)
+          },param.req.user.username,param.sessionId)
             throw new HttpException(message.user.Theusenameexists, HttpStatus.BAD_REQUEST);
           }
         }
@@ -134,7 +134,7 @@ export class UserService extends BaseService<Users> {
             result:{
               errorMessage:message.user.Somerolesnotfound
             }
-          },param.req.user.username)
+          },param.req.user.username,param.sessionId)
           throw new HttpException(message.user.Somerolesnotfound, HttpStatus.BAD_REQUEST);
         }
 
@@ -154,7 +154,7 @@ export class UserService extends BaseService<Users> {
             "recordStatus":createResult.recordStatus.toString(),
             "roles":createResult.userRoles.join(",")
           }
-        },param.req.user.username)
+        },param.req.user.username,param.sessionId)
 
 
           return {
@@ -176,7 +176,7 @@ export class UserService extends BaseService<Users> {
             result:{
               errorMessage:message.user.usernamerequired
             }
-          },param.req.user.username)
+          },param.req.user.username,param.sessionId)
           throw new HttpException(message.user.usernamerequired, HttpStatus.BAD_REQUEST);
         }
         const dto = new UserUpdateDto();
@@ -193,7 +193,7 @@ export class UserService extends BaseService<Users> {
             result:{
               errorMessage:message.user.Usernotfound
             }
-          },param.req.user.username)
+          },param.req.user.username,param.sessionId)
 
           throw new HttpException(message.user.Usernotfound, HttpStatus.NOT_FOUND);
         }
@@ -215,7 +215,7 @@ export class UserService extends BaseService<Users> {
             "recordStatus":updatedUser.recordStatus.toString(),
             "roles":updatedUser.roles.join(",")
           }
-        },param.req.user.username)
+        },param.req.user.username,param.sessionId)
 
            return {
           continuePrompt:undefined,
@@ -236,7 +236,7 @@ export class UserService extends BaseService<Users> {
             result:{
               errorMessage:message.user.usernamerequired
             }
-          },param.req.user.username)
+          },param.req.user.username,param.sessionId)
           throw new HttpException(message.user.usernamerequired, HttpStatus.BAD_REQUEST);
         }
         const dto = new UserUpdateDto();
@@ -251,7 +251,7 @@ export class UserService extends BaseService<Users> {
             result:{
               errorMessage:message.user.Usernotfound
             }
-          },param.req.user.username)
+          },param.req.user.username,param.sessionId)
           throw new HttpException(message.user.Usernotfound, HttpStatus.NOT_FOUND);
         }
         user.recordStatus = dto.recordStatus ?? user.recordStatus;
@@ -269,7 +269,7 @@ export class UserService extends BaseService<Users> {
             "createAt":updatedUser.createAt.toString(),
             "recordStatus":updatedUser.recordStatus.toString(),
           }
-        },param.req.user.username)
+        },param.req.user.username,param.sessionId)
 
 
 
@@ -291,7 +291,7 @@ export class UserService extends BaseService<Users> {
             result:{
               errorMessage:message.user.usernamerequired
             }
-          },param.req.user.username)
+          },param.req.user.username,param.sessionId)
           throw new HttpException(message.user.usernamerequired, HttpStatus.BAD_REQUEST);
         }
         const dto = new UserUpdateDto();
@@ -305,7 +305,7 @@ export class UserService extends BaseService<Users> {
             result:{
               errorMessage:message.user.Usernotfound
             }
-          },param.req.user.username)
+          },param.req.user.username,param.sessionId)
           throw new HttpException(message.user.Usernotfound, HttpStatus.NOT_FOUND);
         }
         var updatedUser = await this.deleteUserWithRoles(user.id);
@@ -318,7 +318,7 @@ export class UserService extends BaseService<Users> {
           result:{
             "id":user.id.toString()
           }
-        },param.req.user.username)
+        },param.req.user.username,param.sessionId)
          return {
           continuePrompt:undefined,
           toolName:"delete_user"
@@ -337,7 +337,7 @@ export class UserService extends BaseService<Users> {
             result:{
               errorMessage:message.user.usernamerequired
             }
-          },param.req.user.username)
+          },param.req.user.username,param.sessionId)
           throw new HttpException(message.user.usernamerequired, HttpStatus.BAD_REQUEST);
         }
         const dto = new changePasswordDto();
@@ -356,7 +356,7 @@ export class UserService extends BaseService<Users> {
             result:{
               errorMessage:message.user.Usernotfound
             }
-          },param.req.user.username)
+          },param.req.user.username,param.sessionId)
 
           throw new HttpException(message.user.Usernotfound, HttpStatus.NOT_FOUND);
         }
@@ -370,7 +370,7 @@ export class UserService extends BaseService<Users> {
             result:{
               errorMessage:message.user.passwordisincorrect
             }
-          },param.req.user.username)
+          },param.req.user.username,param.sessionId)
           throw new HttpException(message.user.passwordisincorrect, HttpStatus.BAD_REQUEST);
         }
         var user = checkUser[0];
@@ -393,7 +393,7 @@ export class UserService extends BaseService<Users> {
             "recordStatus":createResult.recordStatus.toString(),
             "roles":createResult.roles.join(",")
           }
-        },param.req.user.username)
+        },param.req.user.username,param.sessionId)
 
         return {
           continuePrompt:undefined,
@@ -414,7 +414,7 @@ export class UserService extends BaseService<Users> {
             result:{
               errorMessage:message.user.usernamerequired
             }
-          },param.req.user.username)
+          },param.req.user.username,param.sessionId)
 
           throw new HttpException(message.user.usernamerequired, HttpStatus.BAD_REQUEST);
         }
@@ -433,7 +433,7 @@ export class UserService extends BaseService<Users> {
             result:{
               errorMessage:message.user.Usernotfound
             }
-          },param.req.user.username)
+          },param.req.user.username,param.sessionId)
 
 
             throw new HttpException(message.user.Usernotfound, HttpStatus.NOT_FOUND);
@@ -450,7 +450,7 @@ export class UserService extends BaseService<Users> {
             result:{
               errorMessage:message.user.Usernotfound
             }
-          },param.req.user.username)
+          },param.req.user.username,param.sessionId)
             throw new HttpException(message.user.Usernotfound, HttpStatus.NOT_FOUND);
           }
       
@@ -466,7 +466,7 @@ export class UserService extends BaseService<Users> {
             result:{
               errorMessage:message.user.Somerolesnotfound
             }
-          },param.req.user.username)
+          },param.req.user.username,param.sessionId)
             throw new HttpException(message.user.Somerolesnotfound, HttpStatus.BAD_REQUEST);
           }
       
@@ -497,7 +497,7 @@ export class UserService extends BaseService<Users> {
             "id":user.id.toString(),
             "roles":items.join(",")
           }
-        },param.req.user.username)
+        },param.req.user.username,param.sessionId)
 
 
           return {

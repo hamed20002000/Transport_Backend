@@ -51,7 +51,7 @@ export class ItemService extends BaseService<Items> {
             result: {
               errorMessage: messages.product.nameisrequired
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException(messages.product.nameisrequired, HttpStatus.BAD_REQUEST);
         }
 
@@ -63,7 +63,7 @@ export class ItemService extends BaseService<Items> {
             result: {
               errorMessage: messages.product.categorynamerequired
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException( messages.product.categorynamerequired, HttpStatus.BAD_REQUEST);
         }
 
@@ -75,7 +75,7 @@ export class ItemService extends BaseService<Items> {
             result: {
               errorMessage: messages.product.unitnamerequired
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException( messages.product.unitnamerequired, HttpStatus.BAD_REQUEST);
         }
 
@@ -92,7 +92,7 @@ export class ItemService extends BaseService<Items> {
             result: {
               errorMessage: messages.product.productalreadyexist
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException( messages.product.productalreadyexist, HttpStatus.BAD_REQUEST);
         }
 
@@ -128,7 +128,7 @@ export class ItemService extends BaseService<Items> {
             result: {
               errorMessage: messages.product.abbriviationalreadyexist
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
             throw new HttpException(messages.product.abbriviationalreadyexist, HttpStatus.BAD_REQUEST);
           }
         }
@@ -147,7 +147,7 @@ export class ItemService extends BaseService<Items> {
             result: {
               errorMessage: messages.category.categorynotfound
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException( messages.product.categorynotfound, HttpStatus.BAD_REQUEST);
         }
    
@@ -162,7 +162,7 @@ export class ItemService extends BaseService<Items> {
             result: {
               errorMessage: messages.product.unititemunitfound
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException( messages.product.unititemunitfound, HttpStatus.BAD_REQUEST);
         }
 
@@ -191,7 +191,7 @@ export class ItemService extends BaseService<Items> {
             "unitName":unitName,
             "categoryName":categoryName
           }
-        }, param.req.user.username)
+        }, param.req.user.username,param.sessionId)
 
         return {
           continuePrompt: undefined,
@@ -211,7 +211,7 @@ export class ItemService extends BaseService<Items> {
             result: {
               errorMessage: messages.product.nameisrequired
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException(messages.product.nameisrequired, HttpStatus.BAD_REQUEST);
         }
 
@@ -239,7 +239,7 @@ export class ItemService extends BaseService<Items> {
             result: {
               errorMessage: messages.product.productnotfound
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException(messages.product.productnotfound, HttpStatus.NOT_FOUND);
         }
 
@@ -255,7 +255,7 @@ export class ItemService extends BaseService<Items> {
             result: {
               errorMessage: messages.product.abbriviationalreadyexist
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
                         throw new HttpException(messages.product.abbriviationalreadyexist, HttpStatus.BAD_REQUEST);
                     }
                 }
@@ -273,7 +273,7 @@ export class ItemService extends BaseService<Items> {
                           result: {
                             errorMessage: messages.product.unititemunitfound
                           }
-                        }, param.req.user.username)
+                        }, param.req.user.username,param.sessionId)
                         throw new HttpException( messages.product.unititemunitfound, HttpStatus.BAD_REQUEST);
                       }
                         
@@ -294,7 +294,7 @@ export class ItemService extends BaseService<Items> {
                           result: {
                             errorMessage: messages.product.categorynotfound
                           }
-                        }, param.req.user.username)
+                        }, param.req.user.username,param.sessionId)
                         throw new HttpException( messages.product.categorynotfound, HttpStatus.BAD_REQUEST);
                       }
                         
@@ -336,7 +336,7 @@ export class ItemService extends BaseService<Items> {
             "description": updateDto.description?.toString(),
             "weight": updateDto.weight?.toString(),
           }
-        }, param.req.user.username)
+        }, param.req.user.username,param.sessionId)
 
         return {
           continuePrompt: undefined,
@@ -359,7 +359,7 @@ export class ItemService extends BaseService<Items> {
             result: {
               errorMessage: messages.product.nameisrequired
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException(messages.product.nameisrequired, HttpStatus.BAD_REQUEST);
         }
 
@@ -377,7 +377,7 @@ export class ItemService extends BaseService<Items> {
             result: {
               errorMessage: messages.product.productnotfound
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException(messages.product.productnotfound, HttpStatus.NOT_FOUND);
         }
 
@@ -390,7 +390,7 @@ export class ItemService extends BaseService<Items> {
             "id": checkProduct[0].id.toString(),
             "name": deleteProductname,
           }
-        }, param.req.user.username)
+        }, param.req.user.username,param.sessionId)
 
 
         return {
@@ -411,7 +411,7 @@ export class ItemService extends BaseService<Items> {
             result: {
               errorMessage: messages.product.nameisrequired
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException(messages.product.nameisrequired, HttpStatus.BAD_REQUEST);
         }
 
@@ -432,7 +432,7 @@ export class ItemService extends BaseService<Items> {
             result: {
               errorMessage: messages.product.productnotfound
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException(messages.product.productnotfound, HttpStatus.NOT_FOUND);
         }
 
@@ -466,7 +466,7 @@ export class ItemService extends BaseService<Items> {
             "id": updateDto.id.toString(),
             "recordstatus":updateDto.recordStatus.toString()
           }
-        }, param.req.user.username)
+        }, param.req.user.username,param.sessionId)
 
         return {
           continuePrompt: undefined,

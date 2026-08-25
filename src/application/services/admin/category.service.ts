@@ -40,7 +40,7 @@ export class CategoryService extends BaseService<Categories> {
                         result: {
                             errorMessage: messages.category.namerequired
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.category.namerequired, HttpStatus.BAD_REQUEST);
                 }
 
@@ -58,7 +58,7 @@ export class CategoryService extends BaseService<Categories> {
                         result: {
                             errorMessage: messages.category.parentnamenotfound
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.category.parentnamenotfound, HttpStatus.BAD_REQUEST);
                 }
                  categoryDto.parentId=checkParentCategory.length>0?checkParentCategory[0].id:undefined
@@ -84,7 +84,7 @@ export class CategoryService extends BaseService<Categories> {
                         result: {
                             errorMessage: messages.category.categoryexist
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
 
                     throw new HttpException(messages.category.categoryexist, HttpStatus.BAD_REQUEST);
                 }
@@ -122,7 +122,7 @@ export class CategoryService extends BaseService<Categories> {
                         "recordStatus": createCategory.recordStatus.toString(),
 
                     }
-                }, param.req.user.username)
+                }, param.req.user.username,param.sessionId)
 
                 return {
                     continuePrompt: undefined,
@@ -153,7 +153,7 @@ export class CategoryService extends BaseService<Categories> {
                         result: {
                             errorMessage: messages.category.categorynotfound
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.category.categorynotfound, HttpStatus.NOT_FOUND);
                 }
 
@@ -171,7 +171,7 @@ export class CategoryService extends BaseService<Categories> {
                         result: {
                             errorMessage: messages.category.parentnamenotfound
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.category.parentnamenotfound, HttpStatus.NOT_FOUND);
                 }
                 checkCategory[0].parent=checkParentCategory[0];
@@ -194,7 +194,7 @@ export class CategoryService extends BaseService<Categories> {
                             result: {
                                 errorMessage: messages.category.categoryexist
                             }
-                        }, param.req.user.username)
+                        }, param.req.user.username,param.sessionId)
                         throw new HttpException(messages.category.categoryexist, HttpStatus.BAD_REQUEST);
                     }
                 }
@@ -237,7 +237,7 @@ export class CategoryService extends BaseService<Categories> {
                         "createAt": updateCategory.createAt.toString(),
                         "recordStatus": updateCategory.recordStatus.toString(),
                     }
-                }, param.req.user.username)
+                }, param.req.user.username,param.sessionId)
 
                 return {
                     continuePrompt: undefined,
@@ -260,7 +260,7 @@ export class CategoryService extends BaseService<Categories> {
                         result: {
                             errorMessage: messages.category.namerequired
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.role.namerequired, HttpStatus.BAD_REQUEST);
                 }
 
@@ -284,7 +284,7 @@ export class CategoryService extends BaseService<Categories> {
                         "id": checkRole[0].id.toString(),
                         "name": categoryDto.name,
                     }
-                }, param.req.user.username)
+                }, param.req.user.username,param.sessionId)
 
 
                 return {
@@ -308,7 +308,7 @@ export class CategoryService extends BaseService<Categories> {
                         result: {
                             errorMessage: messages.category.namerequired
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.category.namerequired, HttpStatus.BAD_REQUEST);
                 }
                 var specification = new CategorySpecification(param.name);
@@ -321,7 +321,7 @@ export class CategoryService extends BaseService<Categories> {
                         result: {
                             errorMessage: messages.category.categorynotfound
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
 
                     throw new HttpException(messages.role.rolenotfound, HttpStatus.NOT_FOUND);
                 }
@@ -338,7 +338,7 @@ export class CategoryService extends BaseService<Categories> {
                         "name": param.name,
                         "recordStatus": updateCategory.recordStatus.toString(),
                     }
-                }, param.req.user.username)
+                }, param.req.user.username,param.sessionId)
 
                 return {
                     continuePrompt: undefined,
@@ -360,7 +360,7 @@ export class CategoryService extends BaseService<Categories> {
                         result: {
                             errorMessage: messages.category.namerequired
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.role.namerequired, HttpStatus.BAD_REQUEST);
                 }
                    if (param.parentname == undefined || param.parentname.replaceAll(" ", "") == "") {
@@ -371,7 +371,7 @@ export class CategoryService extends BaseService<Categories> {
                         result: {
                             errorMessage: messages.category.parentnamerequired
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
                     throw new HttpException(messages.category.parentnamerequired, HttpStatus.BAD_REQUEST);
                 }
 
@@ -385,7 +385,7 @@ export class CategoryService extends BaseService<Categories> {
                         result: {
                             errorMessage: messages.category.categorynotfound
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
 
                     throw new HttpException(messages.role.rolenotfound, HttpStatus.NOT_FOUND);
                 }
@@ -400,7 +400,7 @@ export class CategoryService extends BaseService<Categories> {
                         result: {
                             errorMessage: messages.category.parentnamenotfound
                         }
-                    }, param.req.user.username)
+                    }, param.req.user.username,param.sessionId)
 
                     throw new HttpException(messages.category.parentnamenotfound, HttpStatus.NOT_FOUND);
                 }
@@ -417,7 +417,7 @@ export class CategoryService extends BaseService<Categories> {
                         "name": param.name,
                         "parentname":param.name
                     }
-                }, param.req.user.username)
+                }, param.req.user.username,param.sessionId)
 
                 return {
                     continuePrompt: undefined,

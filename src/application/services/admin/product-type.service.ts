@@ -43,7 +43,7 @@ export class ProductTypeService extends BaseService<ProductTypes> {
             result: {
               errorMessage: messages.poletrafo.nameisrequired
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException(messages.poletrafo.nameisrequired, HttpStatus.BAD_REQUEST);
         }
 
@@ -55,7 +55,7 @@ export class ProductTypeService extends BaseService<ProductTypes> {
             result: {
               errorMessage: messages.poletrafo.typeisrequired
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException(messages.poletrafo.typeisrequired, HttpStatus.BAD_REQUEST);
         }
         const user = param.req.user;
@@ -93,7 +93,7 @@ export class ProductTypeService extends BaseService<ProductTypes> {
             "type": createdProductType.type.toString()
 
           }
-        }, param.req.user.username)
+        }, param.req.user.username,param.sessionId)
 
         return {
           continuePrompt: undefined,
@@ -113,7 +113,7 @@ export class ProductTypeService extends BaseService<ProductTypes> {
             result: {
               errorMessage: messages.poletrafo.nameisrequired
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException(messages.poletrafo.nameisrequired, HttpStatus.BAD_REQUEST);
         }
 
@@ -130,7 +130,7 @@ export class ProductTypeService extends BaseService<ProductTypes> {
             result: {
               errorMessage: messages.poletrafo.notfound
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException(messages.poletrafo.notfound, HttpStatus.BAD_REQUEST);
 
         }
@@ -156,7 +156,7 @@ export class ProductTypeService extends BaseService<ProductTypes> {
             "name": param.newName,
             "type": updatedProductType.type.toString(),
           }
-        }, param.req.user.username)
+        }, param.req.user.username,param.sessionId)
 
         return {
           continuePrompt: undefined,
@@ -177,7 +177,7 @@ export class ProductTypeService extends BaseService<ProductTypes> {
             result: {
               errorMessage: messages.product.nameisrequired
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException(messages.product.nameisrequired, HttpStatus.BAD_REQUEST);
         }
 
@@ -194,7 +194,7 @@ export class ProductTypeService extends BaseService<ProductTypes> {
             result: {
               errorMessage: messages.product.productnotfound
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException(messages.product.productnotfound, HttpStatus.NOT_FOUND);
         }
 
@@ -207,7 +207,7 @@ export class ProductTypeService extends BaseService<ProductTypes> {
             "id": deleteId.id.toString(),
             "name": deleteProductname,
           }
-        }, param.req.user.username)
+        }, param.req.user.username,param.sessionId)
 
 
         return {
@@ -228,7 +228,7 @@ export class ProductTypeService extends BaseService<ProductTypes> {
             result: {
               errorMessage: messages.poletrafo.nameisrequired
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException(messages.poletrafo.nameisrequired, HttpStatus.BAD_REQUEST);
         }
 
@@ -243,7 +243,7 @@ export class ProductTypeService extends BaseService<ProductTypes> {
             result: {
               errorMessage: messages.poletrafo.notfound
             }
-          }, param.req.user.username)
+          }, param.req.user.username,param.sessionId)
           throw new HttpException(messages.poletrafo.notfound, HttpStatus.BAD_REQUEST);
 
         }
@@ -259,7 +259,7 @@ export class ProductTypeService extends BaseService<ProductTypes> {
             "name": param.name,
             "recordstatus": updatedProductType.recordStatus.toString(),
           }
-        }, param.req.user.username)
+        }, param.req.user.username,param.sessionId)
 
         return {
           continuePrompt: undefined,

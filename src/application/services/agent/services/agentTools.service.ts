@@ -349,7 +349,7 @@ ${JSON.stringify(
     }
 
 
-    async executeTool(toolName: string, parameter: any, req: any): Promise<RequestResult> {
+    async executeTool(toolName: string, parameter: any, req: any,sessionId:string): Promise<RequestResult> {
 
          try{
 
@@ -359,7 +359,7 @@ ${JSON.stringify(
         );
 
             
-              const result = await this.toolRegister.execute(toolName, { ...parameter, req,toolDomain:currentDomain.length > 0 ? currentDomain[0].DomainName : null });
+              const result = await this.toolRegister.execute(toolName, { ...parameter, req,toolDomain:currentDomain.length > 0 ? currentDomain[0].DomainName : null,sessionId });
 
               return result;
 
