@@ -37,6 +37,6 @@
   },
   {
     "domain_name": "tender",
-    "embedding_text": "İhale kayıtlarıyla ilgili işlemler. İhale bilgileri, ihale süreci ve ihalelerin durumu bu kapsamdadır."
+    "embedding_text": "İhale duyuruları, teklif süreçleri ve ihale sonuçlarıyla ilgili bilgiler. Firma teklifleri ve ihale takvimi de buraya dahildir."
   }
 ]

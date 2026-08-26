@@ -113,3 +113,13 @@ export type FunctionCallResultType={
     lastsegment:boolean,
     list:any[]
 }
+
+export type EmbeddingToolType={
+    tool_name: string;
+    embedding_text: string;
+    domain_name: string
+}
+export type EmbeddingDomainTool= {
+            domain_name: string;
+            embedding_text: string
+        }

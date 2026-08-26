@@ -901,6 +901,22 @@
                     "recordstatus"
                 ]
             }
+        },
+        {
+            "name": "create_tender",
+            "description": "Yeni bir ihale oluşturur. Yeni ihale kaydı eklemek için kullanılır.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Oluşturulacak ihalenin başlığı. Kullanıcının belirttiği başlığı aynen al. Çeviri yapma, değiştirme, düzeltme veya yorumlama. Çevreleyen kelimeleri (ihale, oluştur, kaydet, aç gibi) parametreye dahil etme."
+                    }
+                },
+                "required": [
+                    "title"
+                ]
+            }
         }
     ]
 }

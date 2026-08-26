@@ -10,6 +10,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { PromptSubmission } from 'src/application/services/agent/entities/PromptSubmission';
 import { ToolExecution } from 'src/application/services/agent/entities/ToolExecution';
+import { EmbeddingDomainTool, EmbeddingToolType } from 'src/application/services/agent/types';
 
 
 
@@ -45,10 +46,10 @@ export class AgentController {
   @ApiOperation({ summary: 'convert embedding documents to vector base in database' })
   @ApiResponse({ status: HttpStatus.OK, description: 'return  success or failed .' })
 
-  async createVectorBased(): Promise<CreateVectorBasedEnum> {
+  async createVectorBased(@Body() body:EmbeddingToolType[]): Promise<CreateVectorBasedEnum> {
 
     try {
-      await this.embedding.createVectorBased();
+      await this.embedding.createVectorBased(body);
       return CreateVectorBasedEnum.Ok
     }
     catch {
@@ -57,11 +58,12 @@ export class AgentController {
   }
 
 
+
   @Post("domaintool")
-  async createVectorBaseForDomain(): Promise<CreateVectorBasedEnum> {
+  async createVectorBaseForDomain(@Body() body:EmbeddingDomainTool[]): Promise<CreateVectorBasedEnum> {
 
     try {
-      await this.embedding.createVectorBasedForDomainTool();
+      await this.embedding.createVectorBasedForDomainTool(body);
       return CreateVectorBasedEnum.Ok
     }
     catch {

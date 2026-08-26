@@ -131,7 +131,7 @@ export class CondinateService {
             .map(([name]) => name);
     }
 
-    private async denseSearchDomain(queryText: string, limit: number): Promise<string[]> {
+    private async denseSearchDomain_old(queryText: string, limit: number): Promise<{name:string,score:number}[]> {
         const vec = await this.getEmbedding(queryText);
 
         const results: DenseDomainResult[] = await this.dataSource.query(
@@ -142,7 +142,28 @@ export class CondinateService {
             [`[${vec.join(",")}]`, limit]
         );
 
-        return results.map((r) => r.DomainName);
+        
+        // distance بین 0 (کاملاً یکسان) تا 2 (کاملاً متضاد) هست؛
+        // به شباهت (عدد بزرگ‌تر = بهتر) تبدیلش می‌کنیم تا با lexical هم‌جهت باشه
+        return results.map((r) => ({ name: r.DomainName, score: 1 - r.distance }));
+    }
+        private async denseSearchDomainScored(
+        queryText: string,
+        limit: number
+    ): Promise<{ name: string; score: number }[]> {
+        const vec = await this.getEmbedding(queryText);
+
+        const results: { DomainName: string; distance: number }[] = await this.dataSource.query(
+            `SELECT "DomainName", "Embedding" <=> $1 AS distance
+             FROM "ToolDomain"
+             ORDER BY "Embedding" <=> $1
+             LIMIT $2;`,
+            [`[${vec.join(",")}]`, limit]
+        );
+
+        // distance بین 0 (کاملاً یکسان) تا 2 (کاملاً متضاد) هست؛
+        // به شباهت (عدد بزرگ‌تر = بهتر) تبدیلش می‌کنیم تا با lexical هم‌جهت باشه
+        return results.map((r) => ({ name: r.DomainName, score: 1 - r.distance }));
     }
 
     /**
@@ -374,42 +395,42 @@ export class CondinateService {
 
     async getCondinateDomainForRunPrompt(
         prompt: string,
-        previousToolName: string | null, // اسم دقیق آخرین ابزاری که اجرا شده (نه متن آزاد تاریخچه),
+        previousToolName: string | null,
         finalLimit: number = 2
     ): Promise<string[]> {
         const searchLimit = 8;
 
-        const [denseFromPrompt, lexicalFromPrompt] = await Promise.all([
-            this.denseSearchDomain(prompt, searchLimit),
+        const [denseFromPromptScored, lexicalFromPrompt] = await Promise.all([
+            this.denseSearchDomainScored(prompt, searchLimit),
             this.lexicalSearchDomainScored(prompt, searchLimit),
         ]);
 
-        let filteredweakdomain = this.filterWeakLexicalMatches(lexicalFromPrompt).map((item, index) => item.name);
+        const denseFromPrompt = denseFromPromptScored.map((d) => d.name);
 
+        const filteredweakdomain = this.filterWeakLexicalMatches(lexicalFromPrompt).map(
+            (item) => item.name
+        );
 
         let combined = this.reciprocalRankFusion(denseFromPrompt, filteredweakdomain);
 
-        // تشخیص "ابهام": اگه lexical هیچی پیدا نکرد یعنی prompt هیچ کلمه‌ی
-        // موضوعی نداشته (مثل "sil" به تنهایی) -- اینجا باید مطمئن بشیم
-        // domain قبلی رو با اطمینان بالا وارد کنیم، نه به‌عنوان یک سیگنال ضعیف دیگه.
-        const promptIsAmbiguous = lexicalFromPrompt.length === 0;
+        // آستانه‌ی اطمینان dense -- اگه بالاترین شباهت dense به‌اندازه‌ی
+        // کافی بالا بود (مثلاً بیشتر از 0.5)، یعنی حتی بدون کمک lexical،
+        // می‌تونیم به dense اعتماد کنیم. این عدد رو باید با eval خودت
+        // تنظیم کنی.
+        const DENSE_CONFIDENCE_THRESHOLD = 0.5;
+        const denseIsConfident =
+            denseFromPromptScored.length > 0 &&
+            denseFromPromptScored[0].score >= DENSE_CONFIDENCE_THRESHOLD;
 
-        // if (previousToolName) {
-        //     const previousDomain = await this.getDomainOfPreviousTool(previousToolName);
-
-        //     if (previousDomain) {
-        //         if (promptIsAmbiguous) {
-        //             // prompt هیچ سرنخ موضوعی نداره -> domain قبلی رو با قطعیت در صدر بذار
-        //             return[previousDomain]
-        //         } else {
-        //             // prompt خودش سرنخ داره (مثلاً "ürünü sil") -> فقط یک سیگنال کمکی باشه، نه غالب
-        //             combined = this.reciprocalRankFusion(combined, [previousDomain]);
-        //         }
-        //     }
-        // }
+        // حالا "مبهم بودن" رو درست‌تر تعریف می‌کنیم: فقط وقتی که هم
+        // lexical شکست خورده هم dense به نتیجه‌ش مطمئن نیست -- نه صرفاً
+        // چون lexical خالی برگشته (که ممکنه به‌خاطر یک باگ stemmer باشه،
+        // نه چون prompt واقعاً بی‌محتواست)
+        const promptIsAmbiguous = filteredweakdomain.length === 0 && !denseIsConfident;
 
         if (promptIsAmbiguous && previousToolName) {
             const previousDomain = await this.getDomainOfPreviousTool(previousToolName);
+
             if (previousDomain) {
                 return [previousDomain];
             }

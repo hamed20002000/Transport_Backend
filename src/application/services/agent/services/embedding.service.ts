@@ -7,6 +7,7 @@ import { DataSource } from "typeorm";
 import { InjectDataSource } from '@nestjs/typeorm';
 import tools from 'src/application/services/agent/localFiles/tools.json';
 import { ToolRegister } from '../toolRegister';
+import { EmbeddingDomainTool, EmbeddingToolType } from '../types';
 
 
 @Injectable()
@@ -92,16 +93,26 @@ export class EmbeddingService {
         );
     }
 
-    async createVectorBased(): Promise<void> {
-        const toolEmbeddingDocs = JSON.parse(readFileSync(
-            join(process.cwd(), 'src/application/services/agent/localFiles/tool_embedding_docs.json'),
-            'utf8'
-        )) as unknown as {
-            tool_name: string;
-            embedding_text: string;
-            domain_name: string
-        }[];
+    async createVectorBased(embeddings?: EmbeddingToolType[]): Promise<void> {
 
+        let toolEmbeddingDocs = null
+
+        if (!embeddings) {
+                toolEmbeddingDocs = JSON.parse(readFileSync(
+                join(process.cwd(), 'src/application/services/agent/localFiles/tool_embedding_docs.json'),
+                'utf8'
+            )) as unknown as {
+                tool_name: string;
+                embedding_text: string;
+                domain_name: string
+            }[];
+
+
+        }
+        else {
+            toolEmbeddingDocs = embeddings
+
+        }
 
 
 
@@ -136,15 +147,21 @@ export class EmbeddingService {
 
     }
 
-    async createVectorBasedForDomainTool(): Promise<void> {
-        const toolEmbeddingDocs = JSON.parse(readFileSync(
-            join(process.cwd(), 'src/application/services/agent/localFiles/domain_embedding_docs.json'),
-            'utf8'
-        )) as unknown as {
-            domain_name: string;
-            embedding_text: string
-        }[];
+    async createVectorBasedForDomainTool(embeddings?: EmbeddingDomainTool[]): Promise<void> {
+        let toolEmbeddingDocs =null;
 
+        if (!embeddings) {
+            toolEmbeddingDocs = JSON.parse(readFileSync(
+                join(process.cwd(), 'src/application/services/agent/localFiles/domain_embedding_docs.json'),
+                'utf8'
+            )) as unknown as {
+                domain_name: string;
+                embedding_text: string
+            }[]
+        }
+        else{
+            toolEmbeddingDocs=embeddings
+        }
 
 
 

@@ -2,203 +2,186 @@
   {
     "tool_name": "create_role",
     "embedding_text": "Henüz tanımlı olmayan yeni bir yetki veya erişim rolünü sisteme kazandırır. Kullanıcı yeni bir rol tanımlamak istediğinde bu işlem devreye girer.",
-    "domain_name":"role"
+    "domain_name": "role"
   },
   {
     "tool_name": "update_role",
     "embedding_text": "Var olan bir rolün adını veya bilgilerini değiştirmek için kullanılır. Rol zaten mevcuttur, sadece içeriği yeniden düzenlenir.",
-    "domain_name":"role"
+    "domain_name": "role"
   },
   {
     "tool_name": "delete_role",
     "embedding_text": "Var olan bir rolü kalıcı olarak ortadan kaldırıp kayıtlardan çıkarır. Rol artık sistemde bulunmaz hale gelir.",
-    "domain_name":"role"
+    "domain_name": "role"
   },
   {
     "tool_name": "assign_role_operations",
     "embedding_text": "Bir role hangi işlemleri yapabileceğine dair yetki tanımlar. Rolün yetenekleri ve izinleri belirlenir, rolün kendisi değişmez.",
-    "domain_name":"role"
+    "domain_name": "role"
   },
   {
     "tool_name": "update_role_record_status",
     "embedding_text": "Bir rolü kullanıma açık veya kapalı hale getirir. Rol silinmez, yalnızca etkinlik durumu değişir.",
-    "domain_name":"role"
+    "domain_name": "role"
   },
-
   {
     "tool_name": "create_user",
     "embedding_text": "Sistemde yer almayan bir kişi için yeni bir kullanıcı hesabı açar. Personel veya kullanıcı ilk kez kaydedilirken kullanılır.",
-    "domain_name":"user"
+    "domain_name": "user"
   },
   {
     "tool_name": "update_user",
     "embedding_text": "Mevcut bir kullanıcının adını veya profil bilgilerini düzenler. Kullanıcı zaten kayıtlıdır, sadece bilgileri yenilenir.",
-    "domain_name":"user"
+    "domain_name": "user"
   },
   {
     "tool_name": "delete_user",
     "embedding_text": "Bir kullanıcı hesabını sistemden tamamen kaldırır. Hesap artık erişilemez hale gelir ve kayıtlardan silinir.",
-    "domain_name":"user"
+    "domain_name": "user"
   },
   {
     "tool_name": "update_user_record_status",
     "embedding_text": "Bir kullanıcı hesabını etkin veya devre dışı yapar. Hesap silinmez, yalnızca erişim durumu değişir.",
-    "domain_name":"user"
+    "domain_name": "user"
   },
   {
     "tool_name": "change-user-password",
     "embedding_text": "Bir kullanıcının hesabına giriş için kullandığı parolayı yeniler. Kullanıcının kimlik bilgileri güncellenir, diğer bilgileri değişmez.",
-    "domain_name":"user"
+    "domain_name": "user"
   },
   {
     "tool_name": "assign-user-roles",
     "embedding_text": "Var olan bir kullanıcıya bir veya birden fazla rol bağlar. Kullanıcının hangi yetkilere sahip olacağı belirlenir.",
-    "domain_name":"user"
+    "domain_name": "user"
   },
-
   {
     "tool_name": "create_category",
     "embedding_text": "Ürünleri sınıflandırmak için henüz var olmayan yeni bir kategori tanımlar. Bir üst kategori altında da oluşturulabilir.",
-    "domain_name":"category"
+    "domain_name": "category"
   },
   {
     "tool_name": "update_category",
     "embedding_text": "Var olan bir kategorinin adını veya diğer bilgilerini yeniden düzenler. Kategori zaten mevcuttur, sadece detayları değişir.",
-    "domain_name":"category"
+    "domain_name": "category"
   },
   {
     "tool_name": "delete_category",
     "embedding_text": "Var olan bir kategoriyi kalıcı olarak kaldırır. Kategori artık kayıtlarda bulunmaz.",
-    "domain_name":"category"
-
+    "domain_name": "category"
   },
   {
     "tool_name": "update_category_record_status",
     "embedding_text": "Bir kategoriyi kullanıma açık veya kapalı hale getirir. Kategori silinmez, yalnızca durumu değişir.",
-    "domain_name":"category"
+    "domain_name": "category"
   },
   {
     "tool_name": "change_category_parent",
     "embedding_text": "Bir kategoriyi farklı bir üst kategorinin altına taşır. Kategorinin ağaç yapısındaki konumu değişir, adı veya diğer bilgileri değişmez.",
-    "domain_name":"category"
+    "domain_name": "category"
   },
-
   {
     "tool_name": "create_item_unit",
     "embedding_text": "Adet, kilogram, litre gibi henüz tanımlı olmayan yeni bir ölçü birimini sisteme ekler.",
-    "domain_name":"item_unit"
+    "domain_name": "item_unit"
   },
   {
     "tool_name": "update_item_unit",
     "embedding_text": "Var olan bir ölçü biriminin adını değiştirir. Birim zaten kayıtlıdır, sadece adı düzenlenir.",
-    "domain_name":"item_unit"
-
+    "domain_name": "item_unit"
   },
   {
     "tool_name": "delete_item_unit",
     "embedding_text": "Var olan bir ölçü birimini kalıcı olarak kaldırır. Birim artık kayıtlarda bulunmaz.",
-    "domain_name":"item_unit"
-
+    "domain_name": "item_unit"
   },
   {
     "tool_name": "update_item_unit_record_status",
     "embedding_text": "Bir ölçü birimini kullanıma açık veya kapalı hale getirir. Birim silinmez, yalnızca durumu değişir.",
-    "domain_name":"item_unit"
+    "domain_name": "item_unit"
   },
-
   {
     "tool_name": "create_product",
     "embedding_text": "Henüz kayıtlı olmayan yeni bir ürünü adı, kodu, kategorisi ve birimiyle birlikte kaydeder.",
-    "domain_name":"product"
+    "domain_name": "product"
   },
   {
     "tool_name": "update_product",
     "embedding_text": "Var olan bir ürünün adını, kodunu, açıklamasını, ağırlığını, kategorisini veya birimini yeniden düzenler.",
-    "domain_name":"product"
+    "domain_name": "product"
   },
   {
     "tool_name": "delete_product",
     "embedding_text": "Var olan bir ürünü kalıcı olarak kaldırır. Ürün artık kayıtlarda bulunmaz.",
-    "domain_name":"product"
+    "domain_name": "product"
   },
   {
     "tool_name": "update_product_record_status",
     "embedding_text": "Bir ürünü kullanıma açık veya kapalı hale getirir. Ürün silinmez, yalnızca durumu değişir.",
-    "domain_name":"product"
-
+    "domain_name": "product"
   },
-
   {
     "tool_name": "create_pole_or_transformer",
     "embedding_text": "Şebekede kullanılacak, henüz tanımlı olmayan yeni bir direk veya transformatör türünü sisteme kaydeder. Demir direk, beton direk ya da trafo ilk kez tanıtılırken kullanılır.",
-    "domain_name":"product_type"
-
+    "domain_name": "product_type"
   },
   {
     "tool_name": "update_pole_or_transformer",
     "embedding_text": "Var olan bir direk veya transformatör türünün adını ya da tipini yeniden düzenler. Kayıt zaten mevcuttur, sadece bilgileri değişir.",
-    "domain_name":"product_type"
-
+    "domain_name": "product_type"
   },
   {
     "tool_name": "delete_pole_or_transformer",
     "embedding_text": "Var olan bir direk veya transformatör türünü kalıcı olarak kaldırır. Kayıt artık sistemde bulunmaz.",
-    "domain_name":"product_type"
-
+    "domain_name": "product_type"
   },
   {
     "tool_name": "update_pole_or_transformer_record_status",
     "embedding_text": "Bir direk veya transformatör türünü kullanıma açık veya kapalı hale getirir. Kayıt silinmez, yalnızca durumu değişir.",
-    "domain_name":"product_type"
-
+    "domain_name": "product_type"
   },
-
   {
     "tool_name": "create_supplier",
     "embedding_text": "Henüz kayıtlı olmayan yeni bir tedarikçi veya firmayı, bağlı olduğu bölgeyle birlikte sisteme dahil eder.",
-    "domain_name":"provider"
-
+    "domain_name": "provider"
   },
   {
     "tool_name": "update_supplier",
     "embedding_text": "Var olan bir tedarikçinin adını, adresini, telefonunu veya bağlı olduğu bölgeyi yeniden düzenler.",
-    "domain_name":"provider"
-
+    "domain_name": "provider"
   },
   {
     "tool_name": "delete_supplier",
     "embedding_text": "Var olan bir tedarikçiyi kalıcı olarak kaldırır. Tedarikçi artık kayıtlarda bulunmaz.",
-    "domain_name":"provider"
-
+    "domain_name": "provider"
   },
   {
     "tool_name": "update_supplier_record_status",
     "embedding_text": "Bir tedarikçiyi kullanıma açık veya kapalı hale getirir. Tedarikçi silinmez, yalnızca durumu değişir.",
-    "domain_name":"provider"
-
+    "domain_name": "provider"
   },
-
   {
     "tool_name": "create_force_major",
     "embedding_text": "Henüz tanımlı olmayan yeni bir Mücbir Sebep başlığını sisteme kaydeder.",
-    "domain_name":"force_major"
-
+    "domain_name": "force_major"
   },
   {
     "tool_name": "update_force_major",
     "embedding_text": "Var olan bir Mücbir Sebep kaydının başlığını veya bilgilerini yeniden düzenler.",
-    "domain_name":"force_major"
-
+    "domain_name": "force_major"
   },
   {
     "tool_name": "delete_force_major",
     "embedding_text": "Var olan bir Mücbir Sebep kaydını kalıcı olarak kaldırır. Kayıt artık sistemde bulunmaz.",
-    "domain_name":"force_major"
-
+    "domain_name": "force_major"
   },
   {
     "tool_name": "update_force_major_record_status",
     "embedding_text": "Bir Mücbir Sebep kaydını kullanıma açık veya kapalı hale getirir. Kayıt silinmez, yalnızca durumu değişir.",
-    "domain_name":"force_major"
+    "domain_name": "force_major"
+  },
+  {
+    "tool_name": "create_tender",
+    "embedding_text": "Henüz kayıtlı olmayan yeni bir ihale, sadece başlığıyla açılır. İhale süreci bu ilk kayıtla başlar, diğer detaylar sonradan eklenir.",
+    "domain_name": "tender"
   }
 ]

@@ -6,7 +6,7 @@ import { ItemUnits } from 'src/domain/entities/ItemUnits';
 import { ItemUnitRepository } from 'src/infrastructure/repositories/admin/item-unit.repository';
 import { TenderHeaders } from 'src/domain/entities/TenderHeaders';
 import { TenderRepository } from 'src/infrastructure/repositories/admin/tender.repository';
-import { TenderListDto, UpdateTenderDto, UpdateTenderHeaderDto } from 'src/presentation/dtos/initial-operations/tender-dto';
+import { CreateTenderDto, TenderListDto, UpdateTenderDto, UpdateTenderHeaderDto } from 'src/presentation/dtos/initial-operations/tender-dto';
 import { ToolRegister } from '../agent/toolRegister';
 import { UserService } from '../user/user.service';
 import { ContextManager } from '../agent/contextManager';
@@ -16,6 +16,9 @@ import { UsernameSpecification } from 'src/application/specifications/user/user-
 import { tenderStatus } from 'src/domain/enums/tenderstatus.enum';
 import { recordStatus } from 'src/domain/enums/recordstatus.enum';
 import { TenderCategories } from 'src/domain/entities/TenderCategories';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import * as XLSX from 'xlsx';
 
 
 @Injectable()
@@ -27,6 +30,8 @@ export class TenderService extends BaseService<TenderHeaders> {
         @Inject(forwardRef(() => UserService))
         private readonly userService: UserService,
         private readonly history: ContextManager,
+
+        @InjectDataSource() private readonly dataSource: DataSource
   ) {
     super(tenderRepository);
   }
@@ -34,139 +39,56 @@ export class TenderService extends BaseService<TenderHeaders> {
 
 
   onModuleInit() {
-    // this.toolRegister.register({
-    //   functionName: "create_tender",
-    //   handler: async (param: any): Promise<RequestResult> => {
+    this.toolRegister.register({
+      functionName: "create_tender",
+      handler: async (param: any): Promise<RequestResult> => {
 
-    //     if (param.title == undefined || param.title.replaceAll(" ", "") == "") {
-    //       this.history.addNewHistory({
-    //         status: "fault",
-    //         operation: "create_tender",
-    //         parameters: this.history.getParams(param),
-    //         result: {
-    //           errorMessage: messages.tender.nameisrequired
-    //         }
-    //       }, param.req.user.username)
-    //       throw new HttpException(messages.tender.nameisrequired, HttpStatus.BAD_REQUEST);
-    //     }
+        if (param.title == undefined || param.title.replaceAll(" ", "") == "") {
+          this.history.addNewHistory({
+            status: "fault",
+            operation: "create_tender",
+            parameters: this.history.getParams(param),
+            result: {
+              errorMessage: messages.tender.nameisrequired
+            }
+          }, param.req.user.username,param.sessionId)
+          throw new HttpException(messages.tender.nameisrequired, HttpStatus.BAD_REQUEST);
+        }
+        const user = param.req.user;
+        const user_specification = new UsernameSpecification(user.username);
 
+        const tender=new TenderHeaders();
+        tender.title=this.toolRegister.normalizingName(param.title).trim()
+        tender.attachments=null;
+        tender.createAt=new Date();
+        tender.recordStatus=recordStatus.Active;
 
-           
-                
+        const [checkUser] = await this.userService.getWithSpecification(
+          user_specification,
+          null,
+          { id: true }
+        );
 
-    //     const user = param.req.user;
-    //     const user_specification = new UsernameSpecification(user.username);
+        const createdTender = await this.tenderRepository.add(tender);
+          this.history.addNewHistory({
+            status: "success",
+            operation: "create_tender",
+            parameters: this.history.getParams(param),
+            result: {
+              id: createdTender.id.toString(),
+              title:createdTender.title
+            }
+          }, param.req.user.username,param.sessionId)
 
-    //     const [checkUser] = await this.userService.getWithSpecification(
-    //       user_specification,
-    //       null,
-    //       { id: true }
-    //     );
-        
-         
-    //             const tender = new TenderHeaders();
-    //             tender.title = this.toolRegister.normalizingName(param.title).trim();
-    //             tender.status = tenderStatus.Pending;
-    //             tender.attachments = null;
-    //             tender.createAt = new Date();
-        
-    //             tender.recordStatus = recordStatus.Active;
-    //             tender.user = checkUser;
-                  
-    //             if(param.file.length>0){
-
-    //             }
-    //             // ✅ اضافه کردن دسته‌بندی‌ها و جزئیات
-    //             if (tenderDto.tenderCategories && tenderDto.tenderCategories.length > 0) {
-    //                 tender.tenderCategories = tenderDto.tenderCategories.map((catDto) => {
-    //                     const cat = new TenderCategories();
-    //                     cat.title = catDto.title;
-    //                     cat.eskiPoz = catDto.eskiPoz;
-    //                     cat.percent = catDto.percent;
-    //                     cat.description = catDto.description;
-    //                     cat.createAt = new Date();
-    //                     cat.recordStatus = recordStatus.Active;
-    //                     cat.user = checkUser;
-        
-    //                     // جزئیات این دسته
-    //                     if (catDto.details && catDto.details.length > 0) {
-    //                         cat.tenderDetails = catDto.details.map((detailDto) => {
-    //                             const detail = new TenderDetails();
-    //                             detail.eskiPoz = detailDto.eskiPoz;
-    //                             detail.tedas = detailDto.tedas;
-    //                             detail.ana = detailDto.ana;
-    //                             detail.alt = detailDto.alt;
-        
-    //                             detail.firmProcuredItemQuantities = detailDto.firmProcuredItemQuantities;
-    //                             detail.ourProcuredItemQuantities = detailDto.ourProcuredItemQuantities;
-    //                             detail.demontaj = detailDto.demontaj;
-    //                             detail.demontajMontaj = detailDto.demontajMontaj;
-    //                             detail.firmProcuredItemPrice = detailDto.firmProcuredItemPrice;
-    //                             detail.ourProcuredItemPrice = detailDto.ourProcuredItemPrice;
-    //                             detail.montajPrice = detailDto.montajPrice;
-    //                             detail.demontajPrice = detailDto.demontajPrice;
-    //                             detail.demontajMontajPrice = detailDto.demontajMontajPrice;
-    //                             detail.malzemeTutari = detailDto.malzemeTutari;
-    //                             detail.montajTutari = detailDto.montajTutari;
-    //                             detail.demontajTutari = detailDto.demontajTutari;
-    //                             detail.dMMTutari = detailDto.dMMTutari;
-        
-    //                             detail.item = new Items();
-    //                             detail.item.id = detailDto.itemId;
-        
-    //                             detail.createAt = new Date();
-    //                             detail.recordStatus = recordStatus.Active;
-    //                             detail.user = checkUser;
-        
-    //                             return detail;
-    //                         });
-    //                     }
-        
-    //                     return cat;
-    //                 });
-    //             }
-        
-    //             // ✅ ذخیره با cascade کامل
-    //             const createdTender = await this.tenderService.add(tender);
-    //             this.gateway.notifyRole(['admin'], 'new-notify', {
-    //                 id: createdTender.id,
-    //                 createdAt: createdTender.createAt,
-    //                 type: 'tender',
-    //             });
+        return {
+          continuePrompt:"Ayrıntı eklemek için yöntemlerden birini seçin.",
+          toolName: "create_tender"
+        }
 
 
 
-
-    //     const forceMajorDto = new CreateForceMajorDto();
-    //     forceMajorDto.title = param.title;
-
-    //     var forceMajor = GenericMapper.toEntity(ForceMajors, forceMajorDto);
-    //     forceMajor.createAt = new Date();
-    //     forceMajor.recordStatus = recordStatus.Active;
-    //     forceMajor.user = checkUser[0];
-
-    //     var createForceMajor = await this.add(forceMajor);
-
-    //     this.history.addNewHistory({
-    //       status: "success",
-    //       operation: "create_force_major",
-    //       parameters: this.history.getParams(param),
-    //       result: {
-    //         "id": forceMajor.id.toString(),
-    //         "title": forceMajor.title,
-    //         "recordstatus": forceMajor.recordStatus.toString(),
-    //       }
-    //     }, param.req.user.username)
-
-    //     return {
-    //       continuePrompt: undefined,
-    //       toolName: "create_force_major"
-    //     }
-
-
-
-    //   }
-    // })
+      }
+    })
 
   //   this.toolRegister.register({
   //     functionName: "update_force_major",
@@ -343,8 +265,74 @@ export class TenderService extends BaseService<TenderHeaders> {
     return this.tenderRepository.updateTender(tenderDto);
   }
 
-  // extractXlsxFile(file:File):TenderCategories{
+ 
+    async importFromExcel(file: Express.Multer.File, tenderId: string): Promise<{ count: number }> {
+        const workbook = XLSX.readFile(file.path);
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
 
-  // }
+        // چون هدر سه‌سطری و merge شده‌ست، به‌جای sheet_to_json،
+        // مستقیم به‌شکل آرایه‌ی خام (بدون تفسیر هدر) می‌خونیم
+        const rawRows: any[][] = XLSX.utils.sheet_to_json(worksheet, {
+            header: 1, // یعنی هر ردیف یک آرایه‌ی ساده از سلول‌هاست، نه object
+            defval: null,
+        });
+
+        const parsedRows: ParsedTenderRow[] = [];
+
+        // داده‌ها از ردیف ۵ (index 4، چون صفر-پایه‌ست) شروع می‌شن
+        for (let i = 4; i < rawRows.length; i++) {
+            const row = rawRows[i];
+
+            if (!row) continue;
+
+            const firstCell = String(row[0] ?? "").trim();
+
+            // به محض رسیدن به "ALT TOPLAM" یا "TOPLAM KEŞİF"، یعنی
+            // بخش داده‌ها تموم شده -- دیگه حلقه رو متوقف کن
+            if (firstCell.includes("ALT TOPLAM") || firstCell.includes("TOPLAM KEŞİF")) {
+                break;
+            }
+
+            // اگه هم شرح کالا (ستون E) هم واحد (ستون F) خالی بودن،
+            // احتمالاً این یک ردیف خالی/تزئینیه، ردش کن
+            const description = row[4];
+            const unit = row[5];
+            if (!description && !unit) continue;
+
+            parsedRows.push({
+                oldCode: row[0] ?? null,
+                newCode: row[1] ?? null,
+                description: description ?? null,
+                unit: unit ?? null,
+                materialQty: row[7] != null ? Number(row[7]) : null,
+                installQty: row[8] != null ? Number(row[8]) : null,
+                removeQty: row[9] != null ? Number(row[9]) : null,
+                dmmQty: row[10] != null ? Number(row[10]) : null,
+                materialPrice: row[11] != null ? Number(row[11]) : null,
+                installPrice: row[12] != null ? Number(row[12]) : null,
+                removePrice: row[13] != null ? Number(row[13]) : null,
+            });
+        }
+
+        const items = parsedRows.map((r) => ({
+            TenderId: tenderId,
+            OldCode: r.oldCode,
+            NewCode: r.newCode,
+            Description: r.description,
+            Unit: r.unit,
+            MaterialQty: r.materialQty,
+            InstallQty: r.installQty,
+            RemoveQty: r.removeQty,
+            DmmQty: r.dmmQty,
+            MaterialPrice: r.materialPrice,
+            InstallPrice: r.installPrice,
+            RemovePrice: r.removePrice,
+        }));
+
+       // await this.dataSource.getRepository(TenderItem).insert(items);
+
+        return { count: items.length };
+    }
 
 }

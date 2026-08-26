@@ -124,5 +124,9 @@
          "delete_force_major_end":"Mücbir sebep silindi.",
 
          "update_force_major_record_status":"Mücbir sebep durumu güncelleniyor.",
-         "update_force_major_record_status_end":"Mücbir sebep durumu güncellendi."
+         "update_force_major_record_status_end":"Mücbir sebep durumu güncellendi.",
+
+
+         "create_tender":"ihale yaratılır",
+         "create_tender_end":"ihale oluşturuldu"
 }
