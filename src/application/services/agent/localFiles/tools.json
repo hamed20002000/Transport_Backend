@@ -917,6 +917,166 @@
                     "title"
                 ]
             }
+        },
+        {
+            "name": "update_tender",
+            "description": "Var olan bir ihalenin bilgilerini günceller. Başlığını değiştirmek veya kalem detaylarını manuel olarak eklemek için kullanılır.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Güncellenecek mevcut ihalenin başlığı. Kullanıcının belirttiği mevcut başlığı aynen al. Çeviri yapma, değiştirme, düzeltme veya yorumlama."
+                    },
+                    "newtitle": {
+                        "type": "string",
+                        "description": "İhale için belirtilen yeni başlık. Kullanıcı yeni bir başlık belirtmişse değeri aynen al. Çeviri yapma, değiştirme, düzeltme veya yorumlama. Çevreleyen kelimeleri (ihale, güncelle, değiştir gibi) parametreye dahil etme."
+                    },
+                    "newdetail": {
+                        "type": "object",
+                        "description": "Kullanıcının manuel olarak girdiği tek bir ihale kategorisi, kendi detay kalemleriyle birlikte. Kullanıcının belirttiği değerleri aynen al, çeviri yapma veya yorumlama. Kullanıcı hangi alanları belirtmişse yalnızca onları doldur, belirtmediği alanları boş bırak.",
+                        "properties": {
+                            "title": {
+                                "type": "string",
+                                "description": "Kategori başlığı."
+                            },
+                            "eskiPoz": {
+                                "type": "string",
+                                "description": "Kategoriye ait eski poz numarası."
+                            },
+                            "percent": {
+                                "type": "number",
+                                "description": "Kategoriye ait yüzde değeri."
+                            },
+                            "description": {
+                                "type": "string",
+                                "description": "Kategori açıklaması."
+                            },
+                            "details": {
+                                "type": "array",
+                                "description": "Bu kategoriye ait detay kalemlerinin listesi.",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "eskiPoz": {
+                                            "type": "string",
+                                            "description": "Eski poz numarası."
+                                        },
+                                        "tedas": {
+                                            "type": "string",
+                                            "description": "TEDAŞ sınıflandırma değeri."
+                                        },
+                                        "ana": {
+                                            "type": "string",
+                                            "description": "Ana kategori sınıflandırma değeri."
+                                        },
+                                        "alt": {
+                                            "type": "string",
+                                            "description": "Alt kategori sınıflandırma değeri."
+                                        },
+                                        "firmProcuredItemQuantities": {
+                                            "type": "number",
+                                            "description": "Firma tarafından tedarik edilecek malzeme miktarı."
+                                        },
+                                        "ourProcuredItemQuantities": {
+                                            "type": "number",
+                                            "description": "Bizim tarafımızdan tedarik edilecek malzeme miktarı."
+                                        },
+                                        "demontaj": {
+                                            "type": "number",
+                                            "description": "Demontaj (sökme) miktarı."
+                                        },
+                                        "demontajMontaj": {
+                                            "type": "number",
+                                            "description": "Demontajdan sonra tekrar montaj miktarı (DMM)."
+                                        },
+                                        "firmProcuredItemPrice": {
+                                            "type": "string",
+                                            "description": "Firma tarafından tedarik edilecek malzemenin birim fiyatı."
+                                        },
+                                        "ourProcuredItemPrice": {
+                                            "type": "string",
+                                            "description": "Bizim tarafımızdan tedarik edilecek malzemenin birim fiyatı."
+                                        },
+                                        "montajPrice": {
+                                            "type": "string",
+                                            "description": "Montaj birim fiyatı."
+                                        },
+                                        "demontajPrice": {
+                                            "type": "string",
+                                            "description": "Demontaj (sökme) birim fiyatı."
+                                        },
+                                        "demontajMontajPrice": {
+                                            "type": "string",
+                                            "description": "Demontajdan montaj (DMM) birim fiyatı."
+                                        },
+                                        "malzemeTutari": {
+                                            "type": "string",
+                                            "description": "Malzeme toplam tutarı."
+                                        },
+                                        "montajTutari": {
+                                            "type": "string",
+                                            "description": "Montaj toplam tutarı."
+                                        },
+                                        "demontajTutari": {
+                                            "type": "string",
+                                            "description": "Demontaj toplam tutarı."
+                                        },
+                                        "dMMTutari": {
+                                            "type": "string",
+                                            "description": "DMM toplam tutarı."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "required": [
+                    "title"
+                ]
+            }
+        },
+        {
+            "name": "delete_tender",
+            "description": "Var olan bir ihaleyi siler. İhale kaydını kalıcı olarak kaldırmak için kullanılır.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Silinecek mevcut ihalenin başlığı. Kullanıcının belirttiği başlığı aynen al. Çeviri yapma, değiştirme, düzeltme veya yorumlama. Çevreleyen kelimeleri (ihale, sil, kaldır gibi) parametreye dahil etme."
+                    }
+                },
+                "required": [
+                    "title"
+                ]
+            }
+        },
+        {
+            "name": "update_tender_record_status",
+            "description": "Bir ihale kaydının aktif veya pasif durumunu değiştirir.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "İhale kaydının adı veya başlığı. Kullanıcının yazdığı değeri aynen al. Çeviri yapma, değiştirme veya yorumlama."
+                    },
+                    "recordstatus": {
+                        "type": "integer",
+                        "enum": [
+                            0,
+                            1
+                        ],
+                        "description": "İhale kaydının durumu. Aktif için 0, pasif için 1."
+                    }
+                },
+                "required": [
+                    "title",
+                    "recordstatus"
+                ]
+            }
         }
     ]
 }

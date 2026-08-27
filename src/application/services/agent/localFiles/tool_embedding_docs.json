@@ -183,5 +183,20 @@
     "tool_name": "create_tender",
     "embedding_text": "Henüz kayıtlı olmayan yeni bir ihale, sadece başlığıyla açılır. İhale süreci bu ilk kayıtla başlar, diğer detaylar sonradan eklenir.",
     "domain_name": "tender"
+  },
+  {
+    "tool_name": "update_tender",
+    "embedding_text": "Var olan bir ihalenin başlığını veya temel bilgilerini günceller. İhale zaten mevcuttur, sadece bilgileri yeniden düzenlenir.",
+    "domain_name": "tender"
+  },
+  {
+    "tool_name": "delete_tender",
+    "embedding_text": "Var olan bir ihaleyi kalıcı olarak kaldırır. İhale artık kayıtlarda bulunmaz.",
+    "domain_name": "tender"
+  },
+  {
+    "tool_name": "update_tender_record_status",
+    "embedding_text": "Var olan bir ihaleyi kullanıma açık veya kapalı hale getirir. İhale silinmez, yalnızca durumu değişir.",
+    "domain_name": "tender"
   }
 ]

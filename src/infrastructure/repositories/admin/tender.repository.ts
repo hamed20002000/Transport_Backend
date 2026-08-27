@@ -149,5 +149,31 @@ export class TenderRepository extends BaseRepository<TenderHeaders> {
     });
   }
 
+    async getTenderByTitle(title: string): Promise<TenderHeaders[]> {
+    const tender = await this.repository.find({
+      where: { title },
+      relations: [
+        'tenderCategories',
+        'tenderCategories.tenderDetails',
+        'tenderCategories.tenderDetails.item',
+        'tenderCategories.tenderDetails.item.unit', // ⬅️ این خط اضافه شد
+      ],
+      order: {
+       tenderCategories: {
+          tenderDetails:{
+            tedas: 'ASC',            
+            ana: 'ASC',
+            alt: 'ASC',
+          },
+        },
+      },
+    });
+
+    if (!tender) {
+      throw new NotFoundException(`Tender with id ${title} not found`);
+    }
+
+    return tender;
+  }
 
 }

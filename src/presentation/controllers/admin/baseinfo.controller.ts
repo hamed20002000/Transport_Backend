@@ -223,6 +223,16 @@ export class BaseinfoController {
                     result: "started"
                 }
             case "sql":
+                  this.agentGateway.sendToolResult(req.user.userid, {
+                                    result: "error",
+                                    message: "İstek belirsiz. Lütfen düzeltin.",
+                                    prompt:"",
+                                    continuePrompt:undefined,
+                                    toolName:"",
+                                    lastsegment:true,
+                                    isSpecial:false,
+                                    list: []
+                                })
                 break;
         }
 

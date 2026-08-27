@@ -1,4 +1,6 @@
 
+import Tools from '../agent/localFiles/tools.json'
+
 export type Property = {
     type: string
     description: string
@@ -22,34 +24,34 @@ export type Tool = {
     function: Function
 }
 
-export const Tools :Tool[]=[{
+// export const Tools :Tool[]=[{
 
-    type: "function",
-    function: {
-        name: "create-category",
-        description: "register new category in database",
-        parameters: {
-            type:"object",
-            properties:{
-                "name":{
-                    type:"string",
-                    description:"name of Category"
-                },
-                "code":{
-                    type:"string",
-                    description:'code for detecting category'
-                },
-                "parentId":{
-                    type:"string",
-                    description:"id of parent"
-                }
-            },
+//     type: "function",
+//     function: {
+//         name: "create-category",
+//         description: "register new category in database",
+//         parameters: {
+//             type:"object",
+//             properties:{
+//                 "name":{
+//                     type:"string",
+//                     description:"name of Category"
+//                 },
+//                 "code":{
+//                     type:"string",
+//                     description:'code for detecting category'
+//                 },
+//                 "parentId":{
+//                     type:"string",
+//                     description:"id of parent"
+//                 }
+//             },
             
-         required:["name","code"]
-        },
-    },
+//          required:["name","code"]
+//         },
+//     },
 
-}]
+// }]
 
 
 export type Message={
@@ -111,6 +113,7 @@ export type FunctionCallResultType={
     continuePrompt: string | undefined,
     toolName: string,
     lastsegment:boolean,
+    isSpecial:boolean,
     list:any[]
 }
 
@@ -123,3 +126,4 @@ export type EmbeddingDomainTool= {
             domain_name: string;
             embedding_text: string
         }
+       

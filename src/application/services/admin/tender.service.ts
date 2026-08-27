@@ -20,18 +20,26 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import * as XLSX from 'xlsx';
 
+import { join } from 'path';
+import { Users } from 'src/domain/entities/Users';
+import { head } from 'node_modules/axios/index.cjs';
+import { TenderDetails } from 'src/domain/entities/TenderDetails';
+import { Items } from 'src/domain/entities/Items';
+import { ItemService } from './item.service';
+
 
 @Injectable()
 export class TenderService extends BaseService<TenderHeaders> {
   constructor(
 
     private readonly tenderRepository: TenderRepository,
-      private readonly toolRegister: ToolRegister,
-        @Inject(forwardRef(() => UserService))
-        private readonly userService: UserService,
-        private readonly history: ContextManager,
+    private readonly toolRegister: ToolRegister,
+    @Inject(forwardRef(() => UserService))
+    private readonly userService: UserService,
+    private readonly history: ContextManager,
+    private readonly itemService: ItemService,
 
-        @InjectDataSource() private readonly dataSource: DataSource
+    @InjectDataSource() private readonly dataSource: DataSource
   ) {
     super(tenderRepository);
   }
@@ -51,37 +59,40 @@ export class TenderService extends BaseService<TenderHeaders> {
             result: {
               errorMessage: messages.tender.nameisrequired
             }
-          }, param.req.user.username,param.sessionId)
+          }, param.req.user.username, param.sessionId)
           throw new HttpException(messages.tender.nameisrequired, HttpStatus.BAD_REQUEST);
         }
         const user = param.req.user;
         const user_specification = new UsernameSpecification(user.username);
-
-        const tender=new TenderHeaders();
-        tender.title=this.toolRegister.normalizingName(param.title).trim()
-        tender.attachments=null;
-        tender.createAt=new Date();
-        tender.recordStatus=recordStatus.Active;
-
         const [checkUser] = await this.userService.getWithSpecification(
           user_specification,
           null,
           { id: true }
         );
 
+        const tender = new TenderHeaders();
+        tender.title = this.toolRegister.normalizingName(param.title).trim()
+        tender.attachments = null;
+        tender.createAt = new Date();
+        tender.recordStatus = recordStatus.Active;
+        tender.status = tenderStatus.Pending;
+        tender.user = checkUser;
+
+
+
         const createdTender = await this.tenderRepository.add(tender);
-          this.history.addNewHistory({
-            status: "success",
-            operation: "create_tender",
-            parameters: this.history.getParams(param),
-            result: {
-              id: createdTender.id.toString(),
-              title:createdTender.title
-            }
-          }, param.req.user.username,param.sessionId)
+        this.history.addNewHistory({
+          status: "success",
+          operation: "create_tender",
+          parameters: this.history.getParams(param),
+          result: {
+            id: createdTender.id.toString(),
+            title: createdTender.title
+          }
+        }, param.req.user.username, param.sessionId)
 
         return {
-          continuePrompt:"Ayrıntı eklemek için yöntemlerden birini seçin.",
+          continuePrompt: "Ayrıntı eklemek için yöntemlerden birini seçin.",
           toolName: "create_tender"
         }
 
@@ -90,163 +101,178 @@ export class TenderService extends BaseService<TenderHeaders> {
       }
     })
 
-  //   this.toolRegister.register({
-  //     functionName: "update_force_major",
-  //     handler: async (param: any): Promise<RequestResult> => {
-  //       if (param.title == undefined || param.title.replaceAll(" ", "") == "") {
-  //         this.history.addNewHistory({
-  //           status: "fault",
-  //           operation: "update_force_major",
-  //           parameters: this.history.getParams(param),
-  //           result: {
-  //             errorMessage: messages.supplier.nameisrequired
-  //           }
-  //         }, param.req.user.username)
+    this.toolRegister.register({
+      functionName: "update_tender",
+      handler: async (param: any): Promise<RequestResult> => {
+        if (param.title == undefined || param.title.replaceAll(" ", "") == "") {
+          this.history.addNewHistory({
+            status: "fault",
+            operation: "update_tender",
+            parameters: this.history.getParams(param),
+            result: {
+              errorMessage: messages.tender.nameisrequired
+            }
+          }, param.req.user.username, param.sessionId)
 
-  //         throw new HttpException(messages.supplier.nameisrequired, HttpStatus.BAD_REQUEST);
-  //       }
-  //       const forceMajorname = this.toolRegister.normalizingName(param.title).trim();
-  //       const forceMajornewname = this.toolRegister.normalizingName(param.newtitle).trim();
-  //       var checkForceMajor = await this.forceMajorsRepository.findByName(forceMajorname);
+          throw new HttpException(messages.tender.nameisrequired, HttpStatus.BAD_REQUEST);
+        }
+        const tendername = this.toolRegister.normalizingName(param.title).trim();
+        const tendernewname = param.newtitle
+          ? this.toolRegister.normalizingName(param.newtitle).trim()
+          : undefined;
+        var checkTenderHeader = await this.tenderRepository.getTenderByTitle(tendername);
 
-  //       if (!checkForceMajor) {
-  //         this.history.addNewHistory({
-  //           status: "fault",
-  //           operation: "update_force_major",
-  //           parameters: this.history.getParams(param),
-  //           result: {
-  //             errorMessage: messages.forceMajor.notfound
-  //           }
-  //         }, param.req.user.username)
+        if (checkTenderHeader.length < 1) {
+          this.history.addNewHistory({
+            status: "fault",
+            operation: "update_tender",
+            parameters: this.history.getParams(param),
+            result: {
+              errorMessage: messages.tender.notfound
+            }
+          }, param.req.user.username, param.sessionId)
 
-  //         throw new HttpException(messages.forceMajor.notfound, HttpStatus.NOT_FOUND);
-  //       }
-  //       checkForceMajor.title = forceMajornewname ?? checkForceMajor.title;
+          throw new HttpException(messages.tender.notfound, HttpStatus.NOT_FOUND);
+        }
+        checkTenderHeader[0].title = tendername ?? checkTenderHeader[0].title;
 
+        if (param.files && param.files.length > 0) {
+          const user = param.req.user;
+          const user_specification = new UsernameSpecification(user.username);
 
-  //       var updateForceMajor = await this.update(checkForceMajor);
+          const [checkUser] = await this.userService.getWithSpecification(
+            user_specification,
+            null,
+            { id: true }
+          );
+          await this.importFromExcel(param.files[0], checkTenderHeader[0].id, checkTenderHeader[0], checkUser)
+        }
 
-  //       this.history.addNewHistory({
-  //         status: "success",
-  //         operation: "update_force_major",
-  //         parameters: this.history.getParams(param),
-  //         result: {
-  //           "id": updateForceMajor.id.toString(),
-  //           "title": updateForceMajor.title,
-  //         }
-  //       }, param.req.user.username)
+        checkTenderHeader[0].title = tendernewname ?? tendername;
+        var updateForceMajor = await this.update(checkTenderHeader[0]);
 
-  //       return {
-  //         continuePrompt: undefined,
-  //         toolName: "update_force_major"
-  //       }
-  //     }
-  //   })
+        this.history.addNewHistory({
+          status: "success",
+          operation: "update_tender",
 
-  //   this.toolRegister.register({
-  //     functionName: "delete_force_major",
-  //     handler: async (param: any): Promise<RequestResult> => {
+          parameters: this.history.getParams(param),
+          result: {
+            "id": updateForceMajor.id.toString(),
+            "title": updateForceMajor.title,
+          }
+        }, param.req.user.username, param.sessionId)
 
-  //       if (param.title == undefined || param.title.replaceAll(" ", "") == "") {
-  //         this.history.addNewHistory({
-  //           status: "fault",
-  //           operation: "delete_force_major",
-  //           parameters: this.history.getParams(param),
-  //           result: {
-  //             errorMessage: messages.forceMajor.nameisrequired
-  //           }
-  //         }, param.req.user.username)
-  //         throw new HttpException(messages.forceMajor.nameisrequired, HttpStatus.BAD_REQUEST);
-  //       }
+        return {
+          continuePrompt: undefined,
+          toolName: "update_tender"
+        }
+      }
+    })
 
-  //       const deleteForcemajorName = this.toolRegister.normalizingName(param.title);
+    this.toolRegister.register({
+      functionName: "delete_tender",
+      handler: async (param: any): Promise<RequestResult> => {
 
-  //       var deleteSupplier = await this.forceMajorsRepository.findByName(deleteForcemajorName.trim());
-  //       if (deleteSupplier == null) {
-  //         this.history.addNewHistory({
-  //           status: "fault",
-  //           operation: "delete_force_major",
-  //           parameters: this.history.getParams(param),
-  //           result: {
-  //             errorMessage: messages.forceMajor.notfound
-  //           }
-  //         }, param.req.user.username)
-  //         throw new HttpException(messages.forceMajor.notfound, HttpStatus.BAD_REQUEST);
-  //       }
+        if (param.title == undefined || param.title.replaceAll(" ", "") == "") {
+          this.history.addNewHistory({
+            status: "fault",
+            operation: "delete_tender",
+            parameters: this.history.getParams(param),
+            result: {
+              errorMessage: messages.tender.nameisrequired
+            }
+          }, param.req.user.username, param.sessionId)
+          throw new HttpException(messages.tender.nameisrequired, HttpStatus.BAD_REQUEST);
+        }
 
-  //       var deleteProduct = await this.delete(deleteSupplier.id);
-  //       this.history.addNewHistory({
-  //         status: "success",
-  //         operation: "delete_force_major",
-  //         parameters: this.history.getParams(param),
-  //         result: {
-  //           "id": deleteSupplier.id.toString(),
-  //           "title": deleteForcemajorName,
-  //         }
-  //       }, param.req.user.username)
+        const tenderName = this.toolRegister.normalizingName(param.title);
 
+        var deleteTender = await this.tenderRepository.getTenderByTitle(tenderName.trim());
+        if (deleteTender == null || deleteTender.length < 1) {
+          this.history.addNewHistory({
+            status: "fault",
+            operation: "delete_force_major",
+            parameters: this.history.getParams(param),
+            result: {
+              errorMessage: messages.tender.notfound
+            }
+          }, param.req.user.username, param.sessionId)
+          throw new HttpException(messages.tender.notfound, HttpStatus.BAD_REQUEST);
+        }
 
-  //       return {
-  //         continuePrompt: undefined,
-  //         toolName: "delete_force_major"
-  //       };
-  //     }
-  //   })
-
-  //   this.toolRegister.register({
-  //     functionName: "update_force_major_record_status",
-  //     handler: async (param: any): Promise<RequestResult> => {
-  //       if (param.title == undefined || param.title.replaceAll(" ", "") == "") {
-  //         this.history.addNewHistory({
-  //           status: "fault",
-  //           operation: "update_force_major",
-  //           parameters: this.history.getParams(param),
-  //           result: {
-  //             errorMessage: messages.supplier.nameisrequired
-  //           }
-  //         }, param.req.user.username)
-
-  //         throw new HttpException(messages.supplier.nameisrequired, HttpStatus.BAD_REQUEST);
-  //       }
-  //       const forceMajorname = this.toolRegister.normalizingName(param.title).trim();
-  //       var checkForceMajor = await this.forceMajorsRepository.findByName(forceMajorname);
-
-  //       if (!checkForceMajor) {
-  //         this.history.addNewHistory({
-  //           status: "fault",
-  //           operation: "update_force_major_record_status",
-  //           parameters: this.history.getParams(param),
-  //           result: {
-  //             errorMessage: messages.forceMajor.notfound
-  //           }
-  //         }, param.req.user.username)
-
-  //         throw new HttpException(messages.forceMajor.notfound, HttpStatus.NOT_FOUND);
-  //       }
-  //       checkForceMajor.recordStatus = param.recordstatus ?? checkForceMajor.recordStatus;
+        var deletedTender = await this.delete(deleteTender[0].id);
+        this.history.addNewHistory({
+          status: "success",
+          operation: "delete_force_major",
+          parameters: this.history.getParams(param),
+          result: {
+            "id": deleteTender[0].id.toString(),
+            "title": tenderName,
+          }
+        }, param.req.user.username, param.sessionId)
 
 
-  //       var updateForceMajor = await this.update(checkForceMajor);
+        return {
+          continuePrompt: undefined,
+          toolName: "delete_tender"
+        };
+      }
+    })
 
-  //       this.history.addNewHistory({
-  //         status: "success",
-  //         operation: "update_force_major_record_status",
-  //         parameters: this.history.getParams(param),
-  //         result: {
-  //           "id": updateForceMajor.id.toString(),
-  //           "title": updateForceMajor.title,
-  //         }
-  //       }, param.req.user.username)
+    this.toolRegister.register({
+      functionName: "update_tender_record_status",
+      handler: async (param: any): Promise<RequestResult> => {
+        if (param.title == undefined || param.title.replaceAll(" ", "") == "") {
+          this.history.addNewHistory({
+            status: "fault",
+            operation: "update_tender_record_status",
+            parameters: this.history.getParams(param),
+            result: {
+              errorMessage: messages.tender.nameisrequired
+            }
+          }, param.req.user.username, param.sessionId)
 
-  //       return {
-  //         continuePrompt: undefined,
-  //         toolName: "update_force_major_record_status"
-  //       }
-  //     }
-  //   })
+          throw new HttpException(messages.tender.nameisrequired, HttpStatus.BAD_REQUEST);
+        }
+        const tendername = this.toolRegister.normalizingName(param.title).trim();
+        var checkTender = await this.tenderRepository.getTenderByTitle(tendername);
+
+        if (!checkTender && checkTender.length < 1) {
+          this.history.addNewHistory({
+            status: "fault",
+            operation: "update_tender_record_status",
+            parameters: this.history.getParams(param),
+            result: {
+              errorMessage: messages.tender.notfound
+            }
+          }, param.req.user.username, param.sessionId)
+
+          throw new HttpException(messages.tender.notfound, HttpStatus.NOT_FOUND);
+        }
+        checkTender[0].recordStatus = param.recordstatus ?? checkTender[0].recordStatus;
 
 
-   }
+        var updateTender = await this.update(checkTender[0]);
+
+        this.history.addNewHistory({
+          status: "success",
+          operation: "update_tender_record_status",
+          parameters: this.history.getParams(param),
+          result: {
+            "id": updateTender.id.toString(),
+            "title": updateTender.title,
+          }
+        }, param.req.user.username, param.sessionId)
+
+        return {
+          continuePrompt: undefined,
+          toolName: "update_tender_record_status"
+        }
+      }
+    })
+
+
+  }
 
 
 
@@ -265,74 +291,114 @@ export class TenderService extends BaseService<TenderHeaders> {
     return this.tenderRepository.updateTender(tenderDto);
   }
 
- 
-    async importFromExcel(file: Express.Multer.File, tenderId: string): Promise<{ count: number }> {
-        const workbook = XLSX.readFile(file.path);
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
 
-        // چون هدر سه‌سطری و merge شده‌ست، به‌جای sheet_to_json،
-        // مستقیم به‌شکل آرایه‌ی خام (بدون تفسیر هدر) می‌خونیم
-        const rawRows: any[][] = XLSX.utils.sheet_to_json(worksheet, {
-            header: 1, // یعنی هر ردیف یک آرایه‌ی ساده از سلول‌هاست، نه object
-            defval: null,
-        });
+  async importFromExcel(file: string, tenderId: number, tenderHeader: TenderHeaders, user: Users): Promise<void> {
+    const actualPath = file.startsWith("/cdn")
+      ? join(process.cwd(), file)
+      : file;
+    const workbook = XLSX.readFile(actualPath);
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
 
-        const parsedRows: ParsedTenderRow[] = [];
+    // چون هدر سه‌سطری و merge شده‌ست، به‌جای sheet_to_json،
+    // مستقیم به‌شکل آرایه‌ی خام (بدون تفسیر هدر) می‌خونیم
+    const rawRows: any[][] = XLSX.utils.sheet_to_json(worksheet, {
+      header: 1, // یعنی هر ردیف یک آرایه‌ی ساده از سلول‌هاست، نه object
+      defval: null,
+    });
 
-        // داده‌ها از ردیف ۵ (index 4، چون صفر-پایه‌ست) شروع می‌شن
-        for (let i = 4; i < rawRows.length; i++) {
-            const row = rawRows[i];
+    let currentCategory = new TenderCategories();
+    let categories: TenderCategories[] = [];
+    const items: Items[] = await this.itemService.getAllRecords();
 
-            if (!row) continue;
 
-            const firstCell = String(row[0] ?? "").trim();
+    // داده‌ها از ردیف ۵ (index 4، چون صفر-پایه‌ست) شروع می‌شن
+    for (let i = 4; i < rawRows.length; i++) {
+      const row = rawRows[i];
 
-            // به محض رسیدن به "ALT TOPLAM" یا "TOPLAM KEŞİF"، یعنی
-            // بخش داده‌ها تموم شده -- دیگه حلقه رو متوقف کن
-            if (firstCell.includes("ALT TOPLAM") || firstCell.includes("TOPLAM KEŞİF")) {
-                break;
-            }
+      if (!row) continue;
 
-            // اگه هم شرح کالا (ستون E) هم واحد (ستون F) خالی بودن،
-            // احتمالاً این یک ردیف خالی/تزئینیه، ردش کن
-            const description = row[4];
-            const unit = row[5];
-            if (!description && !unit) continue;
+      const firstCell = String(row[0] ?? "").trim();
 
-            parsedRows.push({
-                oldCode: row[0] ?? null,
-                newCode: row[1] ?? null,
-                description: description ?? null,
-                unit: unit ?? null,
-                materialQty: row[7] != null ? Number(row[7]) : null,
-                installQty: row[8] != null ? Number(row[8]) : null,
-                removeQty: row[9] != null ? Number(row[9]) : null,
-                dmmQty: row[10] != null ? Number(row[10]) : null,
-                materialPrice: row[11] != null ? Number(row[11]) : null,
-                installPrice: row[12] != null ? Number(row[12]) : null,
-                removePrice: row[13] != null ? Number(row[13]) : null,
-            });
+      // به محض رسیدن به "ALT TOPLAM" یا "TOPLAM KEŞİF"، یعنی
+      // بخش داده‌ها تموم شده -- دیگه حلقه رو متوقف کن
+      if (firstCell.includes("ALT TOPLAM") || firstCell.includes("TOPLAM KEŞİF")) {
+        if (currentCategory) {
+          tenderHeader.tenderCategories.push(currentCategory);
         }
 
-        const items = parsedRows.map((r) => ({
-            TenderId: tenderId,
-            OldCode: r.oldCode,
-            NewCode: r.newCode,
-            Description: r.description,
-            Unit: r.unit,
-            MaterialQty: r.materialQty,
-            InstallQty: r.installQty,
-            RemoveQty: r.removeQty,
-            DmmQty: r.dmmQty,
-            MaterialPrice: r.materialPrice,
-            InstallPrice: r.installPrice,
-            RemovePrice: r.removePrice,
-        }));
+        break;
+      }
 
-       // await this.dataSource.getRepository(TenderItem).insert(items);
+      // اگه هم شرح کالا (ستون E) هم واحد (ستون F) خالی بودن،
+      // احتمالاً این یک ردیف خالی/تزئینیه، ردش کن
+      const description = row[4];
+      const unit = row[5];
+      if (!description && !unit) {
+        if (currentCategory) {
+          tenderHeader.tenderCategories.push(structuredClone(currentCategory));
+        }
+        continue;
+      }
 
-        return { count: items.length };
+      const isCategory = unit === null || unit === undefined || String(unit).trim() === "";
+
+
+
+      if (isCategory) {
+        // یک کتگوری جدید -- والدش هرچی بوده مهم نیست، فقط همینو نگه می‌داریم
+        currentCategory.createAt = new Date();
+        currentCategory.title = description;
+        currentCategory.user = user;
+        currentCategory.eskiPoz = row[0];
+        currentCategory.recordStatus = recordStatus.Active;
+        currentCategory.description = "";
+        currentCategory.percent = row[16] != null
+          ? Number(String(row[16]).replaceAll(",", "."))
+          : null;
+        currentCategory.tenderDetails = [];
+      } else {
+        // محصول -- به آخرین کتگوری دیده‌شده وصل می‌شه
+        if (!currentCategory) {
+          console.warn(`Ürün satırı ("${description}") herhangi bir kategoriye bağlı değil, atlanıyor.`);
+          continue;
+        }
+
+        const currentTenderDetails = new TenderDetails();
+        currentTenderDetails.alt = row[3];
+        currentTenderDetails.ana = row[2];
+        currentTenderDetails.createAt = new Date();
+
+        currentTenderDetails.demontaj = row[9];
+
+        currentTenderDetails.demontajMontaj = row[10];
+
+        currentTenderDetails.demontajMontajPrice = row[14];
+
+        currentTenderDetails.demontajPrice = row[13];
+        currentTenderDetails.malzemeTutari=row[17];
+
+        currentTenderDetails.demontajTutari = row[19];
+        currentTenderDetails.dMMTutari = row[20];
+        currentTenderDetails.eskiPoz = row[0];
+        currentTenderDetails.montajPrice = row[12];
+        currentTenderDetails.montajTutari = row[18];
+        currentTenderDetails.tedas = row[1];
+        currentTenderDetails.recordStatus = recordStatus.Active;
+        currentTenderDetails.user = user;
+        currentTenderDetails.tenderCategory = currentCategory;
+        currentTenderDetails.firmProcuredItemPrice = row[11];
+        currentTenderDetails.firmProcuredItemQuantities = row[6];
+        currentTenderDetails.ourProcuredItemPrice = row[11];
+        currentTenderDetails.ourProcuredItemQuantities = row[7];
+        currentTenderDetails.item = items.find((itm) => itm.name.replaceAll(" ", "") == description.replaceAll(" ", ""));
+        currentCategory.tenderDetails.push(currentTenderDetails);
+
+      }
+
     }
+
+
+  }
 
 }

@@ -64,7 +64,9 @@
         "notfound":"Mücbir sebep bulunamadı!"
     },
     "tender":{
-        "nameisrequired":"İhale adı gereklidir."
+        "nameisrequired":"İhale adı gereklidir.",
+        "notfound":"İhale bulunamadı!"
+
  
     }
 

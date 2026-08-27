@@ -162,6 +162,7 @@ export class InitialOperationsController {
                 cat.createAt = new Date();
                 cat.recordStatus = recordStatus.Active;
                 cat.user = checkUser;
+                
 
                 // جزئیات این دسته
                 if (catDto.details && catDto.details.length > 0) {

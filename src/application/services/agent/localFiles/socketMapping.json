@@ -128,5 +128,15 @@
 
 
          "create_tender":"ihale yaratılır",
-         "create_tender_end":"ihale oluşturuldu"
+         "create_tender_end":"ihale oluşturuldu",
+
+
+         "update_tender":"ihale güncelleniyor",
+         "update_tender_end":"ihale güncellendi",
+
+          "delete_tender":"ihale siliniyor.",
+         "delete_tender_end":"ihale silindi.",
+
+          "update_tender_record_status":"ihale durumu güncelleniyor.",
+         "update_tender_record_status_end":"ihaledurumu güncellendi."
 }

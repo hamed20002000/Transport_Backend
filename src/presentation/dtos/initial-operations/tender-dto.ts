@@ -198,7 +198,7 @@ export class UpdateTenderHeaderDto {
     @IsNumber()
     @IsOptional()
     recordStatus: number;
-   
+
     @ApiProperty({ type: () => [AttachmentDto], description: 'Attachments', nullable: true })
     @Expose()
     @ValidateNested({ each: true })
@@ -215,13 +215,13 @@ export class UpdateTenderDto {
     @IsNumber()
     id: number;
 
-    
+
     @ApiProperty({ type: () => [UpdateTendercategoriesDto], description: 'Tender Categories ' })
     @Expose()
     @IsOptional()
     @Type(() => UpdateTendercategoriesDto)
     categories?: UpdateTendercategoriesDto[];
-   
+
 
 }
 export class UpdateTendercategoriesDto {
