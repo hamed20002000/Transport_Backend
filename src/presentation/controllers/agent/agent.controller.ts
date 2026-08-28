@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, UseGuards, HttpException, HttpStatus, Request, Put, Delete, Req } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards, HttpException, HttpStatus, Request, Put, Delete, Req, NotFoundException } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { AdminRolesGuard } from 'src/auth/guards/roles.guard';
@@ -7,10 +7,11 @@ import { EmbeddingService } from 'src/application/services/agent/services/embedd
 import { FunctionCallService } from 'src/application/services/agent/services/functioncall.service';
 import { ConversationSession } from 'src/application/services/agent/entities/ConversationSession';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { PromptSubmission } from 'src/application/services/agent/entities/PromptSubmission';
 import { ToolExecution } from 'src/application/services/agent/entities/ToolExecution';
-import { EmbeddingDomainTool, EmbeddingToolType } from 'src/application/services/agent/types';
+import { EmbeddingDomainTool, EmbeddingToolType, PendingAction } from 'src/application/services/agent/types';
+import { PendingConfirmationService } from 'src/application/services/agent/services/PendingConfirmationService';
 
 
 
@@ -20,6 +21,7 @@ export class AgentController {
   constructor(
     private readonly embedding: EmbeddingService,
     private readonly functionCallService: FunctionCallService,
+    private readonly pendingConfirmation: PendingConfirmationService,
     @InjectDataSource() private readonly dataSource: DataSource
   ) { }
 
@@ -46,7 +48,7 @@ export class AgentController {
   @ApiOperation({ summary: 'convert embedding documents to vector base in database' })
   @ApiResponse({ status: HttpStatus.OK, description: 'return  success or failed .' })
 
-  async createVectorBased(@Body() body:EmbeddingToolType[]): Promise<CreateVectorBasedEnum> {
+  async createVectorBased(@Body() body: EmbeddingToolType[]): Promise<CreateVectorBasedEnum> {
 
     try {
       await this.embedding.createVectorBased(body);
@@ -60,7 +62,7 @@ export class AgentController {
 
 
   @Post("domaintool")
-  async createVectorBaseForDomain(@Body() body:EmbeddingDomainTool[]): Promise<CreateVectorBasedEnum> {
+  async createVectorBaseForDomain(@Body() body: EmbeddingDomainTool[]): Promise<CreateVectorBasedEnum> {
 
     try {
       await this.embedding.createVectorBasedForDomainTool(body);
@@ -111,6 +113,45 @@ export class AgentController {
     return this.functionCallService.getSessionExecutions(sessionId, req.user.username);
   }
 
+
+  @Put('sessions/changename')
+  @UseGuards(JwtAuthGuard, AdminRolesGuard)
+  @ApiBearerAuth()
+  async changeSessionTitle(
+    @Req() req: any,
+    @Body() body: { sessionId: string; name: string }
+  ) {
+    const repo: Repository<ConversationSession> = this.dataSource.getRepository(ConversationSession);
+
+    const css = await repo.findOneBy({ Id: body.sessionId });
+
+    if (!css) {
+      throw new NotFoundException('Oturum bulunamadı.');
+    }
+
+    css.Title = body.name;
+    await repo.save(css); // save() از update() ساده‌تره چون خود entity رو مستقیم می‌گیره
+
+    return { success: true };
+  }
+
+  @Put('sessions/confirm-action')
+  @UseGuards(JwtAuthGuard, AdminRolesGuard)
+  @ApiBearerAuth()
+  async confirmPendingAction(@Req() req: any, @Body() body: { confirmed: boolean }) {
+
+    if (body.confirmed) {
+      const actionInfo: PendingAction = this.pendingConfirmation.get(req.user.userid)
+      const result = await this.functionCallService.runFinalStep(actionInfo.subIntent, actionInfo.selectedToolName, actionInfo.submission, actionInfo.req, actionInfo.files, actionInfo.sessionId, actionInfo.isLastSegment);
+      this.pendingConfirmation.clear(req.user.userid);
+    }
+    else {
+      this.pendingConfirmation.clear(req.user.userid);
+    }
+
+    return true;
+
+  }
 
 }
 

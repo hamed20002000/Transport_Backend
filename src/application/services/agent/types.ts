@@ -24,106 +24,100 @@ export type Tool = {
     function: Function
 }
 
-// export const Tools :Tool[]=[{
-
-//     type: "function",
-//     function: {
-//         name: "create-category",
-//         description: "register new category in database",
-//         parameters: {
-//             type:"object",
-//             properties:{
-//                 "name":{
-//                     type:"string",
-//                     description:"name of Category"
-//                 },
-//                 "code":{
-//                     type:"string",
-//                     description:'code for detecting category'
-//                 },
-//                 "parentId":{
-//                     type:"string",
-//                     description:"id of parent"
-//                 }
-//             },
-            
-//          required:["name","code"]
-//         },
-//     },
-
-// }]
 
 
-export type Message={
-	role:string,
-	content:string
+
+export type Message = {
+    role: string,
+    content: string
 }
 
-export type ChatRequest={
-	model:string,
-	messages:Message[],
-	stream:boolean,
-    tools?:Tool[],
-     options?: {
-                    temperature: number,
-                    top_p: number,
-                    repeat_penalty: number
-                }
+export type ChatRequest = {
+    model: string,
+    messages: Message[],
+    stream: boolean,
+    tools?: Tool[],
+    options?: {
+        temperature: number,
+        top_p: number,
+        repeat_penalty: number
+    }
 }
 
-export type ChatResponse={
-	message :{
-		content :string,
-	}
+export type ChatResponse = {
+    message: {
+        content: string,
+    }
 }
 
-export type CondinateToolsTyes={
-    ToolName:string,
-    Embedding:number[]
+export type CondinateToolsTyes = {
+    ToolName: string,
+    Embedding: number[]
 }
 
-export type ExtracteToolsType={
-       functionName: string,
-       confidence: number,
-       parameters:any
+export type ExtracteToolsType = {
+    functionName: string,
+    confidence: number,
+    parameters: any
 }
 
-export type ToolHandlerType={
-    functionName:string,
-    handler:(params: any) => Promise<any>;
+export type ToolHandlerType = {
+    functionName: string,
+    handler: (params: any) => Promise<any>;
 }
 
 
-export type ContextInfo={
-    operation:string;
-    result:Record<string,string>;
-    parameters:Record<string,string>;
-    status:"success"|"fault",
-    domain?:string
+export type ContextInfo = {
+    operation: string;
+    result: Record<string, string>;
+    parameters: Record<string, string>;
+    status: "success" | "fault",
+    domain?: string
 }
 
-export type RequestResult={
-      toolName:string;
-      continuePrompt:string;
+export type RequestResult = {
+    toolName: string;
+    continuePrompt: string;
 }
-export type FunctionCallResultType={
-    result:"error"|"success"|"cancelled",
-    message:string,
-    prompt:string,
+export type FunctionCallResultType = {
+    result: "error" | "success" | "cancelled"|"confirm_required",
+    message: string,
+    prompt: string,
     continuePrompt: string | undefined,
     toolName: string,
-    lastsegment:boolean,
-    isSpecial:boolean,
-    list:any[]
+    lastsegment: boolean,
+    isSpecial: boolean,
+    list: any[]
 }
 
-export type EmbeddingToolType={
+export type EmbeddingToolType = {
     tool_name: string;
     embedding_text: string;
     domain_name: string
 }
-export type EmbeddingDomainTool= {
-            domain_name: string;
-            embedding_text: string
-        }
-       
+export type EmbeddingDomainTool = {
+    domain_name: string;
+    embedding_text: string
+}
+
+export type RunFinalStepType = {
+    subIntent: string,
+    selectedToolName: string,
+    selectedTool: { functionName: string; parameters: any },
+    submission: { Id: string },
+    req: any,
+    files: string[],
+    sessionId: string,
+    isLastSegment: boolean
+
+}
+
+export interface PendingAction {
+        subIntent: string,
+        selectedToolName: string,
+        submission: { Id: string },
+        req: any,
+        files: string[],
+        sessionId: string,
+        isLastSegment: boolean
+}

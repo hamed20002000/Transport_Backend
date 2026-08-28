@@ -290,4 +290,9 @@ export class ItemUnitService extends BaseService<ItemUnits> {
 
   }
 
+   async findByName(title: string): Promise<ItemUnits> {
+          return await this.itemUnitRepository.findByName(title)
+              
+      }
+
 }

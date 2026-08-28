@@ -8,6 +8,7 @@ import { EmbeddingService } from '../services/embedding.service';
 import { CancellationService } from '../services/cancellation.service';
 import { FunctionCallService } from '../services/functioncall.service';
 import { CondinateService } from '../services/condinate.service';
+import { PendingConfirmationService } from '../services/PendingConfirmationService';
 
 @Module({
   imports: [
@@ -21,7 +22,8 @@ import { CondinateService } from '../services/condinate.service';
     EmbeddingService,
     CancellationService,
     FunctionCallService,
-    CondinateService
+    CondinateService,
+    PendingConfirmationService
   ],
   exports: [
     AgentSqlService,
@@ -29,7 +31,8 @@ import { CondinateService } from '../services/condinate.service';
     AgentGateway,
     CancellationService,
     FunctionCallService,
-    CondinateService
+    CondinateService,
+    PendingConfirmationService
   ],
 
   controllers: [AgentController],

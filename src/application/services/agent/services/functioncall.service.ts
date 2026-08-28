@@ -19,6 +19,7 @@ import { ConversationSession } from '../entities/ConversationSession';
 import { PromptSubmission } from '../entities/PromptSubmission';
 import { ToolExecution } from '../entities/ToolExecution';
 import { ContextInfo } from '../types';
+import { PendingConfirmationService } from './PendingConfirmationService';
 
 
 
@@ -31,6 +32,7 @@ export class FunctionCallService {
         private readonly agentToolsService: AgentToolsService,
         private readonly history: ContextManager,
         private readonly cancellation: CancellationService,
+        private readonly pendingConfirmationService:PendingConfirmationService,
 
         @InjectDataSource() private readonly dataSource: DataSource
     ) {
@@ -177,8 +179,8 @@ ${prompt}`;
 
         return JSON.parse(resp.data.message.content).decision;
     }
-async segmentPromptIntoSubIntents(prompt: string, signal?: AbortSignal): Promise<string[]> {
-    const systemPrompt = `
+    async segmentPromptIntoSubIntents(prompt: string, signal?: AbortSignal): Promise<string[]> {
+        const systemPrompt = `
 You are a text segmentation assistant.
 
 Your task: if the user's message (in Turkish) contains multiple independent
@@ -271,365 +273,456 @@ separate lines for readability. Do not split; keep merged as one segment.)
 Return JSON only, nothing else:
 { "segments": ["...", "..."] }
 `;
-    const ollamareq: ChatRequest = {
-        model: "qwen3:8b",
-        messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: prompt },
-        ],
-        stream: false,
-    };
-    const resp = await axios.post(
-        "http://localhost:11434/api/chat",
-        JSON.stringify({
-            ...ollamareq,
-            format: {
-                type: "object",
-                properties: {
-                    segments: {
-                        type: "array",
-                        items: { type: "string" },
+        const ollamareq: ChatRequest = {
+            model: "qwen3:8b",
+            messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: prompt },
+            ],
+            stream: false,
+        };
+        const resp = await axios.post(
+            "http://localhost:11434/api/chat",
+            JSON.stringify({
+                ...ollamareq,
+                format: {
+                    type: "object",
+                    properties: {
+                        segments: {
+                            type: "array",
+                            items: { type: "string" },
+                        },
                     },
+                    required: ["segments"],
                 },
-                required: ["segments"],
-            },
-        }),
-        { headers: { "Content-Type": "application/json" }, signal }
-    );
-    const result = JSON.parse(resp.data.message.content);
-
-    const segments: string[] = result.segments && result.segments.length > 0 ? result.segments : [prompt];
-
-    // لایه‌ی دفاعی ۱: پوشش کلی طول متن (برای مواردی مثل "Kategori 34"
-    // که کل جمله گم می‌شد)
-    const totalSegmentLength = segments.reduce((sum, s) => sum + s.length, 0);
-    const coverageRatio = totalSegmentLength / prompt.length;
-
-    if (coverageRatio < 0.7) {
-        console.warn(
-            `Segmentation coverage too low (${(coverageRatio * 100).toFixed(0)}%) for prompt: "${prompt}". Falling back to original prompt.`
+            }),
+            { headers: { "Content-Type": "application/json" }, signal }
         );
-        return [prompt];
-    }
+        const result = JSON.parse(resp.data.message.content);
 
-    // لایه‌ی دفاعی ۲: بررسی وجود فعل امری در هر segment -- برای مواردی
-    // مثل "X ve Y'yi kaydedin" که ممکنه یک segment بدون فعل بمونه.
-    // این یک لیست کامل از همه‌ی فعل‌های ممکن نیست (که مقیاس‌پذیر نباشه)،
-    // فقط یک الگوی خیلی کلی: هر segment باید حداقل ۲ کلمه داشته باشه
-    // و شبیه یک جمله‌ی کامل به‌نظر برسه، نه فقط یک اسم/عبارت تنها.
-    const suspiciouslyIncompleteSegment = segments.some((s) => s.trim().split(/\s+/).length < 2);
+        const segments: string[] = result.segments && result.segments.length > 0 ? result.segments : [prompt];
 
-    if (suspiciouslyIncompleteSegment) {
-        console.warn(
-            `Segmentation produced a suspiciously short/incomplete segment for prompt: "${prompt}". Falling back to original prompt.`
-        );
-        return [prompt];
-    }
+        // لایه‌ی دفاعی ۱: پوشش کلی طول متن (برای مواردی مثل "Kategori 34"
+        // که کل جمله گم می‌شد)
+        const totalSegmentLength = segments.reduce((sum, s) => sum + s.length, 0);
+        const coverageRatio = totalSegmentLength / prompt.length;
 
-    return segments;
-}
-async createNewSession(username: string): Promise<{ sessionId: string }> {
-    const sessionRepo = this.dataSource.getRepository(ConversationSession);
-    const submissionRepo = this.dataSource.getRepository(PromptSubmission);
-
-    // آخرین session این کاربر رو پیدا کن (اگه از قبل وجود داشته باشه)
-    const lastSession = await sessionRepo.findOne({
-        where: { Username: username },
-        order: { CreatedAt: "DESC" },
-    });
-
-    if (lastSession) {
-        const submissionCount = await submissionRepo.count({
-            where: { SessionId: lastSession.Id },
-        });
-
-        if (submissionCount === 0) {
-            // این session هنوز هیچ prompt ای نگرفته -- همینو برگردون،
-            // یک ردیف جدید و خالی دیگه نساز
-            return { sessionId: lastSession.Id };
+        if (coverageRatio < 0.7) {
+            console.warn(
+                `Segmentation coverage too low (${(coverageRatio * 100).toFixed(0)}%) for prompt: "${prompt}". Falling back to original prompt.`
+            );
+            return [prompt];
         }
+
+        // لایه‌ی دفاعی ۲: بررسی وجود فعل امری در هر segment -- برای مواردی
+        // مثل "X ve Y'yi kaydedin" که ممکنه یک segment بدون فعل بمونه.
+        // این یک لیست کامل از همه‌ی فعل‌های ممکن نیست (که مقیاس‌پذیر نباشه)،
+        // فقط یک الگوی خیلی کلی: هر segment باید حداقل ۲ کلمه داشته باشه
+        // و شبیه یک جمله‌ی کامل به‌نظر برسه، نه فقط یک اسم/عبارت تنها.
+        const suspiciouslyIncompleteSegment = segments.some((s) => s.trim().split(/\s+/).length < 2);
+
+        if (suspiciouslyIncompleteSegment) {
+            console.warn(
+                `Segmentation produced a suspiciously short/incomplete segment for prompt: "${prompt}". Falling back to original prompt.`
+            );
+            return [prompt];
+        }
+
+        return segments;
     }
+    async createNewSession(username: string): Promise<{ sessionId: string }> {
+        const sessionRepo = this.dataSource.getRepository(ConversationSession);
+        const submissionRepo = this.dataSource.getRepository(PromptSubmission);
 
-    // یا اصلاً session ای وجود نداشت، یا آخرین session قبلاً واقعاً استفاده شده
-    const newSession = await sessionRepo.save({ Username: username });
-    return { sessionId: newSession.Id };
-}
-
-  async getUserSessions(username: string): Promise<{ id: string; title: string; createdAt: Date }[]> {
-    const sessions = await this.dataSource.getRepository(ConversationSession).find({
-      where: { Username: username },
-      order: { CreatedAt: "DESC" },
-      relations: ["Submissions"], // برای اینکه بتونیم اولین prompt رو به‌عنوان عنوان استفاده کنیم
-    });
-
-    return sessions.map((session) => ({
-      id: session.Id,
-      // اگه Title دستی ست نشده بود، از اولین prompt همون session استفاده کن
-      title: session.Title || session.Submissions?.[0]?.RawPrompt?.slice(0, 50) || "Yeni Sohbet",
-      createdAt: session.CreatedAt,
-    }));
-  }
-
-  /**
- * لیست متن‌های خام prompt های یک session خاص -- برای قابلیت کپی/reuse
- */
-async getSessionPrompts(
-    sessionId: string,
-    username: string
-): Promise<{ id: string; text: string; submittedAt: Date }[]> {
-    // اول مالکیت رو چک کن -- دقیقاً همون منطق امنیتی که قبلاً توی
-    // RunFunctionCalling نوشتیم
-    const session = await this.dataSource.getRepository(ConversationSession).findOne({
-        where: { Id: sessionId },
-    });
-
-    if (!session || session.Username !== username) {
-        throw new Error("Bu oturuma erişim yetkiniz yok.");
-    }
-
-    const submissions = await this.dataSource.getRepository(PromptSubmission).find({
-        where: { SessionId: sessionId },
-        order: { SubmittedAt: "ASC" },
-    });
-
-    return submissions.map((s) => ({
-        id: s.Id,
-        text: s.RawPrompt,
-        submittedAt: s.SubmittedAt,
-    }));
-}
-/**
- * جزئیات کامل یک session (شامل نتایج اجرای ابزارها) -- برای پر کردن
- * دوباره‌ی پنل نتایج وقتی کاربر یک session قدیمی رو باز می‌کنه
- */
-async getSessionExecutions(
-    sessionId: string,
-    username: string
-): Promise<any[]> {
-    const session = await this.dataSource.getRepository(ConversationSession).findOne({
-        where: { Id: sessionId },
-    });
-
-    if (!session || session.Username !== username) {
-        throw new Error("Bu oturuma erişim yetkiniz yok.");
-    }
-
-    const executions = await this.dataSource.getRepository(ToolExecution)
-        .createQueryBuilder("execution")
-        .innerJoin(PromptSubmission, "submission", "submission.Id = execution.SubmissionId")
-        .where("submission.SessionId = :sessionId", { sessionId })
-        .orderBy("execution.ExecutedAt", "ASC")
-        .getMany();
-
-    // تبدیل به دقیقاً همون فرمتی که frontend (FunctionCallResultType)
-    // انتظار داره -- چون socketMapping و ساختار toolResult رو قبلاً
-    // موقع اجرای زنده هم استفاده کرده بودیم، اینجا هم همون رو بازسازی می‌کنیم
-    return executions.map((e) => ({
-        id: e.Id,
-        result: e.Status === "success" ? "success" : "error",
-        prompt: e.SubIntentText, // متن دقیق درخواستی که این نتیجه رو تولید کرده
-        message: e.Status === "success"
-            ? socketMapping[`${e.Operation}_end`]
-            : "İşlem gerçekleştirilirken hata oluştu.",
-        continuePrompt: (e.Result as any)?.continuePrompt,
-        toolName: (e.Result as any)?.toolName,
-        list: [],
-        time: `${new Date(e.ExecutedAt).getHours()}:${new Date(e.ExecutedAt).getMinutes().toString().padStart(2, "0")}`,
-    }));
-}
-
-async RunFunctionCalling(prompt: string, req: any, files: string[], sessionId: string): Promise<void> {
-    const userId = req.user.userid;
-    const username = req.user.username;
-
-    // قدم صفر: مطمئن شو این sessionId واقعاً متعلق به همین کاربره --
-    // بدون این چک، یک کاربر می‌تونه (اشتباهی یا عمداً) prompt خودش رو
-    // توی session کاربر دیگه‌ای ذخیره کنه
-    const session = await this.dataSource.getRepository(ConversationSession).findOne({
-        where: { Id: sessionId }
-    });
-
-    if (!session) {
-        this.agentGateway.sendToolResult(userId, {
-            result: "error",
-            message: "Geçersiz oturum. Lütfen yeni bir sohbet başlatın.",
-            prompt:prompt,
-            continuePrompt: undefined,
-            toolName: undefined,
-            lastsegment: true,
-            list: []
+        // آخرین session این کاربر رو پیدا کن (اگه از قبل وجود داشته باشه)
+        const lastSession = await sessionRepo.findOne({
+            where: { Username: username },
+            order: { CreatedAt: "DESC" },
         });
-        return;
+
+        if (lastSession) {
+            const submissionCount = await submissionRepo.count({
+                where: { SessionId: lastSession.Id },
+            });
+
+            if (submissionCount === 0) {
+                // این session هنوز هیچ prompt ای نگرفته -- همینو برگردون،
+                // یک ردیف جدید و خالی دیگه نساز
+                return { sessionId: lastSession.Id };
+            }
+        }
+
+        // یا اصلاً session ای وجود نداشت، یا آخرین session قبلاً واقعاً استفاده شده
+        const newSession = await sessionRepo.save({ Username: username });
+        return { sessionId: newSession.Id };
     }
 
-    if (session.Username !== username) {
-        // این کاربر مالک این session نیست -- درخواست رو رد کن
-        this.agentGateway.sendToolResult(userId, {
-            result: "error",
-            message: "Bu oturuma erişim yetkiniz yok.",
-            prompt:prompt,
-            continuePrompt: undefined,
-            toolName: undefined,
-            lastsegment: true,
-            list: []
+    async getUserSessions(username: string): Promise<{ id: string; title: string; createdAt: Date }[]> {
+        const sessions = await this.dataSource.getRepository(ConversationSession).find({
+            where: { Username: username },
+            order: { CreatedAt: "DESC" },
+            relations: ["Submissions"], // برای اینکه بتونیم اولین prompt رو به‌عنوان عنوان استفاده کنیم
         });
-        return;
+
+        return sessions.map((session) => ({
+            id: session.Id,
+            // اگه Title دستی ست نشده بود، از اولین prompt همون session استفاده کن
+            title: session.Title || session.Submissions?.[0]?.RawPrompt?.slice(0, 50) || "Yeni Sohbet",
+            createdAt: session.CreatedAt,
+        }));
     }
 
-    // Hydration خودکار: اگه این session هنوز توی این اجرای سرور لمس
-    // نشده (اولین بار بعد از ری‌استارت سرور، یا اولین session قدیمی‌ای
-    // که کاربر باز می‌کنه)، تاریخچه‌ش رو یک‌بار از دیتابیس بخون
-    if (!this.history.hasSession(username, sessionId)) {
-        const pastExecutions = await this.dataSource.getRepository(ToolExecution)
+    /**
+   * لیست متن‌های خام prompt های یک session خاص -- برای قابلیت کپی/reuse
+   */
+    async getSessionPrompts(
+        sessionId: string,
+        username: string
+    ): Promise<{ id: string; text: string; submittedAt: Date }[]> {
+        // اول مالکیت رو چک کن -- دقیقاً همون منطق امنیتی که قبلاً توی
+        // RunFunctionCalling نوشتیم
+        const session = await this.dataSource.getRepository(ConversationSession).findOne({
+            where: { Id: sessionId },
+        });
+
+        if (!session || session.Username !== username) {
+            throw new Error("Bu oturuma erişim yetkiniz yok.");
+        }
+
+        const submissions = await this.dataSource.getRepository(PromptSubmission).find({
+            where: { SessionId: sessionId },
+            order: { SubmittedAt: "ASC" },
+        });
+
+        return submissions.map((s) => ({
+            id: s.Id,
+            text: s.RawPrompt,
+            submittedAt: s.SubmittedAt,
+        }));
+    }
+    /**
+     * جزئیات کامل یک session (شامل نتایج اجرای ابزارها) -- برای پر کردن
+     * دوباره‌ی پنل نتایج وقتی کاربر یک session قدیمی رو باز می‌کنه
+     */
+    async getSessionExecutions(
+        sessionId: string,
+        username: string
+    ): Promise<any[]> {
+        const session = await this.dataSource.getRepository(ConversationSession).findOne({
+            where: { Id: sessionId },
+        });
+
+        if (!session || session.Username !== username) {
+            throw new Error("Bu oturuma erişim yetkiniz yok.");
+        }
+
+        const executions = await this.dataSource.getRepository(ToolExecution)
             .createQueryBuilder("execution")
             .innerJoin(PromptSubmission, "submission", "submission.Id = execution.SubmissionId")
             .where("submission.SessionId = :sessionId", { sessionId })
             .orderBy("execution.ExecutedAt", "DESC")
-            .take(5)
             .getMany();
 
-        const contextInfoList: ContextInfo[] = pastExecutions.reverse().map((e) => ({
-            operation: e.Operation,
-            parameters: e.Parameters,
-            result: e.Result,
-            status: e.Status as "success" | "fault",
+        // تبدیل به دقیقاً همون فرمتی که frontend (FunctionCallResultType)
+        // انتظار داره -- چون socketMapping و ساختار toolResult رو قبلاً
+        // موقع اجرای زنده هم استفاده کرده بودیم، اینجا هم همون رو بازسازی می‌کنیم
+        return executions.map((e) => ({
+            id: e.Id,
+            result: e.Status === "success" ? "success" : "error",
+            prompt: e.SubIntentText, // متن دقیق درخواستی که این نتیجه رو تولید کرده
+            message: e.Status === "success"
+                ? socketMapping[`${e.Operation}_end`]
+                : "İşlem gerçekleştirilirken hata oluştu.",
+            continuePrompt: (e.Result as any)?.continuePrompt,
+            toolName: undefined,
+            //(e.Result as any)?.toolName,
+            list: [],
+            time: `${new Date(e.ExecutedAt).getHours()}:${new Date(e.ExecutedAt).getMinutes().toString().padStart(2, "0")}`,
         }));
-
-        this.history.hydrate(username, sessionId, contextInfoList);
     }
 
-    const controller = this.cancellation.start(userId);
 
-    // قدم ۱: قبل از هر کاری، خود متن خام prompt رو ذخیره کن
-    const submission = await this.dataSource.getRepository(PromptSubmission).save({
-        SessionId: sessionId,
-        RawPrompt: prompt,
-    });
-
-    try {
-        this.agentGateway.sendCurrentTool(userId, {
-            currentOp: "Hazırlıkların yapılması"
-        })
-
-        const segmentsPrompts = await this.segmentPromptIntoSubIntents(prompt);
-        var currentsegmentIndex = 0;
-
-        for (const subIntent of segmentsPrompts) {
-
-            if (controller.signal.aborted) {
-                this.agentGateway.sendToolResult(userId, {
-                    result: "cancelled",
-                    message: "İşlem kullanıcı tarafından durduruldu.",
-                    prompt:subIntent,
-                    continuePrompt: undefined,
-                    toolName: undefined,
-                    lastsegment: true,
-                    list: []
-                });
-                break;
-            }
-
-            this.agentGateway.sendCurrentTool(userId, {
-                currentOp: `(${subIntent})'nin emrini yerine getirmeye hazırlanıyoruz.`
-            })
-
-            currentsegmentIndex++;
-            const condinateToolsName = await this.condinate.getCondinateToolsForRunPrompt(subIntent, this.history.getPreviousTool(username, sessionId) as string)
-            const selectedToolName = await this.agentToolsService.extractSelectedTool(subIntent, condinateToolsName, this.history.getHistory(0, username, sessionId) as string);
-
-            try {
-                this.agentGateway.sendCurrentTool(userId, {
-                    currentOp: socketMapping[selectedToolName]
-                })
-
-                const selectedTool = await this.agentToolsService.extractTools(subIntent, selectedToolName, this.history.getHistory(0, username, sessionId) as string);
-                const toolResult = await this.agentToolsService.executeTool(selectedTool.functionName, { ...selectedTool.parameters, files: files }, req,sessionId);
-
-                // قدم ۲: بعد از اجرای موفق، یک ToolExecution وصل به همون submission ذخیره کن
-                await this.dataSource.getRepository(ToolExecution).save({
-                    SubmissionId: submission.Id,
-                    SubIntentText: subIntent,
-                    Operation: selectedToolName,
-                    Parameters: selectedTool.parameters,
-                    Result: toolResult,
-                    Status: "success",
-                });
-
-                // قدم ۲.۵: حافظه‌ی in-memory رو هم همین لحظه آپدیت کن --
-                // بدون این خط، segment های بعدیِ همین prompt از این
-                // نتیجه بی‌خبر می‌مونن (چون hydration فقط یک‌بار در
-                // ابتدا انجام شده بود، نه به‌صورت زنده)
-                this.history.addNewHistory({
-                    operation: selectedToolName,
-                    parameters: selectedTool.parameters,
-                    result: toolResult,
-                    status: "success",
-                }, username, sessionId);
-
-                this.agentGateway.sendToolResult(userId, {
-                    result: "success",
-                    message: socketMapping[`${selectedToolName}_end`],
-                    prompt:subIntent,
-                    continuePrompt: toolResult.continuePrompt,
-                    toolName: toolResult.toolName,
-                    lastsegment: currentsegmentIndex == segmentsPrompts.length,
-                    list: []
-                })
-            }
-            catch (error: any) {
-                // خطا هم باید ذخیره بشه -- تا هم history درست کار کنه، هم
-                // بشه بعداً آمار خطاها رو بررسی کرد (مثل frequencyError)
-                await this.dataSource.getRepository(ToolExecution).save({
-                    SubmissionId: submission.Id,
-                    SubIntentText: subIntent,
-                    Operation: selectedToolName,
-                    Parameters: {},
-                    Result: {},
-                    Status: "fault",
-                });
-
-                this.agentGateway.sendToolResult(userId, {
-                    result: "error",
-                    message: error?.message || "İşlem gerçekleştirilirken hata oluştu.",
-                    prompt:subIntent,
-                    continuePrompt: this.history.frequencyError(username, sessionId) ? "Komut istemi ardı ardına hatalar veriyorsa, komut istemini değiştirin." : undefined,
-                    toolName: undefined,
-                    lastsegment: true,
-                    list: []
-                })
-
-                break;
-            }
-
+    isSpecial(toolname: string): boolean {
+        switch (toolname) {
+            case "create_tender":
+                return true
+            default:
+                return false
         }
     }
-    catch (error: any) {
-        if (error?.name === "CanceledError" || error?.name === "AbortError") {
+    /**
+     * منطق مشترک "اجرای ابزار انتخاب‌شده + ذخیره‌ی نتیجه + ارسال به کلاینت".
+     * هم توی حلقه‌ی عادی RunFunctionCalling صدا زده می‌شه، هم بعداً برای
+     * ادامه‌ی کار بعد از تایید یک عملیات معلق (مثل delete) استفاده می‌شه --
+     * دقیقاً همون تابعی که برای هر دو مسیر لازم داشتیم.
+     *
+     * خروجی { success: boolean } رو برمی‌گردونه تا فراخوان (چه حلقه‌ی عادی،
+     * چه مسیر resume) بتونه تصمیم بگیره آیا باید ادامه بده یا متوقف بشه.
+     */
+    async runFinalStep(
+        subIntent: string,
+        selectedToolName: string,
+        submission: { Id: string },
+        req: any,
+        files: string[],
+        sessionId: string,
+        isLastSegment: boolean
+    ): Promise<{ success: boolean }> {
+        const userId = req.user.userid;
+        const username = req.user.username;
+
+        try {
+            this.agentGateway.sendCurrentTool(userId, {
+                currentOp: socketMapping[selectedToolName]
+            });
+
+            const selectedTool = await this.agentToolsService.extractTools(subIntent, selectedToolName, this.history.getHistory(0, username, sessionId) as string);
+
+            const toolResult = await this.agentToolsService.executeTool(
+                selectedTool.functionName,
+                { ...selectedTool.parameters, files },
+                req,
+                sessionId
+            );
+
+            // قدم ۲: بعد از اجرای موفق، یک ToolExecution وصل به همون submission ذخیره کن
+            await this.dataSource.getRepository(ToolExecution).save({
+                SubmissionId: submission.Id,
+                SubIntentText: subIntent,
+                Operation: selectedToolName,
+                Parameters: selectedTool.parameters,
+                Result: toolResult,
+                Status: "success",
+            });
+
+            // قدم ۲.۵: حافظه‌ی in-memory رو هم همین لحظه آپدیت کن
+            this.history.addNewHistory({
+                operation: selectedToolName,
+                parameters: selectedTool.parameters,
+                result: toolResult,
+                status: "success",
+            }, username, sessionId);
+
             this.agentGateway.sendToolResult(userId, {
-                result: "cancelled",
-                message: "İşlem kullanıcı tarafından durduruldu.",
-                prompt:prompt,
-                continuePrompt: undefined,
+                result: "success",
+                message: socketMapping[`${selectedToolName}_end`],
+                prompt: subIntent,
+                continuePrompt: toolResult.continuePrompt,
+                toolName: toolResult.toolName,
+                lastsegment: isLastSegment,
+                isSpecial: this.isSpecial(toolResult.toolName),
+                list: []
+            });
+
+            return { success: true };
+        }
+        catch (error: any) {
+            // خطا هم باید ذخیره بشه -- تا هم history درست کار کنه، هم
+            // بشه بعداً آمار خطاها رو بررسی کرد (مثل frequencyError)
+            await this.dataSource.getRepository(ToolExecution).save({
+                SubmissionId: submission.Id,
+                SubIntentText: subIntent,
+                Operation: selectedToolName,
+                Parameters: {},
+                Result: {},
+                Status: "fault",
+            });
+
+            this.agentGateway.sendToolResult(userId, {
+                result: "error",
+                message: error?.message || "İşlem gerçekleştirilirken hata oluştu.",
+                prompt: subIntent,
+                continuePrompt: this.history.frequencyError(username, sessionId)
+                    ? "Komut istemi ardı ardına hatalar veriyorsa, komut istemini değiştirin."
+                    : undefined,
                 toolName: undefined,
+                isSpecial: false,
                 lastsegment: true,
                 list: []
             });
-        } else {
+
+            return { success: false };
+        }
+    }
+
+
+    async RunFunctionCalling(prompt: string, req: any, files: string[], sessionId: string): Promise<void> {
+        const userId = req.user.userid;
+        const username = req.user.username;
+
+        // قدم صفر: مطمئن شو این sessionId واقعاً متعلق به همین کاربره --
+        // بدون این چک، یک کاربر می‌تونه (اشتباهی یا عمداً) prompt خودش رو
+        // توی session کاربر دیگه‌ای ذخیره کنه
+        const session = await this.dataSource.getRepository(ConversationSession).findOne({
+            where: { Id: sessionId }
+        });
+
+        if (!session) {
             this.agentGateway.sendToolResult(userId, {
                 result: "error",
-                message: "Kritik hata, lütfen operatörle iletişime geçin.",
-                prompt:prompt,
+                message: "Geçersiz oturum. Lütfen yeni bir sohbet başlatın.",
+                prompt: prompt,
                 continuePrompt: undefined,
                 toolName: undefined,
                 lastsegment: true,
+                isSpecial: false,
                 list: []
+            });
+            return;
+        }
+
+        if (session.Username !== username) {
+            // این کاربر مالک این session نیست -- درخواست رو رد کن
+            this.agentGateway.sendToolResult(userId, {
+                result: "error",
+                message: "Bu oturuma erişim yetkiniz yok.",
+                prompt: prompt,
+                continuePrompt: undefined,
+                toolName: undefined,
+                lastsegment: true,
+                isSpecial: false,
+                list: []
+            });
+            return;
+        }
+
+        // Hydration خودکار: اگه این session هنوز توی این اجرای سرور لمس
+        // نشده (اولین بار بعد از ری‌استارت سرور، یا اولین session قدیمی‌ای
+        // که کاربر باز می‌کنه)، تاریخچه‌ش رو یک‌بار از دیتابیس بخون
+        if (!this.history.hasSession(username, sessionId)) {
+            const pastExecutions = await this.dataSource.getRepository(ToolExecution)
+                .createQueryBuilder("execution")
+                .innerJoin(PromptSubmission, "submission", "submission.Id = execution.SubmissionId")
+                .where("submission.SessionId = :sessionId", { sessionId })
+                .orderBy("execution.ExecutedAt", "DESC")
+                .take(5)
+                .getMany();
+
+            const contextInfoList: ContextInfo[] = pastExecutions.reverse().map((e) => ({
+                operation: e.Operation,
+                parameters: e.Parameters,
+                result: e.Result,
+                status: e.Status as "success" | "fault",
+            }));
+
+            this.history.hydrate(username, sessionId, contextInfoList);
+        }
+
+        const controller = this.cancellation.start(userId);
+
+        // قدم ۱: قبل از هر کاری، خود متن خام prompt رو ذخیره کن
+        const submission = await this.dataSource.getRepository(PromptSubmission).save({
+            SessionId: sessionId,
+            RawPrompt: prompt,
+        });
+
+        try {
+            this.agentGateway.sendCurrentTool(userId, {
+                currentOp: "Hazırlıkların yapılması"
             })
+
+            const segmentsPrompts = await this.segmentPromptIntoSubIntents(prompt);
+            var currentsegmentIndex = 0;
+
+            for (const subIntent of segmentsPrompts) {
+
+                if (controller.signal.aborted) {
+                    this.agentGateway.sendToolResult(userId, {
+                        result: "cancelled",
+                        message: "İşlem kullanıcı tarafından durduruldu.",
+                        prompt: subIntent,
+                        continuePrompt: undefined,
+                        toolName: undefined,
+                        lastsegment: true,
+                        isSpecial: false,
+                        list: []
+                    });
+                    break;
+                }
+
+                this.agentGateway.sendCurrentTool(userId, {
+                    currentOp: `(${subIntent})'nin emrini yerine getirmeye hazırlanıyoruz.`
+                })
+
+                currentsegmentIndex++;
+                const condinateToolsName = await this.condinate.getCondinateToolsForRunPrompt(subIntent, this.history.getPreviousTool(username, sessionId) as string)
+                const selectedToolName = await this.agentToolsService.extractSelectedTool(subIntent, condinateToolsName, this.history.getHistory(0, username, sessionId) as string);
+
+
+                  if (selectedToolName.startsWith("delete_")) {
+    // عملیات رو ذخیره کن، اجرا نکن -- منتظر تایید کاربر بمون
+  
+
+    this.pendingConfirmationService.set(userId, {
+        files:files,
+        isLastSegment:currentsegmentIndex==segmentsPrompts.length,
+        req:req,
+        selectedToolName:selectedToolName,
+        submission:submission,
+        subIntent,
+        sessionId
+    });
+
+    this.agentGateway.sendToolResult(userId, {
+        result: "confirm_required",
+        message: `"${subIntent}" işlemini onaylıyor musunuz?`,
+        continuePrompt: undefined,
+        toolName: selectedToolName,
+        isSpecial:false,
+        prompt:subIntent,
+        lastsegment: true,
+        list: []
+    });
+
+    return; // اینجا متوقف می‌شیم -- تا کاربر تایید نکنه، ادامه نمی‌ره
+}
+
+
+                const { success } = await this.runFinalStep(
+                    subIntent,
+                    selectedToolName,
+                    submission,
+                    req,
+                    files,
+                    sessionId,
+                    currentsegmentIndex == segmentsPrompts.length
+                );
+
+                if (!success) {
+                    break; // دقیقاً همون رفتار قبلی -- اگه خطا خورد، حلقه متوقف بشه
+                }
+
+            }
+        }
+        catch (error: any) {
+            if (error?.name === "CanceledError" || error?.name === "AbortError") {
+                this.agentGateway.sendToolResult(userId, {
+                    result: "cancelled",
+                    message: "İşlem kullanıcı tarafından durduruldu.",
+                    prompt: prompt,
+                    continuePrompt: undefined,
+                    toolName: undefined,
+                    lastsegment: true,
+                    isSpecial: false,
+                    list: []
+                });
+            } else {
+                this.agentGateway.sendToolResult(userId, {
+                    result: "error",
+                    message: "Kritik hata, lütfen operatörle iletişime geçin.",
+                    prompt: prompt,
+                    continuePrompt: undefined,
+                    toolName: undefined,
+                    lastsegment: true,
+                    isSpecial: false,
+                    list: []
+                })
+            }
+        }
+        finally {
+            this.cancellation.finish(userId);
         }
     }
-    finally {
-        this.cancellation.finish(userId);
-    }
-}
 
 
 }

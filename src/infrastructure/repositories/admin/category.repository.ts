@@ -13,7 +13,7 @@ export class CategoryRepository extends BaseRepository<Categories> {
         this.treeRepository = treeRepo;
     }
 
-    
+
     async findAllTrees(): Promise<Categories[]> {
         return this.treeRepository.findTrees();
     }
@@ -44,4 +44,15 @@ export class CategoryRepository extends BaseRepository<Categories> {
 
         await updateDepth(tree, parent.depth ?? 0);
     }
-   }
+
+    async findByName(name: string): Promise<Categories> {
+        return await this.repository
+            .createQueryBuilder("category")
+            .leftJoinAndSelect("category.parent", "parent")
+            .where(
+                `regexp_replace(trim(category."Name"), '\s+', ' ', 'g') = regexp_replace(trim(:name), '\s+', ' ', 'g')`,
+                { name }
+            )
+            .getOne();
+    }
+}

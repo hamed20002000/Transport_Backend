@@ -11,5 +11,10 @@ export class ItemUnitRepository extends BaseRepository<ItemUnits> {
   constructor(@InjectRepository(ItemUnits) repository: Repository<ItemUnits>) {
     super(repository);
   }
+
+      async findByName(title: string): Promise<ItemUnits> {
+          return await this.repository.findOneBy({title})
+              
+      }
   
 }

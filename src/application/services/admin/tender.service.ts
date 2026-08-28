@@ -26,6 +26,10 @@ import { head } from 'node_modules/axios/index.cjs';
 import { TenderDetails } from 'src/domain/entities/TenderDetails';
 import { Items } from 'src/domain/entities/Items';
 import { ItemService } from './item.service';
+import { CategoryService } from './category.service';
+import { CategorySpecification } from 'src/application/specifications/admin/category-specifications';
+import { Categories } from 'src/domain/entities/Categories';
+import { ItemUnitService } from './item-unit.service';
 
 
 @Injectable()
@@ -38,6 +42,8 @@ export class TenderService extends BaseService<TenderHeaders> {
     private readonly userService: UserService,
     private readonly history: ContextManager,
     private readonly itemService: ItemService,
+    private readonly categoryService: CategoryService,
+    private readonly unitService:ItemUnitService,
 
     @InjectDataSource() private readonly dataSource: DataSource
   ) {
@@ -145,7 +151,7 @@ export class TenderService extends BaseService<TenderHeaders> {
             null,
             { id: true }
           );
-          await this.importFromExcel(param.files[0], checkTenderHeader[0].id, checkTenderHeader[0], checkUser)
+          await this.importFromExcel(param.files[0], checkTenderHeader[0].id, checkTenderHeader[0], checkUser,param)
         }
 
         checkTenderHeader[0].title = tendernewname ?? tendername;
@@ -291,8 +297,67 @@ export class TenderService extends BaseService<TenderHeaders> {
     return this.tenderRepository.updateTender(tenderDto);
   }
 
+  checkHierarchy(parent: Categories, child: Categories,param:any) {
+    if (!child) {
+      return true
+    }
 
-  async importFromExcel(file: string, tenderId: number, tenderHeader: TenderHeaders, user: Users): Promise<void> {
+    if (child.parent.id == parent.id) {
+      return true;
+    }
+
+     this.history.addNewHistory({
+        status: "fault",
+        operation: "update_tender",
+
+        parameters: this.history.getParams(param),
+        result: {
+          "name": param.title,
+          newtitle: param.newtitle
+        }
+      }, param.req.user.username, param.sessionId)
+       throw new HttpException(`Hiyerarşiye saygı gösterilmiyor.`, HttpStatus.NOT_FOUND);
+
+  }
+
+  async checkRealCategory(name: string, param: any): Promise<Categories> {
+    const realCategory = await this.categoryService.isCategory(name);
+    if (!realCategory) {
+      this.history.addNewHistory({
+        status: "fault",
+        operation: "update_tender",
+
+        parameters: this.history.getParams(param),
+        result: {
+          "name": param.title,
+          newtitle: param.newtitle
+        }
+      }, param.req.user.username, param.sessionId)
+      throw new HttpException(`${messages.category.categorynotfound}:${name}`, HttpStatus.NOT_FOUND);
+    }
+    return realCategory;
+  }
+
+  async UnitIsReal(name:string,param:any){
+    const item=await this.unitService.findByName(name)
+
+    if(!item){
+        this.history.addNewHistory({
+        status: "fault",
+        operation: "update_tender",
+
+        parameters: this.history.getParams(param),
+        result: {
+          "name": param.title,
+          "newtitle": param.newtitle
+        }
+      }, param.req.user.username, param.sessionId)
+       throw new HttpException(`${messages.unit.itemunitfound}:${name}`, HttpStatus.NOT_FOUND);
+    }
+  }
+
+
+  async importFromExcel(file: string, tenderId: number, tenderHeader: TenderHeaders, user: Users, param: any): Promise<void> {
     const actualPath = file.startsWith("/cdn")
       ? join(process.cwd(), file)
       : file;
@@ -310,6 +375,8 @@ export class TenderService extends BaseService<TenderHeaders> {
     let currentCategory = new TenderCategories();
     let categories: TenderCategories[] = [];
     const items: Items[] = await this.itemService.getAllRecords();
+    let parentCategory: Categories = null;
+    let childCategory: Categories = null;
 
 
     // داده‌ها از ردیف ۵ (index 4، چون صفر-پایه‌ست) شروع می‌شن
@@ -326,7 +393,6 @@ export class TenderService extends BaseService<TenderHeaders> {
         if (currentCategory) {
           tenderHeader.tenderCategories.push(currentCategory);
         }
-
         break;
       }
 
@@ -343,9 +409,23 @@ export class TenderService extends BaseService<TenderHeaders> {
 
       const isCategory = unit === null || unit === undefined || String(unit).trim() === "";
 
-
-
       if (isCategory) {
+
+        const realCategory = await this.checkRealCategory(description,param);
+
+
+        if (!parentCategory) {
+          parentCategory = realCategory;
+        }
+        else if (!childCategory) {
+          childCategory = realCategory;
+        }
+        else {
+          parentCategory = childCategory;
+          childCategory = realCategory
+        }
+         this.checkHierarchy(parentCategory, childCategory,param)
+
         // یک کتگوری جدید -- والدش هرچی بوده مهم نیست، فقط همینو نگه می‌داریم
         currentCategory.createAt = new Date();
         currentCategory.title = description;
@@ -364,6 +444,7 @@ export class TenderService extends BaseService<TenderHeaders> {
           continue;
         }
 
+           await this.UnitIsReal(unit,param);
         const currentTenderDetails = new TenderDetails();
         currentTenderDetails.alt = row[3];
         currentTenderDetails.ana = row[2];
@@ -376,7 +457,7 @@ export class TenderService extends BaseService<TenderHeaders> {
         currentTenderDetails.demontajMontajPrice = row[14];
 
         currentTenderDetails.demontajPrice = row[13];
-        currentTenderDetails.malzemeTutari=row[17];
+        currentTenderDetails.malzemeTutari = row[17];
 
         currentTenderDetails.demontajTutari = row[19];
         currentTenderDetails.dMMTutari = row[20];

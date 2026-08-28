@@ -446,4 +446,10 @@ export class CategoryService extends BaseService<Categories> {
     async updateChildrenDepth(id: number): Promise<void> {
         await this.categoryRepository.updateChildrenDepth(id);
     }
+
+     async isCategory(name: string): Promise<Categories> {
+       return await this.categoryRepository.findByName(name);
+
+       
+    }
 }
