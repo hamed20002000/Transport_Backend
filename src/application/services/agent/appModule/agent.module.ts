@@ -9,6 +9,7 @@ import { CancellationService } from '../services/cancellation.service';
 import { FunctionCallService } from '../services/functioncall.service';
 import { CondinateService } from '../services/condinate.service';
 import { PendingConfirmationService } from '../services/PendingConfirmationService';
+import { SpeechToTextService } from '../services/Speechtotext.service';
 
 @Module({
   imports: [
@@ -23,7 +24,8 @@ import { PendingConfirmationService } from '../services/PendingConfirmationServi
     CancellationService,
     FunctionCallService,
     CondinateService,
-    PendingConfirmationService
+    PendingConfirmationService,
+    SpeechToTextService
   ],
   exports: [
     AgentSqlService,
@@ -32,7 +34,8 @@ import { PendingConfirmationService } from '../services/PendingConfirmationServi
     CancellationService,
     FunctionCallService,
     CondinateService,
-    PendingConfirmationService
+    PendingConfirmationService,
+    SpeechToTextService
   ],
 
   controllers: [AgentController],

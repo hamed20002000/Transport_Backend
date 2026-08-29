@@ -243,7 +243,7 @@ export class TenderService extends BaseService<TenderHeaders> {
         const tendername = this.toolRegister.normalizingName(param.title).trim();
         var checkTender = await this.tenderRepository.getTenderByTitle(tendername);
 
-        if (!checkTender && checkTender.length < 1) {
+        if (!checkTender || checkTender.length < 1) {
           this.history.addNewHistory({
             status: "fault",
             operation: "update_tender_record_status",
@@ -403,6 +403,8 @@ export class TenderService extends BaseService<TenderHeaders> {
       if (!description && !unit) {
         if (currentCategory) {
           tenderHeader.tenderCategories.push(structuredClone(currentCategory));
+          parentCategory=null;
+          childCategory=null;
         }
         continue;
       }

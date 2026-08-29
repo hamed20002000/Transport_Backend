@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, UseGuards, HttpException, HttpStatus, Request, Put, Delete, Req, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards, HttpException, HttpStatus, Request, Put, Delete, Req, NotFoundException, Query, UseInterceptors, UploadedFile } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { AdminRolesGuard } from 'src/auth/guards/roles.guard';
@@ -12,6 +12,9 @@ import { PromptSubmission } from 'src/application/services/agent/entities/Prompt
 import { ToolExecution } from 'src/application/services/agent/entities/ToolExecution';
 import { EmbeddingDomainTool, EmbeddingToolType, PendingAction } from 'src/application/services/agent/types';
 import { PendingConfirmationService } from 'src/application/services/agent/services/PendingConfirmationService';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { SpeechToTextService } from 'src/application/services/agent/services/Speechtotext.service';
 
 
 
@@ -22,6 +25,7 @@ export class AgentController {
     private readonly embedding: EmbeddingService,
     private readonly functionCallService: FunctionCallService,
     private readonly pendingConfirmation: PendingConfirmationService,
+    private readonly speechToTextService: SpeechToTextService,
     @InjectDataSource() private readonly dataSource: DataSource
   ) { }
 
@@ -152,6 +156,29 @@ export class AgentController {
     return true;
 
   }
+  @Get('sessions/search')
+@UseGuards(JwtAuthGuard, AdminRolesGuard)
+@ApiBearerAuth()
+async searchSessions(@Req() req: any, @Query('q') query: string) {
+    return this.functionCallService.searchUserSessions(req.user.username, query ?? "");
+}
+
+    @Post('speech/transcribe-test')
+    @UseInterceptors(
+        FileInterceptor('file', {
+            storage: diskStorage({
+                destination: './uploads/audio-temp',
+                filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
+            }),
+        })
+    )
+    async transcribeTest(@UploadedFile() file: Express.Multer.File) {
+        const startTime = Date.now();
+        const text = await this.speechToTextService.transcribeFile(file.path);
+        const elapsedMs = Date.now() - startTime;
+
+        return { text, elapsedMs };
+    }
 
 }
 

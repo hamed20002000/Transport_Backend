@@ -1,99 +1,200 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Setas Backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Backend پروژه Setas با **NestJS**، **TypeScript**، **PostgreSQL** و **TypeORM**.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://coveralls.io/github/nestjs/nest?branch=master" target="_blank"><img src="https://coveralls.io/repos/github/nestjs/nest/badge.svg?branch=master#9" alt="Coverage" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+این سرویس شامل ماژول‌های مختلفی مثل احراز هویت، مدیریت کاربران، انبار، منابع انسانی، آموزش، گزارش‌ها، نوتیفیکیشن و بخش Agent است.
 
-## Description
+## پیش‌نیازها
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- Node.js 20 یا بالاتر
+- npm 10 یا بالاتر
+- PostgreSQL 14 یا بالاتر
 
-## Project setup
+## نصب
 
 ```bash
-$ npm install
+npm install
 ```
 
-## Compile and run the project
+## تنظیمات محیطی
+
+فایل `.env` باید در ریشه پروژه وجود داشته باشد. پروژه از `ConfigModule` برای خواندن تنظیمات استفاده می‌کند.
+
+نمونه متغیرهای مهم:
+
+```env
+NODE_ENV=development
+PORT=3001
+
+DB_HOST=localhost
+DB_PORT=5432
+DB_USERNAME=postgres
+DB_PASSWORD=your_password
+DB_DATABASE=Setas
+DB_SYNCHRONIZE=false
+
+JWT_SECRET_KEY=your_jwt_secret
+JWT_EXPIRATION_TIME=64800s
+
+CORS_ORIGIN=http://localhost:3000,http://localhost:5173
+CORS_METHODS=GET,HEAD,PUT,PATCH,POST,DELETE
+CORS_CREDENTIALS=true
+
+GOOGLE_CLIENT_ID=your_google_client_id
+GOOGLE_CLIENT_SECRET=your_google_client_secret
+GOOGLE_REDIRECT_URI=http://localhost:3001/api/auth/google/callback
+API_MAIN_URL=http://localhost:3001/
+```
+
+نکته:
+
+- مقدارهای واقعی را با اطلاعات محیط خودتان جایگزین کنید.
+- `CORS_ORIGIN` می‌تواند چند دامنه با کاما جدا شود.
+- این پروژه به PostgreSQL متصل می‌شود و با `synchronize=false` طراحی شده است، پس برای محیط واقعی بهتر است migrationها را مدیریت کنید.
+
+## اجرای پروژه
+
+### حالت توسعه
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+npm run start:dev
 ```
 
-## Run tests
+### حالت عادی
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+npm run start
 ```
 
-## Deployment
+### اجرای نسخه production
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+ابتدا build بگیرید:
 
 ```bash
-$ npm install -g mau
-$ mau deploy
+npm run build
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+سپس اجرا کنید:
 
-## Resources
+```bash
+npm run start:prod
+```
 
-Check out a few resources that may come in handy when working with NestJS:
+## Build
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+```bash
+npm run build
+```
 
-## Support
+این دستور پروژه NestJS را build می‌کند و سپس فایل‌های `.env` و `package.json` را به پوشه `dist` کپی می‌کند.
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+## Swagger
 
-## Stay in touch
+بعد از اجرای پروژه، مستندات API از این مسیر در دسترس است:
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+```text
+/api-docs
+```
 
-## License
+این بخش با Basic Auth محافظت شده است.
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+- Username: `admin`
+- Password: `123qwe$%`
+
+اگر خواستید در محیط خودتان امن‌ترش کنید، این مقدارها را در کد `src/main.ts` تغییر دهید.
+
+## Database
+
+پروژه از TypeORM و PostgreSQL استفاده می‌کند.
+
+### اجرای migration
+
+دستورات TypeORM در `package.json` تعریف شده‌اند:
+
+```bash
+npm run typeorm migration:run
+```
+
+برای ساخت migration جدید:
+
+```bash
+npm run typeorm migration:generate -- -n migration_name
+```
+
+## Seed
+
+اسکریپت seed در `package.json` وجود دارد:
+
+```bash
+npm run seed
+```
+
+اما فایل seed فعلی در وضعیت فعلی پروژه کامنت شده است. اگر قصد استفاده از seed را دارید، باید محتوای فایل
+`src/infrastructure/database/seeds/seed.ts`
+را فعال یا کامل کنید.
+
+## اسکریپت‌های مفید
+
+```bash
+npm run format
+npm run lint
+npm run test
+npm run test:cov
+npm run test:e2e
+```
+
+## مسیرهای استاتیک
+
+برنامه دو مسیر استاتیک را سرو می‌کند:
+
+- `/uploads`
+- `/cdn`
+
+فایل‌های مربوطه از پوشه‌های `uploads` و `cdn` در خروجی برنامه خوانده می‌شوند.
+
+## قابلیت‌ها
+
+- احراز هویت با JWT
+- ورود گوگل
+- Swagger API Docs
+- محدودسازی درخواست‌ها با Throttler
+- WebSocket با `socket.io`
+- بارگذاری فایل
+- سرو فایل‌های استاتیک
+- ماژول Agent و ابزارهای مرتبط
+
+## مدل‌های استفاده‌شده در Agent
+
+این پروژه برای بخش Agent به مدل‌های محلی Ollama و Whisper استفاده می‌کند:
+
+- `qwen3:8b` برای chat / function calling / تصمیم‌گیری بین SQL و tool calling
+- `bge-m3:latest` برای embedding و vectorization
+- `ggml-medium.bin` برای speech-to-text در `whisper.cpp`
+
+تنظیمات مربوط به Ollama در کد به‌صورت پیش‌فرض به این آدرس اشاره می‌کنند:
+
+```text
+http://localhost:11434/api/chat
+```
+
+اگر این مدل‌ها را روی سیستم خودتان دارید با نام متفاوت اجرا می‌کنید، باید مقدارهای مربوطه را در کد یا متغیرهای محیطی هماهنگ کنید.
+
+## ساختار کلی
+
+- `src/main.ts`: نقطه شروع برنامه
+- `src/app.module.ts`: ماژول اصلی و تنظیمات دیتابیس
+- `src/auth`: منطق احراز هویت
+- `src/application/services`: سرویس‌های دامنه‌ای
+- `src/domain`: entityها، migrationها و تنظیمات دیتابیس
+- `src/infrastructure`: لایه زیرساخت و seedها
+- `src/presentation`: کنترلرها
+
+## نکات مهم
+
+- مقدارهای واقعی `.env` را در ریپازیتوری commit نکنید.
+- اگر پورت یا آدرس API تغییر کرد، `PORT` و `API_MAIN_URL` را هماهنگ کنید.
+- برای محیط production، تنظیمات CORS و secretها را حتماً بازبینی کنید.
+
+## لایسنس
+
+این پروژه private است و لایسنس عمومی برای آن تعریف نشده است.

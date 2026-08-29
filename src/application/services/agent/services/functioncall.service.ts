@@ -20,6 +20,7 @@ import { PromptSubmission } from '../entities/PromptSubmission';
 import { ToolExecution } from '../entities/ToolExecution';
 import { ContextInfo } from '../types';
 import { PendingConfirmationService } from './PendingConfirmationService';
+import { In } from 'typeorm';
 
 
 
@@ -357,19 +358,24 @@ Return JSON only, nothing else:
         return { sessionId: newSession.Id };
     }
 
+    private mapSessionToListItem(session: ConversationSession): { id: string; title: string; createdAt: Date } {
+    return {
+        id: session.Id,
+        // اگه Title دستی ست نشده بود، از اولین prompt همون session استفاده کن
+        title: session.Title || session.Submissions?.[0]?.RawPrompt?.slice(0, 50) || "Yeni Sohbet",
+        createdAt: session.CreatedAt,
+    };
+}
+
     async getUserSessions(username: string): Promise<{ id: string; title: string; createdAt: Date }[]> {
         const sessions = await this.dataSource.getRepository(ConversationSession).find({
             where: { Username: username },
             order: { CreatedAt: "DESC" },
             relations: ["Submissions"], // برای اینکه بتونیم اولین prompt رو به‌عنوان عنوان استفاده کنیم
+            take:50
         });
 
-        return sessions.map((session) => ({
-            id: session.Id,
-            // اگه Title دستی ست نشده بود، از اولین prompt همون session استفاده کن
-            title: session.Title || session.Submissions?.[0]?.RawPrompt?.slice(0, 50) || "Yeni Sohbet",
-            createdAt: session.CreatedAt,
-        }));
+         return sessions.map((session) => this.mapSessionToListItem(session));
     }
 
     /**
@@ -544,6 +550,53 @@ Return JSON only, nothing else:
             return { success: false };
         }
     }
+
+
+    /**
+ * جستجو بین session های یک کاربر -- اگه متن جستجو توی SubIntentText،
+ * Parameters یا Result یک ToolExecution پیدا بشه، session مربوطه
+ * برگردونده می‌شه (با همون فرمتی که getUserSessions می‌ده).
+ */
+async searchUserSessions(
+    username: string,
+    searchText: string
+): Promise<{ id: string; title: string; createdAt: Date }[]> {
+    const trimmed = searchText.trim();
+
+    if (!trimmed) {
+        return this.getUserSessions(username);
+    }
+
+    const likePattern = `%${trimmed}%`;
+
+    const matchingSessionIds: { sessionId: string }[] = await this.dataSource.query(
+        `SELECT DISTINCT ps."SessionId" AS "sessionId"
+         FROM "ToolExecution" te
+         INNER JOIN "PromptSubmission" ps ON ps."Id" = te."SubmissionId"
+         INNER JOIN "ConversationSession" cs ON cs."Id" = ps."SessionId"
+         WHERE cs."Username" = $1
+           AND (
+             te."SubIntentText" ILIKE $2
+             OR te."Parameters"::text ILIKE $2
+             OR te."Result"::text ILIKE $2
+           );`,
+        [username, likePattern]
+    );
+
+    if (matchingSessionIds.length === 0) {
+        return [];
+    }
+
+    const ids = matchingSessionIds.map((r) => r.sessionId);
+
+    const sessions = await this.dataSource.getRepository(ConversationSession).find({
+        where: { Id: In(ids) },
+        order: { CreatedAt: "DESC" },
+        relations: ["Submissions"],
+    });
+
+    return sessions.map((session) => this.mapSessionToListItem(session));
+}
 
 
     async RunFunctionCalling(prompt: string, req: any, files: string[], sessionId: string): Promise<void> {
