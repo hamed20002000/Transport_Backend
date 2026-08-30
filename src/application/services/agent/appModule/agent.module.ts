@@ -10,6 +10,7 @@ import { FunctionCallService } from '../services/functioncall.service';
 import { CondinateService } from '../services/condinate.service';
 import { PendingConfirmationService } from '../services/PendingConfirmationService';
 import { SpeechToTextService } from '../services/Speechtotext.service';
+import { TelegramService } from '../services/Telegram.service';
 
 @Module({
   imports: [
@@ -25,7 +26,8 @@ import { SpeechToTextService } from '../services/Speechtotext.service';
     FunctionCallService,
     CondinateService,
     PendingConfirmationService,
-    SpeechToTextService
+    SpeechToTextService,
+    TelegramService
   ],
   exports: [
     AgentSqlService,
@@ -35,7 +37,8 @@ import { SpeechToTextService } from '../services/Speechtotext.service';
     FunctionCallService,
     CondinateService,
     PendingConfirmationService,
-    SpeechToTextService
+    SpeechToTextService,
+    TelegramService
   ],
 
   controllers: [AgentController],

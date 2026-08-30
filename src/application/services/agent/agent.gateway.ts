@@ -10,6 +10,8 @@ import { Server } from 'socket.io';
 import { FunctionCallResultType } from './types';
 import { CancellationService } from './services/cancellation.service';
 import { Socket } from 'socket.io';
+import { TelegramService } from './services/Telegram.service';
+import { forwardRef, Inject } from '@nestjs/common';
 
 @WebSocketGateway({
   cors: { origin: ['http://localhost:5173'], credentials: false },
@@ -21,7 +23,9 @@ export class AgentGateway {
   @WebSocketServer()
   server: Server;
   constructor(
-    private readonly cancellation:CancellationService
+    private readonly cancellation:CancellationService,
+    @Inject(forwardRef(() => TelegramService))
+    private readonly telegramService:TelegramService
   ) {}
 
 
@@ -29,12 +33,28 @@ export class AgentGateway {
   this.server
     .to(`user:${userId}`)
     .emit('agent-tool-result', data);
+
+        const chatId = await this.telegramService.getChatIdForUsername(userId);
+    if (chatId) {
+        const text = data.result === "success"
+            ? `✅ ${data.message}`
+            : `❌ ${data.message}`;
+        await this.telegramService.sendMessageToChat(chatId, text);
+    }
 }
 
   async sendCurrentTool(userId: string, data: any) {
   this.server
     .to(`user:${userId}`)
     .emit('agent-current-tool', data);
+
+        const chatId = await this.telegramService.getChatIdForUsername(userId);
+    if (chatId) {
+        // این یک مرحله‌ی میانیه -- همون پیام رو ویرایش کن (progressbar)،
+        // نه یک پیام جدید بفرست
+        await this.telegramService.sendOrUpdateProgress(chatId, `⏳ ${data.currentOp}`);
+    }
+
 }
 
   @SubscribeMessage('cancel-execution')
@@ -78,6 +98,8 @@ export class AgentGateway {
   ) {
     client.leave(`domain:${body.domain}`);
   }
+
+
 
  
 
