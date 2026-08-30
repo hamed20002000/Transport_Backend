@@ -77,7 +77,7 @@ export class CondinateService {
     }
 
 
-    async getCondinateToolsFromDomains(
+     async getCondinateToolsFromDomains(
         prompt: string,
         domainNames: string[],
         limit: number = 15
@@ -103,7 +103,7 @@ export class CondinateService {
         return results.map((item) => item.ToolName);
     }
 
-    private async getDomainOfPreviousTool(previousToolName: string): Promise<string | null> {
+    public async getDomainOfPreviousTool(previousToolName: string): Promise<string | null> {
         const result: { DomainName: string }[] = await this.dataSource.query(
             `SELECT "DomainName" FROM "EmbeddingTool" WHERE "ToolName" = $1 LIMIT 1;`,
             [previousToolName]

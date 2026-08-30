@@ -519,6 +519,7 @@ Return JSON only, nothing else:
                 isSpecial: this.isSpecial(toolResult.toolName),
                 list: []
             });
+            this.agentGateway.broadcastDomainChange(await this.condinate.getDomainOfPreviousTool(selectedToolName),{})
 
             return { success: true };
         }

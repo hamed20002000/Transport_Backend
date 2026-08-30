@@ -43,7 +43,7 @@ export class TenderService extends BaseService<TenderHeaders> {
     private readonly history: ContextManager,
     private readonly itemService: ItemService,
     private readonly categoryService: CategoryService,
-    private readonly unitService:ItemUnitService,
+    private readonly unitService: ItemUnitService,
 
     @InjectDataSource() private readonly dataSource: DataSource
   ) {
@@ -151,11 +151,20 @@ export class TenderService extends BaseService<TenderHeaders> {
             null,
             { id: true }
           );
-          await this.importFromExcel(param.files[0], checkTenderHeader[0].id, checkTenderHeader[0], checkUser,param)
+          await this.importFromExcel(param.files[0], checkTenderHeader[0].id, checkTenderHeader[0], checkUser, param)
         }
 
         checkTenderHeader[0].title = tendernewname ?? tendername;
         var updateForceMajor = await this.update(checkTenderHeader[0]);
+
+        const malzemeTotal = this.calculateTotal(updateForceMajor.tenderCategories, "firmProcuredItemQuantities", "firmProcuredItemPrice");
+        const montajTotal = this.calculateTotal(updateForceMajor.tenderCategories, "ourProcuredItemQuantities", "montajPrice");
+        const demontajTotal = this.calculateTotal(updateForceMajor.tenderCategories, "demontaj", "demontajPrice");
+        const dmmTotal = this.calculateTotal(updateForceMajor.tenderCategories, "demontajMontaj", "demontajMontajPrice");
+
+        const grandTotal = malzemeTotal + montajTotal + demontajTotal + dmmTotal
+
+      
 
         this.history.addNewHistory({
           status: "success",
@@ -169,7 +178,8 @@ export class TenderService extends BaseService<TenderHeaders> {
         }, param.req.user.username, param.sessionId)
 
         return {
-          continuePrompt: undefined,
+          continuePrompt: `MALZEME TUTARI-TL Toplamı:${malzemeTotal} MONTAJ TUTARI-TL Toplamı:${montajTotal} DEMONTAJ TUTARI-TL Toplamı:${demontajTotal}
+DMM TUTARI-TL Toplamı:${dmmTotal} TOPLAM KEŞİF BEDELİ TL:${grandTotal}`,
           toolName: "update_tender"
         }
       }
@@ -297,7 +307,7 @@ export class TenderService extends BaseService<TenderHeaders> {
     return this.tenderRepository.updateTender(tenderDto);
   }
 
-  checkHierarchy(parent: Categories, child: Categories,param:any) {
+  checkHierarchy(parent: Categories, child: Categories, param: any) {
     if (!child) {
       return true
     }
@@ -306,17 +316,17 @@ export class TenderService extends BaseService<TenderHeaders> {
       return true;
     }
 
-     this.history.addNewHistory({
-        status: "fault",
-        operation: "update_tender",
+    this.history.addNewHistory({
+      status: "fault",
+      operation: "update_tender",
 
-        parameters: this.history.getParams(param),
-        result: {
-          "name": param.title,
-          newtitle: param.newtitle
-        }
-      }, param.req.user.username, param.sessionId)
-       throw new HttpException(`Hiyerarşiye saygı gösterilmiyor.`, HttpStatus.NOT_FOUND);
+      parameters: this.history.getParams(param),
+      result: {
+        "name": param.title,
+        newtitle: param.newtitle
+      }
+    }, param.req.user.username, param.sessionId)
+    throw new HttpException(`Hiyerarşiye saygı gösterilmiyor.`, HttpStatus.NOT_FOUND);
 
   }
 
@@ -338,11 +348,11 @@ export class TenderService extends BaseService<TenderHeaders> {
     return realCategory;
   }
 
-  async UnitIsReal(name:string,param:any){
-    const item=await this.unitService.findByName(name)
+  async UnitIsReal(name: string, param: any) {
+    const item = await this.unitService.findByName(name)
 
-    if(!item){
-        this.history.addNewHistory({
+    if (!item) {
+      this.history.addNewHistory({
         status: "fault",
         operation: "update_tender",
 
@@ -352,10 +362,27 @@ export class TenderService extends BaseService<TenderHeaders> {
           "newtitle": param.newtitle
         }
       }, param.req.user.username, param.sessionId)
-       throw new HttpException(`${messages.unit.itemunitfound}:${name}`, HttpStatus.NOT_FOUND);
+      throw new HttpException(`${messages.unit.itemunitfound}:${name}`, HttpStatus.NOT_FOUND);
     }
   }
 
+  toNumber(value: string | number | null | undefined): number {
+    if (value == null) return 0;
+    if (typeof value === "number") return value;
+    return Number(value.replaceAll(",", ".")) || 0;
+  }
+
+  calculateTotal<T>(
+    categories: CategoryWithDetails<T>[],
+    quantityField: keyof T,
+    priceField: keyof T
+  ): number {
+    return categories
+      .flatMap((category) => category.tenderDetails)
+      .reduce((sum, detail) => {
+        return sum + this.toNumber(detail[quantityField] as any) * this.toNumber(detail[priceField] as any);
+      }, 0);
+  }
 
   async importFromExcel(file: string, tenderId: number, tenderHeader: TenderHeaders, user: Users, param: any): Promise<void> {
     const actualPath = file.startsWith("/cdn")
@@ -403,8 +430,8 @@ export class TenderService extends BaseService<TenderHeaders> {
       if (!description && !unit) {
         if (currentCategory) {
           tenderHeader.tenderCategories.push(structuredClone(currentCategory));
-          parentCategory=null;
-          childCategory=null;
+          parentCategory = null;
+          childCategory = null;
         }
         continue;
       }
@@ -413,7 +440,7 @@ export class TenderService extends BaseService<TenderHeaders> {
 
       if (isCategory) {
 
-        const realCategory = await this.checkRealCategory(description,param);
+        const realCategory = await this.checkRealCategory(description, param);
 
 
         if (!parentCategory) {
@@ -426,7 +453,7 @@ export class TenderService extends BaseService<TenderHeaders> {
           parentCategory = childCategory;
           childCategory = realCategory
         }
-         this.checkHierarchy(parentCategory, childCategory,param)
+        this.checkHierarchy(parentCategory, childCategory, param)
 
         // یک کتگوری جدید -- والدش هرچی بوده مهم نیست، فقط همینو نگه می‌داریم
         currentCategory.createAt = new Date();
@@ -446,7 +473,7 @@ export class TenderService extends BaseService<TenderHeaders> {
           continue;
         }
 
-           await this.UnitIsReal(unit,param);
+        await this.UnitIsReal(unit, param);
         const currentTenderDetails = new TenderDetails();
         currentTenderDetails.alt = row[3];
         currentTenderDetails.ana = row[2];

@@ -1,5 +1,6 @@
 import {
   ConnectedSocket,
+  MessageBody,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
@@ -43,6 +44,42 @@ export class AgentGateway {
       this.cancellation.cancel(userId);
     }
   }
+
+
+
+   /**
+   * پیام رو به همه‌ی کلاینت‌هایی که عضو یک domain خاصن (نه یک کاربر
+   * مشخص) می‌فرسته -- این همون جایگزین "Pusher trigger" هست.
+   */
+  async broadcastDomainChange(domain: string, data: any) {
+    this.server.to(`domain:${domain}`).emit('domain-changed', data);
+  }
+
+    /**
+     * کلاینت وقتی وارد یک صفحه‌ی لیست می‌شه (مثلاً صفحه‌ی tender ها)،
+     * این event رو می‌فرسته تا عضو اون اتاق بشه.
+     */
+    @SubscribeMessage('subscribe-domain')
+    handleSubscribeDomain(
+      @ConnectedSocket() client: Socket,
+      @MessageBody() body: { domain: string }
+    ) {
+      client.join(`domain:${body.domain}`);
+    }
+
+      /**
+   * وقتی کاربر از اون صفحه خارج می‌شه، باید عضویتش رو لغو کنه --
+   * تا پیام‌های بی‌ربط بهش نرسه
+   */
+  @SubscribeMessage('unsubscribe-domain')
+  handleUnsubscribeDomain(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { domain: string }
+  ) {
+    client.leave(`domain:${body.domain}`);
+  }
+
+ 
 
 
 
