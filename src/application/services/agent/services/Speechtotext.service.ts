@@ -19,25 +19,37 @@ export class SpeechToTextService {
     }
 
     async transcribeFile(audioFilePath: string): Promise<string> {
-        // قدم ۱: هر فرمتی که کلاینت فرستاده (webm, m4a, ...) رو به WAV
-        // استاندارد (16kHz mono) تبدیل کن -- چون whisper.cpp با webm
-        // ممکنه بدون خطا ولی با خروجی خالی اجرا بشه
-        const wavPath = audioFilePath.replace(/\.[^/.]+$/, '.wav');
+        let wavPath = audioFilePath;
 
-        const convertCommand = `ffmpeg -y -i "${audioFilePath}" -ar 16000 -ac 1 -c:a pcm_s16le "${wavPath}"`;
-        this.logger.debug(`تبدیل فرمت: ${convertCommand}`);
+        // اگه فایل از قبل WAV نیست (مثلاً webm/m4a از کلاینت وب)، تبدیلش کن.
+        // اگه از قبل WAV بود (مثلاً از TelegramService که خودش قبلاً تبدیل
+        // کرده)، این مرحله رو کامل رد کن -- وگرنه ورودی/خروجی ffmpeg یکی
+        // می‌شن و خطای "cannot edit existing files in-place" می‌گیریم.
+        if (!audioFilePath.toLowerCase().endsWith('.wav')) {
+            // به‌جای صرفاً جایگزینی پسوند، یک پسوند مجزا اضافه می‌کنیم تا
+            // هیچ‌وقت با ورودی برخورد نکنه (حتی اگه فرمت‌های عجیب دیگه‌ای
+            // هم بیان)
+            const convertedPath = audioFilePath.replace(/\.[^/.]+$/, '') + '-converted.wav';
 
-        try {
-            const { stderr: convertStderr } = await execAsync(convertCommand);
-            if (convertStderr) {
-                this.logger.debug(`ffmpeg stderr: ${convertStderr}`);
+            const convertCommand = `ffmpeg -y -i "${audioFilePath}" -ar 16000 -ac 1 -c:a pcm_s16le "${convertedPath}"`;
+            this.logger.debug(`تبدیل فرمت: ${convertCommand}`);
+
+            try {
+                const { stderr: convertStderr } = await execAsync(convertCommand);
+                if (convertStderr) {
+                    this.logger.debug(`ffmpeg stderr: ${convertStderr}`);
+                }
+            } catch (error: any) {
+                this.logger.error(`خطای تبدیل فرمت با ffmpeg: ${error.message}`);
+                throw error;
             }
-        } catch (error: any) {
-            this.logger.error(`خطای تبدیل فرمت با ffmpeg: ${error.message}`);
-            throw error;
+
+            wavPath = convertedPath;
+        } else {
+            this.logger.debug(`فایل از قبل WAV هست، تبدیل رد شد: ${audioFilePath}`);
         }
 
-        // قدم ۲: حالا whisper-cli رو روی فایل WAV تبدیل‌شده اجرا کن
+        // قدم ۲: حالا whisper-cli رو روی فایل WAV اجرا کن
         const threads = this.getThreadCount();
         const transcribeCommand = `${this.whisperBinaryPath} -m ${this.modelPath} -f "${wavPath}" -l tr -t ${threads} --no-timestamps`;
         this.logger.debug(`دستور تبدیل صدا به متن: ${transcribeCommand}`);

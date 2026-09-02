@@ -63,7 +63,7 @@ export type ExtracteToolsType = {
 
 export type ToolHandlerType = {
     functionName: string,
-    handler: (params: any) => Promise<any>;
+    handler: (params: any) => Promise<any>|AsyncGenerator<any,any,any>;
 }
 
 
@@ -79,6 +79,12 @@ export type RequestResult = {
     toolName: string;
     continuePrompt: string;
 }
+
+export type ExecuteToolResultType={
+    isGenerator: boolean;
+    generator?: AsyncGenerator<any, any, any>;
+    result?: RequestResult;
+}
 export type FunctionCallResultType = {
     result: "error" | "success" | "cancelled"|"confirm_required",
     message: string,
@@ -87,7 +93,11 @@ export type FunctionCallResultType = {
     toolName: string,
     lastsegment: boolean,
     isSpecial: boolean,
-    list: any[]
+    isGenerator?:boolean,
+    generatorType?:string,
+    data?:any,
+    list: any[],
+    source?:"telegram"|"web"|"whatsapp"
 }
 
 export type EmbeddingToolType = {
@@ -115,9 +125,25 @@ export type RunFinalStepType = {
 export interface PendingAction {
         subIntent: string,
         selectedToolName: string,
+        selectedTool?: { functionName: string; parameters: any },
         submission: { Id: string },
         req: any,
         files: string[],
         sessionId: string,
         isLastSegment: boolean
+        remainingSegments: string[], 
+        resumeIndex:number,                
+        controller:AbortController
+}
+
+export type PendingGeneratorType={
+    toolName: string;
+    subIntent: string;
+    sessionId: string;
+    submissionId: string;
+    selectedTool: { functionName: string; parameters: any };
+    req: any;
+    files: string[];
+    resumeIndex: number;
+    remainingSegments: string[];
 }

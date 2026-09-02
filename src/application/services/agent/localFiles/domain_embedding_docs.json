@@ -38,5 +38,9 @@
   {
     "domain_name": "tender",
     "embedding_text": "İhale duyuruları, teklif süreçleri ve ihale sonuçlarıyla ilgili bilgiler. Firma teklifleri ve ihale takvimi de buraya dahildir."
+  },
+  {
+    "domain_name": "work",
+    "embedding_text": "Bir ihaleye bağlı olarak yürütülen işler. İşin başlığı, ilişkili olduğu ihale ve başlangıç-bitiş tarihleri buraya dahildir."
   }
 ]

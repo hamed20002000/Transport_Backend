@@ -352,8 +352,6 @@ export class InitialOperationsController {
         work.recordStatus = recordStatus.Active;
         work.user = checkUser;
 
-
-
         const createdWork = await this.workService.add(work);
         return createdWork;
     }

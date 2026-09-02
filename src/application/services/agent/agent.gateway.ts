@@ -12,6 +12,7 @@ import { CancellationService } from './services/cancellation.service';
 import { Socket } from 'socket.io';
 import { TelegramService } from './services/Telegram.service';
 import { forwardRef, Inject } from '@nestjs/common';
+import { FunctionCallService } from './services/functioncall.service';
 
 @WebSocketGateway({
   cors: { origin: ['http://localhost:5173'], credentials: false },
@@ -25,8 +26,14 @@ export class AgentGateway {
   constructor(
     private readonly cancellation:CancellationService,
     @Inject(forwardRef(() => TelegramService))
-    private readonly telegramService:TelegramService
+    private readonly telegramService:TelegramService,
+    @Inject(forwardRef(() => FunctionCallService))
+    private readonly functionCallService:FunctionCallService
   ) {}
+
+
+   totalSegments = 4;
+   currentSegment=0;
 
 
   async sendToolResult(userId: string, data: FunctionCallResultType) {
@@ -34,12 +41,17 @@ export class AgentGateway {
     .to(`user:${userId}`)
     .emit('agent-tool-result', data);
 
-        const chatId = await this.telegramService.getChatIdForUsername(userId);
+    if(this.functionCallService.source=="web") return;
+
+      const chatId = await this.telegramService.getChatIdForUsername(userId);
     if (chatId) {
         const text = data.result === "success"
             ? `✅ ${data.message}`
             : `❌ ${data.message}`;
-        await this.telegramService.sendMessageToChat(chatId, text);
+       await this.telegramService.sendOrUpdateProgress(chatId, `⏳ ${text}`,++this.currentSegment,this.totalSegments);
+
+        //await this.telegramService.sendMessageToChat(chatId, text);
+        this.currentSegment=0;
     }
 }
 
@@ -52,7 +64,7 @@ export class AgentGateway {
     if (chatId) {
         // این یک مرحله‌ی میانیه -- همون پیام رو ویرایش کن (progressbar)،
         // نه یک پیام جدید بفرست
-        await this.telegramService.sendOrUpdateProgress(chatId, `⏳ ${data.currentOp}`);
+        await this.telegramService.sendOrUpdateProgress(chatId, `⏳ ${data.currentOp}`,++this.currentSegment,this.totalSegments);
     }
 
 }

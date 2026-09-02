@@ -47,7 +47,7 @@ export class RegionService extends BaseService<Regions> {
                         result: {
                             errorMessage: messages.region.nameisrequired
                         }
-                    }, param.req.user.username,param.sessionId)
+                    }, param.req.user.username, param.sessionId)
                     throw new HttpException(messages.region.nameisrequired, HttpStatus.BAD_REQUEST);
                 }
 
@@ -63,26 +63,6 @@ export class RegionService extends BaseService<Regions> {
                 );
 
                 const regionDto = new CreateRegionDto();
-                var parentSpecification = new RegionSpecification(this.toolRegister.normalizingName(param.parentname).trim());
-                var parentCheckRegion = await this.getWithSpecification(parentSpecification);
-
-                regionDto.name = this.toolRegister.normalizingName(param.name)
-                if (param.parentname != "" && param.parentname != undefined) {
-                    if (checkRegion.length < 1) {
-                        this.history.addNewHistory({
-                            status: "fault",
-                            operation: "create_region",
-                            parameters: this.history.getParams(param),
-                            result: {
-                                errorMessage: messages.region.parentnamenotfound
-                            }
-                        }, param.req.user.username,param.sessionId)
-                        throw new HttpException(messages.region.parentnamenotfound, HttpStatus.BAD_REQUEST);
-                    }
-
-                    regionDto.parentId = parentCheckRegion[0].id;
-                }
-
                 var specification = new RegionSpecification(regionDto.name.trim());
                 var checkRegion = await this.getWithSpecification(specification);
                 if (checkRegion.length > 0) {
@@ -93,9 +73,34 @@ export class RegionService extends BaseService<Regions> {
                         result: {
                             errorMessage: messages.region.regionalreadyexists
                         }
-                    }, param.req.user.username,param.sessionId)
+                    }, param.req.user.username, param.sessionId)
                     throw new HttpException(messages.region.regionalreadyexists, HttpStatus.BAD_REQUEST);
                 }
+
+                if (param.parentname != "" && param.parentname != undefined) {
+                    var parentSpecification = new RegionSpecification(this.toolRegister.normalizingName(param.parentname).trim());
+                    var parentCheckRegion = await this.getWithSpecification(parentSpecification);
+
+                    if (parentCheckRegion.length < 1) {
+                        this.history.addNewHistory({
+                            status: "fault",
+                            operation: "create_region",
+                            parameters: this.history.getParams(param),
+                            result: {
+                                errorMessage: messages.region.parentnamenotfound
+                            }
+                        }, param.req.user.username, param.sessionId)
+                        throw new HttpException(messages.region.parentnamenotfound, HttpStatus.BAD_REQUEST);
+                    }
+
+                    regionDto.parentId = parentCheckRegion[0].id;
+                }
+
+
+                regionDto.name = this.toolRegister.normalizingName(param.name)
+
+
+
                 var region = GenericMapper.toEntity(Regions, regionDto);
                 region.name = regionDto.name.trim();
                 region.depth = 0;
@@ -105,8 +110,7 @@ export class RegionService extends BaseService<Regions> {
                 if (regionDto.parentId) {
 
                     region.depth = parentCheckRegion[0].depth + 1;
-                    region.parent = new Regions();
-                    region.parent.id = regionDto.parentId;
+                    region.parent = parentCheckRegion[0]
                 } else {
                     region.parent = null;
                     region.depth = 0;
@@ -122,7 +126,7 @@ export class RegionService extends BaseService<Regions> {
                         "name": param.name,
                         "parentid": region.parent.id.toString()
                     }
-                }, param.req.user.username,param.sessionId)
+                }, param.req.user.username, param.sessionId)
 
                 return {
                     continuePrompt: undefined,
@@ -137,6 +141,9 @@ export class RegionService extends BaseService<Regions> {
         this.toolRegister.register({
             functionName: "update_region",
             handler: async (param: any): Promise<RequestResult> => {
+
+
+                //#region ----------------- check param.name sended or not ---
                 if (param.name == undefined || param.name.replaceAll(" ", "") == "") {
                     this.history.addNewHistory({
                         status: "fault",
@@ -145,13 +152,17 @@ export class RegionService extends BaseService<Regions> {
                         result: {
                             errorMessage: messages.region.nameisrequired
                         }
-                    }, param.req.user.username,param.sessionId)
+                    }, param.req.user.username, param.sessionId)
                     throw new HttpException(messages.region.nameisrequired, HttpStatus.BAD_REQUEST);
                 }
+                //#endregion ----------------- check param.name sended or not ---
 
 
+                const regionName = this.toolRegister.normalizingName(param.name).trim();
+                const newparentname=param.newparentname;
 
-                var specification = new RegionSpecification(this.toolRegister.normalizingName(param.name).trim());
+                //#region ----------------- check param.name is valid ---
+                var specification = new RegionSpecification(regionName);
                 var checkRegion = await this.getWithSpecification(specification);
                 if (checkRegion.length > 0) {
                     this.history.addNewHistory({
@@ -161,16 +172,18 @@ export class RegionService extends BaseService<Regions> {
                         result: {
                             errorMessage: messages.region.notfound
                         }
-                    }, param.req.user.username,param.sessionId)
+                    }, param.req.user.username, param.sessionId)
                     throw new HttpException(messages.region.notfound, HttpStatus.BAD_REQUEST);
                 }
+                //#endregion --------------------------------------------------
 
+
+                //#region ------------------ check newname dont exist ----
                 const regionDto = new UpdateRegionDto();
-                const regionName = this.toolRegister.normalizingName(param.name);
                 regionDto.newname = this.toolRegister.normalizingName(param.newname)?.trim() ?? checkRegion[0].name;
                 regionDto.parentId = checkRegion[0].parent.id;
                 if (param.newname != null && param.newname != undefined) {
-                    var updatespecification = new RegionUpdateSpecification(regionDto.newname.trim(), regionDto.id);
+                    var updatespecification = new RegionSpecification(regionDto.newname);
                     var checkRegionForUpdate = await this.getWithSpecification(updatespecification);
                     if (checkRegionForUpdate.length > 0) {
 
@@ -181,47 +194,50 @@ export class RegionService extends BaseService<Regions> {
                             result: {
                                 errorMessage: messages.region.regionalreadyexists
                             }
-                        }, param.req.user.username,param.sessionId)
+                        }, param.req.user.username, param.sessionId)
 
 
                         throw new HttpException(messages.region.regionalreadyexists, HttpStatus.BAD_REQUEST);
                     }
                 }
+                //#endregion ---------------------------------------------------
+                
                 let oldDepth = checkRegion[0].depth;
 
-                if (regionDto.parentId !== undefined && regionDto.parentId !== null) {
-                    var parentRegion = await this.getById(regionDto.parentId);
-                    if (parentRegion == null) {
-                        throw new HttpException("The parent region not found", HttpStatus.NOT_FOUND);
-                    }
-                    checkRegion[0].depth = parentRegion.depth + 1;
-                    if (!checkRegion[0].parent) {
-                        checkRegion[0].parent = new Regions();
-                    }
-                    checkRegion[0].parent.id = regionDto.parentId;
-                } else {
-                    checkRegion[0].depth = 0;
-                    checkRegion[0].parent = null;
-                }
+                //#region ------------------- check  newparent exist? ----------
+                  if(newparentname != undefined && newparentname != null && newparentname != ""){
 
-                // If depth changed, update all children recursively
-                if (checkRegion[0].depth !== oldDepth) {
-                    const updateChildrenDepth = async (parent: Regions, parentDepth: number) => {
-                        if (parent.regions && parent.regions.length > 0) {
-                            for (const child of parent.regions) {
-                                child.depth = parentDepth + 1;
-                                await this.update(child);
-                                await updateChildrenDepth(child, child.depth);
+                      var parentSpecification = new RegionSpecification(this.toolRegister.normalizingName(newparentname).trim());
+                    var parentCheckRegion = await this.getWithSpecification(parentSpecification);
+
+                    if (parentCheckRegion.length < 1) {
+                        this.history.addNewHistory({
+                            status: "fault",
+                            operation: "update_region",
+                            parameters: this.history.getParams(param),
+                            result: {
+                                errorMessage: messages.region.parentnamenotfound
                             }
-                        }
-                    };
-                    // update child depth
-                    this.updateChildrenDepth(regionDto.id);
+                        }, param.req.user.username, param.sessionId)
+                        throw new HttpException(messages.region.parentnamenotfound, HttpStatus.BAD_REQUEST);
+                    }
+                    checkRegion[0].depth = parentCheckRegion[0].depth + 1;
+                    regionDto.parentId = parentCheckRegion[0].id;
+                      
+                  }
+                  //#endregion ---------------------------------------------------------
 
-                }
+               
+
+           
 
                 var updateRegion = await this.update(checkRegion[0]);
 
+                if (checkRegion[0].depth !== oldDepth) {
+                
+                    this.updateChildrenDepth(checkRegion[0].id);
+
+                }
 
 
                 this.history.addNewHistory({
@@ -231,9 +247,9 @@ export class RegionService extends BaseService<Regions> {
                     result: {
                         "id": updateRegion.id.toString(),
                         "name": param.newName,
-                        "parentid": regionDto.parentId.toString(),
+                        "parentid": updateRegion.parent.id.toString(),
                     }
-                }, param.req.user.username,param.sessionId)
+                }, param.req.user.username, param.sessionId)
 
                 return {
                     continuePrompt: undefined,
@@ -255,7 +271,7 @@ export class RegionService extends BaseService<Regions> {
                         result: {
                             errorMessage: messages.region.nameisrequired
                         }
-                    }, param.req.user.username,param.sessionId)
+                    }, param.req.user.username, param.sessionId)
                     throw new HttpException(messages.region.nameisrequired, HttpStatus.BAD_REQUEST);
                 }
 
@@ -271,7 +287,7 @@ export class RegionService extends BaseService<Regions> {
                         result: {
                             errorMessage: messages.region.notfound
                         }
-                    }, param.req.user.username,param.sessionId)
+                    }, param.req.user.username, param.sessionId)
                     throw new HttpException(messages.region.notfound, HttpStatus.BAD_REQUEST);
                 }
 
@@ -284,7 +300,7 @@ export class RegionService extends BaseService<Regions> {
                         "id": checkRegion[0].id.toString(),
                         "name": deleteProductname,
                     }
-                }, param.req.user.username,param.sessionId)
+                }, param.req.user.username, param.sessionId)
 
 
                 return {
@@ -299,7 +315,7 @@ export class RegionService extends BaseService<Regions> {
         this.toolRegister.register({
             functionName: "update_region_record_status",
             handler: async (param: any): Promise<RequestResult> => {
-                         if (param.name == undefined || param.name.replaceAll(" ", "") == "") {
+                if (param.name == undefined || param.name.replaceAll(" ", "") == "") {
                     this.history.addNewHistory({
                         status: "fault",
                         operation: "update_region_record_status",
@@ -307,13 +323,13 @@ export class RegionService extends BaseService<Regions> {
                         result: {
                             errorMessage: messages.region.nameisrequired
                         }
-                    }, param.req.user.username,param.sessionId)
+                    }, param.req.user.username, param.sessionId)
                     throw new HttpException(messages.region.nameisrequired, HttpStatus.BAD_REQUEST);
                 }
 
                 var specification = new RegionSpecification(this.toolRegister.normalizingName(param.name).trim());
                 var checkRegion = await this.getWithSpecification(specification);
-                if (checkRegion.length <1) {
+                if (checkRegion.length < 1) {
                     this.history.addNewHistory({
                         status: "fault",
                         operation: "update_region_record_status",
@@ -321,11 +337,11 @@ export class RegionService extends BaseService<Regions> {
                         result: {
                             errorMessage: messages.region.notfound
                         }
-                    }, param.req.user.username,param.sessionId)
+                    }, param.req.user.username, param.sessionId)
                     throw new HttpException(messages.region.notfound, HttpStatus.BAD_REQUEST);
                 }
 
-                checkRegion[0].recordStatus = param.recordstatus??checkRegion[0].recordStatus;
+                checkRegion[0].recordStatus = param.recordstatus ?? checkRegion[0].recordStatus;
                 var updateRegion = await this.update(checkRegion[0]);
                 this.history.addNewHistory({
                     status: "success",
@@ -336,7 +352,7 @@ export class RegionService extends BaseService<Regions> {
                         "name": checkRegion[0].name,
                         "recordstatus": checkRegion[0].recordStatus.toString(),
                     }
-                }, param.req.user.username,param.sessionId)
+                }, param.req.user.username, param.sessionId)
 
                 return {
                     continuePrompt: undefined,
@@ -345,68 +361,68 @@ export class RegionService extends BaseService<Regions> {
             }
         })
 
-          this.toolRegister.register({
-            functionName: "change_region_parent",
-            handler: async (param: any): Promise<RequestResult> => {
-                         if (param.name == undefined || param.name.replaceAll(" ", "") == "") {
-                    this.history.addNewHistory({
-                        status: "fault",
-                        operation: "change_region_parent",
-                        parameters: this.history.getParams(param),
-                        result: {
-                            errorMessage: messages.region.nameisrequired
-                        }
-                    }, param.req.user.username,param.sessionId)
-                    throw new HttpException(messages.region.nameisrequired, HttpStatus.BAD_REQUEST);
-                }
+        // this.toolRegister.register({
+        //     functionName: "change_region_parent",
+        //     handler: async (param: any): Promise<RequestResult> => {
+        //         if (param.name == undefined || param.name.replaceAll(" ", "") == "") {
+        //             this.history.addNewHistory({
+        //                 status: "fault",
+        //                 operation: "change_region_parent",
+        //                 parameters: this.history.getParams(param),
+        //                 result: {
+        //                     errorMessage: messages.region.nameisrequired
+        //                 }
+        //             }, param.req.user.username, param.sessionId)
+        //             throw new HttpException(messages.region.nameisrequired, HttpStatus.BAD_REQUEST);
+        //         }
 
-                var specification = new RegionSpecification(this.toolRegister.normalizingName(param.name).trim());
-                var checkRegion = await this.getWithSpecification(specification);
-                if (checkRegion.length <1) {
-                    this.history.addNewHistory({
-                        status: "fault",
-                        operation: "change_region_parent",
-                        parameters: this.history.getParams(param),
-                        result: {
-                            errorMessage: messages.region.notfound
-                        }
-                    }, param.req.user.username,param.sessionId)
-                    throw new HttpException(messages.region.notfound, HttpStatus.BAD_REQUEST);
-                }
+        //         var specification = new RegionSpecification(this.toolRegister.normalizingName(param.name).trim());
+        //         var checkRegion = await this.getWithSpecification(specification);
+        //         if (checkRegion.length < 1) {
+        //             this.history.addNewHistory({
+        //                 status: "fault",
+        //                 operation: "change_region_parent",
+        //                 parameters: this.history.getParams(param),
+        //                 result: {
+        //                     errorMessage: messages.region.notfound
+        //                 }
+        //             }, param.req.user.username, param.sessionId)
+        //             throw new HttpException(messages.region.notfound, HttpStatus.BAD_REQUEST);
+        //         }
 
-                    var specification = new RegionSpecification(this.toolRegister.normalizingName(param.parentname).trim());
-                var parentcheckRegion = await this.getWithSpecification(specification);
-                if (parentcheckRegion.length <1) {
-                    this.history.addNewHistory({
-                        status: "fault",
-                        operation: "change_region_parent",
-                        parameters: this.history.getParams(param),
-                        result: {
-                            errorMessage: messages.region.parentnamenotfound
-                        }
-                    }, param.req.user.username,param.sessionId)
-                    throw new HttpException(messages.region.parentnamenotfound, HttpStatus.BAD_REQUEST);
-                }
+        //         var specification = new RegionSpecification(this.toolRegister.normalizingName(param.parentname).trim());
+        //         var parentcheckRegion = await this.getWithSpecification(specification);
+        //         if (parentcheckRegion.length < 1) {
+        //             this.history.addNewHistory({
+        //                 status: "fault",
+        //                 operation: "change_region_parent",
+        //                 parameters: this.history.getParams(param),
+        //                 result: {
+        //                     errorMessage: messages.region.parentnamenotfound
+        //                 }
+        //             }, param.req.user.username, param.sessionId)
+        //             throw new HttpException(messages.region.parentnamenotfound, HttpStatus.BAD_REQUEST);
+        //         }
 
-                checkRegion[0].parent = parentcheckRegion[0];
-                var updateRegion = await this.update(checkRegion[0]);
-                this.history.addNewHistory({
-                    status: "success",
-                    operation: "change_region_parent",
-                    parameters: this.history.getParams(param),
-                    result: {
-                        "id": updateRegion.id.toString(),
-                        "name": checkRegion[0].name,
-                        "parentname":parentcheckRegion[0].name
-                    }
-                }, param.req.user.username,param.sessionId)
+        //         checkRegion[0].parent = parentcheckRegion[0];
+        //         var updateRegion = await this.update(checkRegion[0]);
+        //         this.history.addNewHistory({
+        //             status: "success",
+        //             operation: "change_region_parent",
+        //             parameters: this.history.getParams(param),
+        //             result: {
+        //                 "id": updateRegion.id.toString(),
+        //                 "name": checkRegion[0].name,
+        //                 "parentname": parentcheckRegion[0].name
+        //             }
+        //         }, param.req.user.username, param.sessionId)
 
-                return {
-                    continuePrompt: undefined,
-                    toolName: "change_region_parent"
-                }
-            }
-        })
+        //         return {
+        //             continuePrompt: undefined,
+        //             toolName: "change_region_parent"
+        //         }
+        //     }
+        // })
 
     }
 

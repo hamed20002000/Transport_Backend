@@ -4,7 +4,7 @@ import { ToolHandlerType } from "./types";
 @Injectable()
 export class ToolRegister {
 
-    private toolHandlers = new Map<string, (params: any,) => Promise<any>>();
+    private toolHandlers = new Map<string, (params: any,) => Promise<any>|AsyncGenerator<any,any,any>>();
 
     public register(item: ToolHandlerType) {
         this.toolHandlers.set(

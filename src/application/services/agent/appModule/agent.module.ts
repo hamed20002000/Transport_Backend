@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { AgentSqlService } from '../services/agentSql.service';
 import { AgentToolsService } from '../services/agentTools.service';
 import { ToolRegisterModule } from './toolregister.module';
@@ -11,10 +11,17 @@ import { CondinateService } from '../services/condinate.service';
 import { PendingConfirmationService } from '../services/PendingConfirmationService';
 import { SpeechToTextService } from '../services/Speechtotext.service';
 import { TelegramService } from '../services/Telegram.service';
+import { UserService } from '../../user/user.service';
+import { UserModule } from '../../user/appModuls/user.module';
+import { AuthService } from 'src/auth/auth.service';
+import { AuthModule } from 'src/auth/auth.module';
+import { WhatsappService } from '../services/whatsapp.service';
 
 @Module({
   imports: [
     ToolRegisterModule,
+    forwardRef(() => UserModule),
+      forwardRef(() => AuthModule), 
   ],
 
   providers: [
@@ -27,7 +34,9 @@ import { TelegramService } from '../services/Telegram.service';
     CondinateService,
     PendingConfirmationService,
     SpeechToTextService,
-    TelegramService
+    TelegramService,
+    UserService,
+    //WhatsappService
   ],
   exports: [
     AgentSqlService,
@@ -38,7 +47,9 @@ import { TelegramService } from '../services/Telegram.service';
     CondinateService,
     PendingConfirmationService,
     SpeechToTextService,
-    TelegramService
+    TelegramService,
+    UserService,
+   // WhatsappService
   ],
 
   controllers: [AgentController],

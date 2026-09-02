@@ -87,6 +87,8 @@ export class UserRepository extends BaseRepository<Users> {
       return await this.repository.findOne({where:{username}})
     }
   
-
+   async validateCredentials(username: string,password:string): Promise<Users> {
+      return await this.repository.findOne({where:{username,password}})
+    }
 
 }

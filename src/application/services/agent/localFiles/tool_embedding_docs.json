@@ -140,6 +140,26 @@
     "domain_name": "product_type"
   },
   {
+    "tool_name": "create_region",
+    "embedding_text": "Henüz kayıtlı olmayan yeni bir bölge açar. Bölge, isteğe bağlı olarak üst bir bölgenin alt bölgesi şeklinde de tanımlanabilir.",
+    "domain_name": "region"
+  },
+  {
+    "tool_name": "update_region",
+    "embedding_text": "Var olan bir bölgenin adını veya bağlı olduğu üst bölgeyi değiştirir. Bölge zaten mevcuttur, sadece bilgileri güncellenir.",
+    "domain_name": "region"
+  },
+  {
+    "tool_name": "delete_region",
+    "embedding_text": "Var olan bir bölgeyi kalıcı olarak kaldırır. Bölge artık kayıtlarda bulunmaz.",
+    "domain_name": "region"
+  },
+  {
+    "tool_name": "update_region_record_status",
+    "embedding_text": "Var olan bir bölgeyi kullanıma açık veya kapalı hale getirir. Bölge silinmez, yalnızca durumu değişir.",
+    "domain_name": "region"
+  },
+  {
     "tool_name": "create_supplier",
     "embedding_text": "Henüz kayıtlı olmayan yeni bir tedarikçi veya firmayı, bağlı olduğu bölgeyle birlikte sisteme dahil eder.",
     "domain_name": "provider"
@@ -198,5 +218,10 @@
     "tool_name": "update_tender_record_status",
     "embedding_text": "Var olan bir ihaleyi kullanıma açık veya kapalı hale getirir. İhale silinmez, yalnızca durumu değişir.",
     "domain_name": "tender"
+  },
+  {
+    "tool_name": "create_work",
+    "embedding_text": "Henüz kayıtlı olmayan yeni bir iş kaydı açar. İşin başlığı, bağlı olduğu ihale ve başlangıç tarihi belirtilerek oluşturulur.",
+    "domain_name": "work"
   }
 ]

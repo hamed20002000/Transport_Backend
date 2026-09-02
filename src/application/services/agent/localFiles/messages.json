@@ -66,8 +66,11 @@
     "tender":{
         "nameisrequired":"İhale adı gereklidir.",
         "notfound":"İhale bulunamadı!"
-
- 
+    },
+    "work":{
+        "nameisrequired":"İş adı gereklidir.",
+        "tendernameisrequired":"İhale adı gereklidir.",
+        "startdaterequired":"Başlangıç tarihi gereklidir."
     }
 
 }

@@ -14,7 +14,7 @@ import tables from 'src/agent/tables.json';
 import schema from 'src/application/services/agent/schema.json';
 import { extractRelations } from '../extractRelations';
 import tools from 'src/application/services/agent/localFiles/tools.json';
-import { CondinateToolsTyes, ExtracteToolsType } from '../types';
+import { CondinateToolsTyes, ExecuteToolResultType, ExtracteToolsType } from '../types';
 import { ToolRegister } from '../toolRegister';
 import { RequestResult } from '../types';
 
@@ -29,7 +29,7 @@ export class AgentToolsService {
     }
 
     async extractSelectedTool(prompt: string, condinateTools: string[], history: string): Promise<string> {
-    const systemRules = `
+        const systemRules = `
 You are a tool selection agent.
 
 IMPORTANT CONTEXT: The message you receive has already been segmented
@@ -77,12 +77,12 @@ ${history.length === 0 ? "empty" : history}
 
 Tool schemas:
 ${JSON.stringify(
-        tools.tools.filter((item) => {
-            if (condinateTools.find((condic) => condic == item.name) != undefined) {
-                return item;
-            }
-        })
-    )}
+            tools.tools.filter((item) => {
+                if (condinateTools.find((condic) => condic == item.name) != undefined) {
+                    return item;
+                }
+            })
+        )}
 
 Output format:
 
@@ -93,44 +93,44 @@ Output format:
 Return JSON only.
 `;
 
-     const ollamareq: ChatRequest = {
-        model: "qwen3:8b",
-        messages: [
-            {
-                role: 'system',
-                content: systemRules
-            },
-            {
-                role: "user",
-                content: prompt
-            }],
-        stream: false,
-    }
-
-    const resp = await axios.post(
-        "http://localhost:11434/api/chat",
-        JSON.stringify({
-            ...ollamareq,
-            format: {
-                type: "object",
-                properties: {
-                    functionName: {
-                        type: "string"
-                    }
+        const ollamareq: ChatRequest = {
+            model: "qwen3:8b",
+            messages: [
+                {
+                    role: 'system',
+                    content: systemRules
                 },
-                required: ["functionName"]
-            }
-        }),
-        {
-            headers: {
-                "Content-Type": "application/json",
+                {
+                    role: "user",
+                    content: prompt
+                }],
+            stream: false,
+        }
+
+        const resp = await axios.post(
+            "http://localhost:11434/api/chat",
+            JSON.stringify({
+                ...ollamareq,
+                format: {
+                    type: "object",
+                    properties: {
+                        functionName: {
+                            type: "string"
+                        }
+                    },
+                    required: ["functionName"]
+                }
+            }),
+            {
+                headers: {
+                    "Content-Type": "application/json",
+                },
             },
-        },
-    );
+        );
 
-    const result = JSON.parse(resp.data.message.content);
+        const result = JSON.parse(resp.data.message.content);
 
-    return result.functionName;
+        return result.functionName;
 
 
     }
@@ -349,31 +349,60 @@ ${JSON.stringify(
     }
 
 
-    async executeTool(toolName: string, parameter: any, req: any,sessionId:string): Promise<RequestResult> {
+    // async executeTool(toolName: string, parameter: any, req: any,sessionId:string): Promise<ExecuteToolResultType> {
 
-         try{
+    //      try{
 
-                 const currentDomain: { DomainName: string }[] = await this.dataSource.query(
-            `SELECT "DomainName" FROM "EmbeddingTool" WHERE "ToolName" = $1 LIMIT 1;`,
-            [toolName]
-        );
-
-            
-              const result = await this.toolRegister.execute(toolName, { ...parameter, req,toolDomain:currentDomain.length > 0 ? currentDomain[0].DomainName : null,sessionId });
-
-              return result;
+    //              const currentDomain: { DomainName: string }[] = await this.dataSource.query(
+    //         `SELECT "DomainName" FROM "EmbeddingTool" WHERE "ToolName" = $1 LIMIT 1;`,
+    //         [toolName]
+    //     );
 
 
-         }
-         catch(error:any){
-        throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
+    //           const result = await this.toolRegister.execute(toolName, { ...parameter, req,toolDomain:currentDomain.length > 0 ? currentDomain[0].DomainName : null,sessionId });
 
-         }
+    //           return result;
 
 
+    //      }
+    //      catch(error:any){
+    //     throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
 
+    //      }
+    // }
 
+    async executeTool(toolName: string, parameter: any, req: any, sessionId: string): Promise<{
+        isGenerator: boolean;
+        generator?: AsyncGenerator<any, any, any>;
+        result?: RequestResult;
+    }> {
+        try {
+            const currentDomain: { DomainName: string }[] = await this.dataSource.query(
+                `SELECT "DomainName" FROM "EmbeddingTool" WHERE "ToolName" = $1 LIMIT 1;`,
+                [toolName]
+            );
 
+            const result = await this.toolRegister.execute(toolName, {
+                ...parameter,
+                req,
+                toolDomain: currentDomain.length > 0 ? currentDomain[0].DomainName : null,
+                sessionId
+            });
 
+            // تشخیص: آیا این چیزی که برگشته یک AsyncGenerator زنده‌ست
+            // (یعنی handler خودش generator بوده)، یا یک نتیجه‌ی نهایی
+            // معمولی؟ معیار دقیق: آیا Symbol.asyncIterator داره یا نه --
+            // این همون چیزیه که یک AsyncGenerator رو مشخص می‌کنه.
+            const isGenerator = result != null && typeof result[Symbol.asyncIterator] === 'function';
+
+            if (isGenerator) {
+                return { isGenerator: true, generator: result };
+            }
+
+            return { isGenerator: false, result };
+        }
+        catch (error: any) {
+            throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
+        }
     }
 }

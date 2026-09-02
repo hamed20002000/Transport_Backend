@@ -48,8 +48,8 @@ export class UserService extends BaseService<Users> {
     private readonly passwordService: PasswordService,
     private readonly toolRtegister: ToolRegister,
     private readonly roleService: RoleService,
-    private readonly history:ContextManager
-    
+    private readonly history: ContextManager
+
 
   ) {
     super(userRepository);
@@ -63,26 +63,26 @@ export class UserService extends BaseService<Users> {
         const createUserDto = new registerUserDto();
 
         if (param.username == "" || param.username == null) {
-                    this.history.addNewHistory({
-            status:"fault",
-            operation:"create_user",
-            parameters:this.history.getParams(param),
-            result:{
-              errorMessage:message.user.usernamerequired
+          this.history.addNewHistory({
+            status: "fault",
+            operation: "create_user",
+            parameters: this.history.getParams(param),
+            result: {
+              errorMessage: message.user.usernamerequired
             }
-          },param.req.user.username,param.sessionId)
+          }, param.req.user.username, param.sessionId)
 
           throw new HttpException(message.user.usernamerequired, HttpStatus.BAD_REQUEST);
         }
         if (param.password == "" || param.password == null) {
-           this.history.addNewHistory({
-            status:"fault",
-            operation:"create_user",
-            parameters:this.history.getParams(param),
-            result:{
-              errorMessage:message.user.passwordrequired
+          this.history.addNewHistory({
+            status: "fault",
+            operation: "create_user",
+            parameters: this.history.getParams(param),
+            result: {
+              errorMessage: message.user.passwordrequired
             }
-          },param.req.user.username,param.sessionId)
+          }, param.req.user.username, param.sessionId)
           throw new HttpException(message.user.passwordrequired, HttpStatus.BAD_REQUEST);
         }
         createUserDto.username = param.username;
@@ -103,13 +103,13 @@ export class UserService extends BaseService<Users> {
         if (checkUser.length > 0) {
           if (checkUser[0].username == createUserDto.username) {
             this.history.addNewHistory({
-            status:"fault",
-            operation:"create_user",
-            parameters:this.history.getParams(param),
-            result:{
-              errorMessage:message.user.Theusenameexists
-            }
-          },param.req.user.username,param.sessionId)
+              status: "fault",
+              operation: "create_user",
+              parameters: this.history.getParams(param),
+              result: {
+                errorMessage: message.user.Theusenameexists
+              }
+            }, param.req.user.username, param.sessionId)
             throw new HttpException(message.user.Theusenameexists, HttpStatus.BAD_REQUEST);
           }
         }
@@ -127,14 +127,14 @@ export class UserService extends BaseService<Users> {
           select: ['id', 'name'],
         });
         if (roles.length !== createUserDto.roleNames.length) {
-            this.history.addNewHistory({
-            status:"fault",
-            operation:"create_user",
-            parameters:this.history.getParams(param),
-            result:{
-              errorMessage:message.user.Somerolesnotfound
+          this.history.addNewHistory({
+            status: "fault",
+            operation: "create_user",
+            parameters: this.history.getParams(param),
+            result: {
+              errorMessage: message.user.Somerolesnotfound
             }
-          },param.req.user.username,param.sessionId)
+          }, param.req.user.username, param.sessionId)
           throw new HttpException(message.user.Somerolesnotfound, HttpStatus.BAD_REQUEST);
         }
 
@@ -142,24 +142,24 @@ export class UserService extends BaseService<Users> {
 
         var response_result = GenericMapper.toDto(UserDto, createResult, { excludeExtraneousValues: true });
 
-                this.history.addNewHistory({
-          status:"success",
-          operation:"create_user",
-          parameters:this.history.getParams(param),
-          result:{
-            "id":createResult.id.toString(),
-            "username":createResult.username,
-            "password":createResult.password,
-            "createAt":createResult.createAt.toString(),
-            "recordStatus":createResult.recordStatus.toString(),
-            "roles":createResult.userRoles.join(",")
+        this.history.addNewHistory({
+          status: "success",
+          operation: "create_user",
+          parameters: this.history.getParams(param),
+          result: {
+            "id": createResult.id.toString(),
+            "username": createResult.username,
+            "password": createResult.password,
+            "createAt": createResult.createAt.toString(),
+            "recordStatus": createResult.recordStatus.toString(),
+            "roles": createResult.userRoles.join(",")
           }
-        },param.req.user.username,param.sessionId)
+        }, param.req.user.username, param.sessionId)
 
 
-          return {
-          continuePrompt:undefined,
-          toolName:"create_user"
+        return {
+          continuePrompt: undefined,
+          toolName: "create_user"
         };
       }
     })
@@ -170,13 +170,13 @@ export class UserService extends BaseService<Users> {
       handler: async (param: any): Promise<RequestResult> => {
         if (param.username == "" || param.username == null) {
           this.history.addNewHistory({
-            status:"fault",
-            operation:"update_user",
-            parameters:this.history.getParams(param),
-            result:{
-              errorMessage:message.user.usernamerequired
+            status: "fault",
+            operation: "update_user",
+            parameters: this.history.getParams(param),
+            result: {
+              errorMessage: message.user.usernamerequired
             }
-          },param.req.user.username,param.sessionId)
+          }, param.req.user.username, param.sessionId)
           throw new HttpException(message.user.usernamerequired, HttpStatus.BAD_REQUEST);
         }
         const dto = new UserUpdateDto();
@@ -187,13 +187,13 @@ export class UserService extends BaseService<Users> {
         var user = await this.userRepository.getByUserName(param.username);
         if (!user) {
           this.history.addNewHistory({
-            status:"fault",
-            operation:"update_user",
-            parameters:this.history.getParams(param),
-            result:{
-              errorMessage:message.user.Usernotfound
+            status: "fault",
+            operation: "update_user",
+            parameters: this.history.getParams(param),
+            result: {
+              errorMessage: message.user.Usernotfound
             }
-          },param.req.user.username,param.sessionId)
+          }, param.req.user.username, param.sessionId)
 
           throw new HttpException(message.user.Usernotfound, HttpStatus.NOT_FOUND);
         }
@@ -203,23 +203,23 @@ export class UserService extends BaseService<Users> {
         var updatedUser = await this.update(user);
         var result = GenericMapper.toDto(UserDto, updatedUser, { excludeExtraneousValues: true });
 
-                        this.history.addNewHistory({
-          status:"success",
-          operation:"update_user",
-          parameters:this.history.getParams(param),
-          result:{
-            "id":updatedUser.id.toString(),
-            "username":updatedUser.username,
-            "password":updatedUser.password,
-            "createAt":updatedUser.createAt.toString(),
-            "recordStatus":updatedUser.recordStatus.toString(),
-            "roles":updatedUser.roles.join(",")
+        this.history.addNewHistory({
+          status: "success",
+          operation: "update_user",
+          parameters: this.history.getParams(param),
+          result: {
+            "id": updatedUser.id.toString(),
+            "username": updatedUser.username,
+            "password": updatedUser.password,
+            "createAt": updatedUser.createAt.toString(),
+            "recordStatus": updatedUser.recordStatus.toString(),
+            "roles": updatedUser.roles.join(",")
           }
-        },param.req.user.username,param.sessionId)
+        }, param.req.user.username, param.sessionId)
 
-           return {
-          continuePrompt:undefined,
-          toolName:"update_user"
+        return {
+          continuePrompt: undefined,
+          toolName: "update_user"
         };
       }
     })
@@ -229,14 +229,14 @@ export class UserService extends BaseService<Users> {
       functionName: "update_user_record_status",
       handler: async (param: any): Promise<RequestResult> => {
         if (param.username == "" || param.username == null) {
-           this.history.addNewHistory({
-            status:"fault",
-            operation:"update_user_record_status",
-            parameters:this.history.getParams(param),
-            result:{
-              errorMessage:message.user.usernamerequired
+          this.history.addNewHistory({
+            status: "fault",
+            operation: "update_user_record_status",
+            parameters: this.history.getParams(param),
+            result: {
+              errorMessage: message.user.usernamerequired
             }
-          },param.req.user.username,param.sessionId)
+          }, param.req.user.username, param.sessionId)
           throw new HttpException(message.user.usernamerequired, HttpStatus.BAD_REQUEST);
         }
         const dto = new UserUpdateDto();
@@ -244,14 +244,14 @@ export class UserService extends BaseService<Users> {
 
         var user = await this.userRepository.getByUserName(param.username);
         if (!user) {
-           this.history.addNewHistory({
-            status:"fault",
-            operation:"update_user_record_status",
-            parameters:this.history.getParams(param),
-            result:{
-              errorMessage:message.user.Usernotfound
+          this.history.addNewHistory({
+            status: "fault",
+            operation: "update_user_record_status",
+            parameters: this.history.getParams(param),
+            result: {
+              errorMessage: message.user.Usernotfound
             }
-          },param.req.user.username,param.sessionId)
+          }, param.req.user.username, param.sessionId)
           throw new HttpException(message.user.Usernotfound, HttpStatus.NOT_FOUND);
         }
         user.recordStatus = dto.recordStatus ?? user.recordStatus;
@@ -259,23 +259,23 @@ export class UserService extends BaseService<Users> {
         var result = GenericMapper.toDto(UserDto, updatedUser, { excludeExtraneousValues: true });
 
         this.history.addNewHistory({
-          status:"success",
-          operation:"update_user_record_status",
-          parameters:this.history.getParams(param),
-          result:{
-            "id":updatedUser.id.toString(),
-            "username":updatedUser.username,
-            "password":updatedUser.password,
-            "createAt":updatedUser.createAt.toString(),
-            "recordStatus":updatedUser.recordStatus.toString(),
+          status: "success",
+          operation: "update_user_record_status",
+          parameters: this.history.getParams(param),
+          result: {
+            "id": updatedUser.id.toString(),
+            "username": updatedUser.username,
+            "password": updatedUser.password,
+            "createAt": updatedUser.createAt.toString(),
+            "recordStatus": updatedUser.recordStatus.toString(),
           }
-        },param.req.user.username,param.sessionId)
+        }, param.req.user.username, param.sessionId)
 
 
 
-           return {
-          continuePrompt:undefined,
-          toolName:"update_user_record_status"
+        return {
+          continuePrompt: undefined,
+          toolName: "update_user_record_status"
         };
       }
     })
@@ -285,13 +285,13 @@ export class UserService extends BaseService<Users> {
       handler: async (param: any): Promise<RequestResult> => {
         if (param.username == "" || param.username == null) {
           this.history.addNewHistory({
-            status:"fault",
-            operation:"update_user",
-            parameters:this.history.getParams(param),
-            result:{
-              errorMessage:message.user.usernamerequired
+            status: "fault",
+            operation: "update_user",
+            parameters: this.history.getParams(param),
+            result: {
+              errorMessage: message.user.usernamerequired
             }
-          },param.req.user.username,param.sessionId)
+          }, param.req.user.username, param.sessionId)
           throw new HttpException(message.user.usernamerequired, HttpStatus.BAD_REQUEST);
         }
         const dto = new UserUpdateDto();
@@ -299,29 +299,29 @@ export class UserService extends BaseService<Users> {
         var user = await this.userRepository.getByUserName(param.username);
         if (!user) {
           this.history.addNewHistory({
-            status:"fault",
-            operation:"update_user",
-            parameters:this.history.getParams(param),
-            result:{
-              errorMessage:message.user.Usernotfound
+            status: "fault",
+            operation: "update_user",
+            parameters: this.history.getParams(param),
+            result: {
+              errorMessage: message.user.Usernotfound
             }
-          },param.req.user.username,param.sessionId)
+          }, param.req.user.username, param.sessionId)
           throw new HttpException(message.user.Usernotfound, HttpStatus.NOT_FOUND);
         }
         var updatedUser = await this.deleteUserWithRoles(user.id);
         var result = GenericMapper.toDto(UserDto, updatedUser, { excludeExtraneousValues: true });
 
         this.history.addNewHistory({
-          status:"success",
-          operation:"delete_user",
-          parameters:this.history.getParams(param),
-          result:{
-            "id":user.id.toString()
+          status: "success",
+          operation: "delete_user",
+          parameters: this.history.getParams(param),
+          result: {
+            "id": user.id.toString()
           }
-        },param.req.user.username,param.sessionId)
-         return {
-          continuePrompt:undefined,
-          toolName:"delete_user"
+        }, param.req.user.username, param.sessionId)
+        return {
+          continuePrompt: undefined,
+          toolName: "delete_user"
         };
       }
     })
@@ -330,14 +330,14 @@ export class UserService extends BaseService<Users> {
       functionName: "change-user-password",
       handler: async (param: any): Promise<RequestResult> => {
         if (param.username == "" || param.username == null) {
-           this.history.addNewHistory({
-            status:"fault",
-            operation:"change-user-password",
-            parameters:this.history.getParams(param),
-            result:{
-              errorMessage:message.user.usernamerequired
+          this.history.addNewHistory({
+            status: "fault",
+            operation: "change-user-password",
+            parameters: this.history.getParams(param),
+            result: {
+              errorMessage: message.user.usernamerequired
             }
-          },param.req.user.username,param.sessionId)
+          }, param.req.user.username, param.sessionId)
           throw new HttpException(message.user.usernamerequired, HttpStatus.BAD_REQUEST);
         }
         const dto = new changePasswordDto();
@@ -349,14 +349,14 @@ export class UserService extends BaseService<Users> {
           { id: true, username: true, password: true });
         if (checkUser.length < 1) {
 
-           this.history.addNewHistory({
-            status:"fault",
-            operation:"change-user-password",
-            parameters:this.history.getParams(param),
-            result:{
-              errorMessage:message.user.Usernotfound
+          this.history.addNewHistory({
+            status: "fault",
+            operation: "change-user-password",
+            parameters: this.history.getParams(param),
+            result: {
+              errorMessage: message.user.Usernotfound
             }
-          },param.req.user.username,param.sessionId)
+          }, param.req.user.username, param.sessionId)
 
           throw new HttpException(message.user.Usernotfound, HttpStatus.NOT_FOUND);
         }
@@ -364,13 +364,13 @@ export class UserService extends BaseService<Users> {
         var checkPass = await this.passwordService.comparePasswords(dto.currentPassword, checkUser[0].password);
         if (!checkPass) {
           this.history.addNewHistory({
-            status:"fault",
-            operation:"change-user-password",
-            parameters:this.history.getParams(param),
-            result:{
-              errorMessage:message.user.passwordisincorrect
+            status: "fault",
+            operation: "change-user-password",
+            parameters: this.history.getParams(param),
+            result: {
+              errorMessage: message.user.passwordisincorrect
             }
-          },param.req.user.username,param.sessionId)
+          }, param.req.user.username, param.sessionId)
           throw new HttpException(message.user.passwordisincorrect, HttpStatus.BAD_REQUEST);
         }
         var user = checkUser[0];
@@ -380,24 +380,24 @@ export class UserService extends BaseService<Users> {
         var createResult = await this.update(user);
 
         var response_result = GenericMapper.toDto(UserDto, createResult, { excludeExtraneousValues: true });
-         
-                this.history.addNewHistory({
-          status:"success",
-          operation:"change-user-password",
-          parameters:this.history.getParams(param),
-          result:{
-            "id":createResult.id.toString(),
-            "username":createResult.username,
-            "password":createResult.password,
-            "createAt":createResult.createAt.toString(),
-            "recordStatus":createResult.recordStatus.toString(),
-            "roles":createResult.roles.join(",")
+
+        this.history.addNewHistory({
+          status: "success",
+          operation: "change-user-password",
+          parameters: this.history.getParams(param),
+          result: {
+            "id": createResult.id.toString(),
+            "username": createResult.username,
+            "password": createResult.password,
+            "createAt": createResult.createAt.toString(),
+            "recordStatus": createResult.recordStatus.toString(),
+            "roles": createResult.roles.join(",")
           }
-        },param.req.user.username,param.sessionId)
+        }, param.req.user.username, param.sessionId)
 
         return {
-          continuePrompt:undefined,
-          toolName:"change-user-password"
+          continuePrompt: undefined,
+          toolName: "change-user-password"
         };
       }
     })
@@ -407,102 +407,102 @@ export class UserService extends BaseService<Users> {
       functionName: "assign-user-roles",
       handler: async (param: any): Promise<RequestResult> => {
         if (param.username == "" || param.username == null) {
-                     this.history.addNewHistory({
-            status:"fault",
-            operation:"assign-user-roles",
-            parameters:this.history.getParams(param),
-            result:{
-              errorMessage:message.user.usernamerequired
+          this.history.addNewHistory({
+            status: "fault",
+            operation: "assign-user-roles",
+            parameters: this.history.getParams(param),
+            result: {
+              errorMessage: message.user.usernamerequired
             }
-          },param.req.user.username,param.sessionId)
+          }, param.req.user.username, param.sessionId)
 
           throw new HttpException(message.user.usernamerequired, HttpStatus.BAD_REQUEST);
         }
         const dto = new CreateUserRolesDto();
 
 
-          const current_user = param.req.user;
-          const user_specification = new UsernameSpecification(current_user.username);
-          const checkUser = await this.getWithSpecification(user_specification, null, { id: true });
-          if (!checkUser || checkUser.length === 0) {
+        const current_user = param.req.user;
+        const user_specification = new UsernameSpecification(current_user.username);
+        const checkUser = await this.getWithSpecification(user_specification, null, { id: true });
+        if (!checkUser || checkUser.length === 0) {
 
-             this.history.addNewHistory({
-            status:"fault",
-            operation:"assign-user-roles",
-            parameters:this.history.getParams(param),
-            result:{
-              errorMessage:message.user.Usernotfound
+          this.history.addNewHistory({
+            status: "fault",
+            operation: "assign-user-roles",
+            parameters: this.history.getParams(param),
+            result: {
+              errorMessage: message.user.Usernotfound
             }
-          },param.req.user.username,param.sessionId)
+          }, param.req.user.username, param.sessionId)
 
 
-            throw new HttpException(message.user.Usernotfound, HttpStatus.NOT_FOUND);
-          }
-      
-      
-      
-          const user =  await this.userRepository.getByUserName(param.username);
-          if (!user) {
-            this.history.addNewHistory({
-            status:"fault",
-            operation:"assign-user-roles",
-            parameters:this.history.getParams(param),
-            result:{
-              errorMessage:message.user.Usernotfound
+          throw new HttpException(message.user.Usernotfound, HttpStatus.NOT_FOUND);
+        }
+
+
+
+        const user = await this.userRepository.getByUserName(param.username);
+        if (!user) {
+          this.history.addNewHistory({
+            status: "fault",
+            operation: "assign-user-roles",
+            parameters: this.history.getParams(param),
+            result: {
+              errorMessage: message.user.Usernotfound
             }
-          },param.req.user.username,param.sessionId)
-            throw new HttpException(message.user.Usernotfound, HttpStatus.NOT_FOUND);
-          }
-      
-      
-          const roles = await this.roleService.getWithSpecification(
-            new RoleIdsSpecification(dto.roleIds)
-          );
-          if (!roles || roles.length !== dto.roleIds.length) {
-            this.history.addNewHistory({
-            status:"fault",
-            operation:"assign-user-roles",
-            parameters:this.history.getParams(param),
-            result:{
-              errorMessage:message.user.Somerolesnotfound
+          }, param.req.user.username, param.sessionId)
+          throw new HttpException(message.user.Usernotfound, HttpStatus.NOT_FOUND);
+        }
+
+
+        const roles = await this.roleService.getWithSpecification(
+          new RoleIdsSpecification(dto.roleIds)
+        );
+        if (!roles || roles.length !== dto.roleIds.length) {
+          this.history.addNewHistory({
+            status: "fault",
+            operation: "assign-user-roles",
+            parameters: this.history.getParams(param),
+            result: {
+              errorMessage: message.user.Somerolesnotfound
             }
-          },param.req.user.username,param.sessionId)
-            throw new HttpException(message.user.Somerolesnotfound, HttpStatus.BAD_REQUEST);
-          }
-      
-          // ساخت RoleSystemOperations برای هر operation
-          const items: UserRoles[] = [];
-          for (const op of roles) {
-            const item = new UserRoles();
-            item.assigendUser = user;
-            item.role = op;
-            item.user = checkUser[0];
-            item.createAt = new Date();
-            item.recordStatus = recordStatus.Active;
-            items.push(item);
-          }
-      
-      
-          await this.assignRolesToUser(items);
-      
-          const userWithOperations = await this.getUserWithRoleAndOperations(user.id);
-      
-          const result = GenericMapper.toDto(UserDto, userWithOperations, { excludeExtraneousValues: true });
-        
-         this.history.addNewHistory({
-          status:"success",
-          operation:"assign-user-roles",
-          parameters:this.history.getParams(param),
-          result:{
-            "id":user.id.toString(),
-            "roles":items.join(",")
-          }
-        },param.req.user.username,param.sessionId)
+          }, param.req.user.username, param.sessionId)
+          throw new HttpException(message.user.Somerolesnotfound, HttpStatus.BAD_REQUEST);
+        }
+
+        // ساخت RoleSystemOperations برای هر operation
+        const items: UserRoles[] = [];
+        for (const op of roles) {
+          const item = new UserRoles();
+          item.assigendUser = user;
+          item.role = op;
+          item.user = checkUser[0];
+          item.createAt = new Date();
+          item.recordStatus = recordStatus.Active;
+          items.push(item);
+        }
 
 
-          return {
-          continuePrompt:undefined,
-          toolName:"assign-user-roles"
+        await this.assignRolesToUser(items);
+
+        const userWithOperations = await this.getUserWithRoleAndOperations(user.id);
+
+        const result = GenericMapper.toDto(UserDto, userWithOperations, { excludeExtraneousValues: true });
+
+        this.history.addNewHistory({
+          status: "success",
+          operation: "assign-user-roles",
+          parameters: this.history.getParams(param),
+          result: {
+            "id": user.id.toString(),
+            "roles": items.join(",")
+          }
+        }, param.req.user.username, param.sessionId)
+
+
+        return {
+          continuePrompt: undefined,
+          toolName: "assign-user-roles"
         };
       }
     })
@@ -553,4 +553,15 @@ export class UserService extends BaseService<Users> {
   async deleteUserWithRoles(userId: string): Promise<void> {
     this.userRepository.deleteUserWithRoles(userId);
   }
+  async getByUserName(username: string): Promise<Users> {
+    return await this.userRepository.getByUserName(username);
+  }
+    async getByUserId(userid: string): Promise<Users> {
+    return await this.userRepository.findByStringId(userid);
+  }
+
+    async validateCredentials(username: string,password:string): Promise<Users> {
+    return await this.userRepository.validateCredentials(username,password);
+  }
+
 }

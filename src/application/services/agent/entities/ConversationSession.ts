@@ -10,9 +10,9 @@ export class ConversationSession {
     @PrimaryGeneratedColumn("uuid")
     Id: string;
 
-    @Column("varchar", { name: "Username" })
+    @Column("varchar", { name: "Userid" })
     @Index()
-    Username: string;
+    Userid: string;
 
     @Column("varchar", { name: "Title", nullable: true })
     Title: string;

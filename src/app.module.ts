@@ -111,6 +111,8 @@ import { ContextManagerModule } from './application/services/agent/appModule/con
 import { ConversationSession } from './application/services/agent/entities/ConversationSession';
 import { PromptSubmission } from './application/services/agent/entities/PromptSubmission';
 import { ToolExecution } from './application/services/agent/entities/ToolExecution';
+import { TelegramLink } from './application/services/agent/entities/TelegramLink';
+import { TelegramLinkCode } from './application/services/agent/entities/TelegramLinkCode';
 
 @Module({
   imports: [
@@ -157,7 +159,8 @@ import { ToolExecution } from './application/services/agent/entities/ToolExecuti
         StoreReceiptNos,StoreDispatchNo,ProjectPlanningImplementationDates,SystemNotifications,Requests,RequestStatusHistories,ConsignmentNos,
         WorkhouseRents,WorkhouseRentStatusHistories,CourseDateTimes,CommiteMembers,ConfirmationProjectReport,
         ConfirmationReportCommiteMember,ConfirmationReportCommiteMemberAnswer,PersonnelSalary,NotificationLists,
-        RoleNotificationLists,UserNotificationLists,ConversationSession,PromptSubmission,ToolExecution
+        RoleNotificationLists,UserNotificationLists,ConversationSession,PromptSubmission,ToolExecution,TelegramLink,
+        TelegramLinkCode
        ],
         migrations: ['domain/migrations/*.ts'],
           migrationsRun: false,   

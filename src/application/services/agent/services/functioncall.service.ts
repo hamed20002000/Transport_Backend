@@ -18,7 +18,7 @@ import { CancellationService } from './cancellation.service';
 import { ConversationSession } from '../entities/ConversationSession';
 import { PromptSubmission } from '../entities/PromptSubmission';
 import { ToolExecution } from '../entities/ToolExecution';
-import { ContextInfo } from '../types';
+import { ContextInfo, PendingGeneratorType } from '../types';
 import { PendingConfirmationService } from './PendingConfirmationService';
 import { In } from 'typeorm';
 
@@ -33,12 +33,15 @@ export class FunctionCallService {
         private readonly agentToolsService: AgentToolsService,
         private readonly history: ContextManager,
         private readonly cancellation: CancellationService,
-        private readonly pendingConfirmationService:PendingConfirmationService,
+        private readonly pendingConfirmationService: PendingConfirmationService,
 
         @InjectDataSource() private readonly dataSource: DataSource
     ) {
 
     }
+
+    private pendingGenerators = new Map<string,{generator: AsyncGenerator<any, any, any>; context: PendingGeneratorType}>();
+    public source:"telegram"|"whatsapp"|"web"="web"
 
     async extractSchema(prompt: string): Promise<string> {
 
@@ -331,13 +334,13 @@ Return JSON only, nothing else:
 
         return segments;
     }
-    async createNewSession(username: string): Promise<{ sessionId: string }> {
+    async createNewSession(userid: string): Promise<{ sessionId: string }> {
         const sessionRepo = this.dataSource.getRepository(ConversationSession);
         const submissionRepo = this.dataSource.getRepository(PromptSubmission);
 
         // آخرین session این کاربر رو پیدا کن (اگه از قبل وجود داشته باشه)
         const lastSession = await sessionRepo.findOne({
-            where: { Username: username },
+            where: { Userid: userid },
             order: { CreatedAt: "DESC" },
         });
 
@@ -347,35 +350,35 @@ Return JSON only, nothing else:
             });
 
             if (submissionCount === 0) {
-                // این session هنوز هیچ prompt ای نگرفته -- همینو برگردون،
+                // این session هنوز هیچ prompt ای نگرفته -- همینو برگردون，
                 // یک ردیف جدید و خالی دیگه نساز
                 return { sessionId: lastSession.Id };
             }
         }
 
         // یا اصلاً session ای وجود نداشت، یا آخرین session قبلاً واقعاً استفاده شده
-        const newSession = await sessionRepo.save({ Username: username });
+        const newSession = await sessionRepo.save({ Userid: userid });
         return { sessionId: newSession.Id };
     }
 
     private mapSessionToListItem(session: ConversationSession): { id: string; title: string; createdAt: Date } {
-    return {
-        id: session.Id,
-        // اگه Title دستی ست نشده بود، از اولین prompt همون session استفاده کن
-        title: session.Title || session.Submissions?.[0]?.RawPrompt?.slice(0, 50) || "Yeni Sohbet",
-        createdAt: session.CreatedAt,
-    };
-}
+        return {
+            id: session.Id,
+            // اگه Title دستی ست نشده بود، از اولین prompt همون session استفاده کن
+            title: session.Title || session.Submissions?.[0]?.RawPrompt?.slice(0, 50) || "Yeni Sohbet",
+            createdAt: session.CreatedAt,
+        };
+    }
 
-    async getUserSessions(username: string): Promise<{ id: string; title: string; createdAt: Date }[]> {
+    async getUserSessions(userid: string): Promise<{ id: string; title: string; createdAt: Date }[]> {
         const sessions = await this.dataSource.getRepository(ConversationSession).find({
-            where: { Username: username },
+            where: { Userid: userid },
             order: { CreatedAt: "DESC" },
             relations: ["Submissions"], // برای اینکه بتونیم اولین prompt رو به‌عنوان عنوان استفاده کنیم
-            take:50
+            take: 50
         });
 
-         return sessions.map((session) => this.mapSessionToListItem(session));
+        return sessions.map((session) => this.mapSessionToListItem(session));
     }
 
     /**
@@ -383,7 +386,7 @@ Return JSON only, nothing else:
    */
     async getSessionPrompts(
         sessionId: string,
-        username: string
+        userid: string
     ): Promise<{ id: string; text: string; submittedAt: Date }[]> {
         // اول مالکیت رو چک کن -- دقیقاً همون منطق امنیتی که قبلاً توی
         // RunFunctionCalling نوشتیم
@@ -391,7 +394,7 @@ Return JSON only, nothing else:
             where: { Id: sessionId },
         });
 
-        if (!session || session.Username !== username) {
+        if (!session || session.Userid !== userid) {
             throw new Error("Bu oturuma erişim yetkiniz yok.");
         }
 
@@ -412,13 +415,13 @@ Return JSON only, nothing else:
      */
     async getSessionExecutions(
         sessionId: string,
-        username: string
+        userid: string
     ): Promise<any[]> {
         const session = await this.dataSource.getRepository(ConversationSession).findOne({
             where: { Id: sessionId },
         });
 
-        if (!session || session.Username !== username) {
+        if (!session || session.Userid !== userid) {
             throw new Error("Bu oturuma erişim yetkiniz yok.");
         }
 
@@ -468,12 +471,15 @@ Return JSON only, nothing else:
     async runFinalStep(
         subIntent: string,
         selectedToolName: string,
+        selectedTool: { functionName: string; parameters: any },
         submission: { Id: string },
         req: any,
         files: string[],
         sessionId: string,
-        isLastSegment: boolean
-    ): Promise<{ success: boolean }> {
+        isLastSegment: boolean,
+        remainingSegments: string[],
+        resumeIndex: number
+    ): Promise<{ success: boolean; paused?: boolean}> {
         const userId = req.user.userid;
         const username = req.user.username;
 
@@ -482,14 +488,32 @@ Return JSON only, nothing else:
                 currentOp: socketMapping[selectedToolName]
             });
 
-            const selectedTool = await this.agentToolsService.extractTools(subIntent, selectedToolName, this.history.getHistory(0, username, sessionId) as string);
 
-            const toolResult = await this.agentToolsService.executeTool(
+
+
+            const execResult = await this.agentToolsService.executeTool(
                 selectedTool.functionName,
                 { ...selectedTool.parameters, files },
                 req,
                 sessionId
             );
+
+               if (execResult.isGenerator) {
+                return await this.driveHandler(execResult.generator!, {
+                toolName: selectedToolName,
+                 selectedTool:selectedTool,
+                subIntent,
+                sessionId,
+                submissionId: submission.Id,
+                req,
+                files,
+                resumeIndex,
+                remainingSegments,
+            });
+        }
+ const toolResult = execResult.result!;
+
+
 
             // قدم ۲: بعد از اجرای موفق، یک ToolExecution وصل به همون submission ذخیره کن
             await this.dataSource.getRepository(ToolExecution).save({
@@ -519,7 +543,7 @@ Return JSON only, nothing else:
                 isSpecial: this.isSpecial(toolResult.toolName),
                 list: []
             });
-            this.agentGateway.broadcastDomainChange(await this.condinate.getDomainOfPreviousTool(selectedToolName),{})
+            this.agentGateway.broadcastDomainChange(await this.condinate.getDomainOfPreviousTool(selectedToolName), {})
 
             return { success: true };
         }
@@ -552,26 +576,120 @@ Return JSON only, nothing else:
         }
     }
 
+    async driveHandler(
+    generator: AsyncGenerator<any, any, any>,
+    context:PendingGeneratorType,
+    resumeValue?: any
+): Promise<{ success: boolean; paused?: boolean }> {
+    const userId = context.req.user.userid;
+
+    let result;
+    try {
+        result = resumeValue !== undefined
+            ? await generator.next(resumeValue)
+            : await generator.next();
+    } catch (error: any) {
+        await this.agentGateway.sendToolResult(userId, {
+            result: "error",
+            message: error?.message || "İşlem gerçekleştirilirken hata oluştu.",
+            prompt: context.subIntent,
+            toolName: undefined,
+            isSpecial: false,
+            lastsegment: true,
+            continuePrompt:"",
+            list: []
+        });
+        return { success: false };
+    }
+
+    if (!result.done) {
+        this.pendingGenerators.set(userId, { generator, context });
+
+        const request = result.value;
+        this.agentGateway.sendToolResult(userId, {
+            result: "confirm_required",
+            message: request.message,
+            data: request.options,
+            continuePrompt:"",
+            generatorType:request.type,
+            isGenerator:true,
+            prompt: context.subIntent,
+            toolName: context.toolName,
+            isSpecial: false,
+            lastsegment: true,
+            list: []
+        });
+
+        return { success: false, paused: true };
+    }
+
+    const toolResult = result.value;
+
+    await this.dataSource.getRepository(ToolExecution).save({
+        SubmissionId: context.submissionId,
+        SubIntentText: context.subIntent,
+        Operation: context.toolName,
+        Parameters: {},
+        Result: toolResult,
+        Status: "success",
+    });
+
+    this.agentGateway.sendToolResult(userId, {
+        result: "success",
+        message: socketMapping[`${context.toolName}_end`],
+        prompt: context.subIntent,
+        continuePrompt: toolResult?.continuePrompt,
+        toolName: toolResult?.toolName,
+        isSpecial: false,
+        lastsegment: context.resumeIndex >= context.remainingSegments.length,
+        list: []
+    });
+
+    return { success: true };
+}
+async handleGeneratorResponse(userId: string, response: any): Promise<void> {
+    const pending = this.pendingGenerators.get(userId);
+    if (!pending) return;
+    this.pendingGenerators.delete(userId);
+
+    const { generator, context } = pending;
+
+    const result = await this.driveHandler(generator, context, response);
+
+    if (result.success && context.resumeIndex < context.remainingSegments.length) {
+        const controller = this.cancellation.start(userId);
+        await this.processSegments(
+            context.remainingSegments,
+            context.resumeIndex,
+            { Id: context.submissionId },
+            context.req,
+            context.files,
+            context.sessionId,
+            controller
+        );
+    }
+}
+
 
     /**
  * جستجو بین session های یک کاربر -- اگه متن جستجو توی SubIntentText،
  * Parameters یا Result یک ToolExecution پیدا بشه، session مربوطه
  * برگردونده می‌شه (با همون فرمتی که getUserSessions می‌ده).
  */
-async searchUserSessions(
-    username: string,
-    searchText: string
-): Promise<{ id: string; title: string; createdAt: Date }[]> {
-    const trimmed = searchText.trim();
+    async searchUserSessions(
+        username: string,
+        searchText: string
+    ): Promise<{ id: string; title: string; createdAt: Date }[]> {
+        const trimmed = searchText.trim();
 
-    if (!trimmed) {
-        return this.getUserSessions(username);
-    }
+        if (!trimmed) {
+            return this.getUserSessions(username);
+        }
 
-    const likePattern = `%${trimmed}%`;
+        const likePattern = `%${trimmed}%`;
 
-    const matchingSessionIds: { sessionId: string }[] = await this.dataSource.query(
-        `SELECT DISTINCT ps."SessionId" AS "sessionId"
+        const matchingSessionIds: { sessionId: string }[] = await this.dataSource.query(
+            `SELECT DISTINCT ps."SessionId" AS "sessionId"
          FROM "ToolExecution" te
          INNER JOIN "PromptSubmission" ps ON ps."Id" = te."SubmissionId"
          INNER JOIN "ConversationSession" cs ON cs."Id" = ps."SessionId"
@@ -581,23 +699,23 @@ async searchUserSessions(
              OR te."Parameters"::text ILIKE $2
              OR te."Result"::text ILIKE $2
            );`,
-        [username, likePattern]
-    );
+            [username, likePattern]
+        );
 
-    if (matchingSessionIds.length === 0) {
-        return [];
+        if (matchingSessionIds.length === 0) {
+            return [];
+        }
+
+        const ids = matchingSessionIds.map((r) => r.sessionId);
+
+        const sessions = await this.dataSource.getRepository(ConversationSession).find({
+            where: { Id: In(ids) },
+            order: { CreatedAt: "DESC" },
+            relations: ["Submissions"],
+        });
+
+        return sessions.map((session) => this.mapSessionToListItem(session));
     }
-
-    const ids = matchingSessionIds.map((r) => r.sessionId);
-
-    const sessions = await this.dataSource.getRepository(ConversationSession).find({
-        where: { Id: In(ids) },
-        order: { CreatedAt: "DESC" },
-        relations: ["Submissions"],
-    });
-
-    return sessions.map((session) => this.mapSessionToListItem(session));
-}
 
 
     async RunFunctionCalling(prompt: string, req: any, files: string[], sessionId: string): Promise<void> {
@@ -607,10 +725,11 @@ async searchUserSessions(
         // قدم صفر: مطمئن شو این sessionId واقعاً متعلق به همین کاربره --
         // بدون این چک، یک کاربر می‌تونه (اشتباهی یا عمداً) prompt خودش رو
         // توی session کاربر دیگه‌ای ذخیره کنه
+
+        //#region ------------- Determine Session -----------------------
         const session = await this.dataSource.getRepository(ConversationSession).findOne({
             where: { Id: sessionId }
         });
-
         if (!session) {
             this.agentGateway.sendToolResult(userId, {
                 result: "error",
@@ -624,8 +743,7 @@ async searchUserSessions(
             });
             return;
         }
-
-        if (session.Username !== username) {
+        if (session.Userid !== userId) {
             // این کاربر مالک این session نیست -- درخواست رو رد کن
             this.agentGateway.sendToolResult(userId, {
                 result: "error",
@@ -639,10 +757,15 @@ async searchUserSessions(
             });
             return;
         }
+        //#endregion ----------- Determine Session -------------------------
+
+
 
         // Hydration خودکار: اگه این session هنوز توی این اجرای سرور لمس
         // نشده (اولین بار بعد از ری‌استارت سرور، یا اولین session قدیمی‌ای
         // که کاربر باز می‌کنه)، تاریخچه‌ش رو یک‌بار از دیتابیس بخون
+
+        //#region ---------------- Get Session History ----------------------
         if (!this.history.hasSession(username, sessionId)) {
             const pastExecutions = await this.dataSource.getRepository(ToolExecution)
                 .createQueryBuilder("execution")
@@ -661,8 +784,9 @@ async searchUserSessions(
 
             this.history.hydrate(username, sessionId, contextInfoList);
         }
+        //#endregion ------------------- Get Session History ----------------------
 
-        const controller = this.cancellation.start(userId);
+        const controller = this.cancellation.start(userId);//For Cancel Run
 
         // قدم ۱: قبل از هر کاری، خود متن خام prompt رو ذخیره کن
         const submission = await this.dataSource.getRepository(PromptSubmission).save({
@@ -670,84 +794,91 @@ async searchUserSessions(
             RawPrompt: prompt,
         });
 
+
         try {
-            this.agentGateway.sendCurrentTool(userId, {
+            await this.agentGateway.sendCurrentTool(userId, {
                 currentOp: "Hazırlıkların yapılması"
             })
 
+
             const segmentsPrompts = await this.segmentPromptIntoSubIntents(prompt);
-            var currentsegmentIndex = 0;
 
-            for (const subIntent of segmentsPrompts) {
-
-                if (controller.signal.aborted) {
-                    this.agentGateway.sendToolResult(userId, {
-                        result: "cancelled",
-                        message: "İşlem kullanıcı tarafından durduruldu.",
-                        prompt: subIntent,
-                        continuePrompt: undefined,
-                        toolName: undefined,
-                        lastsegment: true,
-                        isSpecial: false,
-                        list: []
-                    });
-                    break;
-                }
-
-                this.agentGateway.sendCurrentTool(userId, {
-                    currentOp: `(${subIntent})'nin emrini yerine getirmeye hazırlanıyoruz.`
-                })
-
-                currentsegmentIndex++;
-                const condinateToolsName = await this.condinate.getCondinateToolsForRunPrompt(subIntent, this.history.getPreviousTool(username, sessionId) as string)
-                const selectedToolName = await this.agentToolsService.extractSelectedTool(subIntent, condinateToolsName, this.history.getHistory(0, username, sessionId) as string);
+            await this.processSegments(segmentsPrompts, 0, submission, req, files, sessionId, controller);
 
 
-                  if (selectedToolName.startsWith("delete_")) {
-    // عملیات رو ذخیره کن، اجرا نکن -- منتظر تایید کاربر بمون
-  
+            //             var currentsegmentIndex = 0;
 
-    this.pendingConfirmationService.set(userId, {
-        files:files,
-        isLastSegment:currentsegmentIndex==segmentsPrompts.length,
-        req:req,
-        selectedToolName:selectedToolName,
-        submission:submission,
-        subIntent,
-        sessionId
-    });
+            //             for (const subIntent of segmentsPrompts) {
 
-    this.agentGateway.sendToolResult(userId, {
-        result: "confirm_required",
-        message: `"${subIntent}" işlemini onaylıyor musunuz?`,
-        continuePrompt: undefined,
-        toolName: selectedToolName,
-        isSpecial:false,
-        prompt:subIntent,
-        lastsegment: true,
-        list: []
-    });
+            //                 if (controller.signal.aborted) {
+            //                     this.agentGateway.sendToolResult(userId, {
+            //                         result: "cancelled",
+            //                         message: "İşlem kullanıcı tarafından durduruldu.",
+            //                         prompt: subIntent,
+            //                         continuePrompt: undefined,
+            //                         toolName: undefined,
+            //                         lastsegment: true,
+            //                         isSpecial: false,
+            //                         list: []
+            //                     });
+            //                     break;
+            //                 }
 
-    return; // اینجا متوقف می‌شیم -- تا کاربر تایید نکنه، ادامه نمی‌ره
-}
+            //                 this.agentGateway.sendCurrentTool(userId, {
+            //                     currentOp: `(${subIntent})'nin emrini yerine getirmeye hazırlanıyoruz.`
+            //                 })
+
+            //                 currentsegmentIndex++;
+            //                 const condinateToolsName = await this.condinate.getCondinateToolsForRunPrompt(subIntent, this.history.getPreviousTool(username, sessionId) as string)
+            //                 const selectedToolName = await this.agentToolsService.extractSelectedTool(subIntent, condinateToolsName, this.history.getHistory(0, username, sessionId) as string);
 
 
-                const { success } = await this.runFinalStep(
-                    subIntent,
-                    selectedToolName,
-                    submission,
-                    req,
-                    files,
-                    sessionId,
-                    currentsegmentIndex == segmentsPrompts.length
-                );
+            //                   if (selectedToolName.startsWith("delete_")) {
+            //     // عملیات رو ذخیره کن، اجرا نکن -- منتظر تایید کاربر بمون
 
-                if (!success) {
-                    break; // دقیقاً همون رفتار قبلی -- اگه خطا خورد، حلقه متوقف بشه
-                }
 
-            }
+            //     this.pendingConfirmationService.set(userId, {
+            //         files:files,
+            //         isLastSegment:currentsegmentIndex==segmentsPrompts.length,
+            //         req:req,
+            //         selectedToolName:selectedToolName,
+            //         submission:submission,
+            //         subIntent,
+            //         sessionId
+            //     });
+
+            //     this.agentGateway.sendToolResult(userId, {
+            //         result: "confirm_required",
+            //         message: `"${subIntent}" işlemini onaylıyor musunuz?`,
+            //         continuePrompt: undefined,
+            //         toolName: selectedToolName,
+            //         isSpecial:false,
+            //         prompt:subIntent,
+            //         lastsegment: true,
+            //         list: []
+            //     });
+
+            //     return; // اینجا متوقف می‌شیم -- تا کاربر تایید نکنه، ادامه نمی‌ره
+            // }
+
+
+            //                 const { success } = await this.runFinalStep(
+            //                     subIntent,
+            //                     selectedToolName,
+            //                     submission,
+            //                     req,
+            //                     files,
+            //                     sessionId,
+            //                     currentsegmentIndex == segmentsPrompts.length
+            //                 );
+
+            //                 if (!success) {
+            //                     break; // دقیقاً همون رفتار قبلی -- اگه خطا خورد، حلقه متوقف بشه
+            //                 }
+
+            //             }
         }
+
         catch (error: any) {
             if (error?.name === "CanceledError" || error?.name === "AbortError") {
                 this.agentGateway.sendToolResult(userId, {
@@ -775,6 +906,114 @@ async searchUserSessions(
         }
         finally {
             this.cancellation.finish(userId);
+        }
+    }
+
+
+    /**
+ * منطق حلقه‌ای که قبلاً مستقیم داخل RunFunctionCalling بود، الان اینجا
+ * جدا شده -- چون هم مسیر عادی (startIndex=0)، هم resume بعد از تایید
+ * حذف، هم resume بعد از تایید یک generator، همه باید بتونن از یک
+ * نقطه‌ی مشخص (نه لزوماً صفر) این حلقه رو دوباره شروع کنن.
+ */
+    async processSegments(
+        segmentsPrompts: string[],
+        startIndex: number,
+        submission: { Id: string },
+        req: any,
+        files: string[],
+        sessionId: string,
+        controller: AbortController
+    ): Promise<void> {
+        const userId = req.user.userid;
+        const username = req.user.username;
+
+        for (let i = startIndex; i < segmentsPrompts.length; i++) {
+            const subIntent = segmentsPrompts[i];
+
+            if (controller.signal.aborted) {
+                this.agentGateway.sendToolResult(userId, {
+                    result: "cancelled",
+                    message: "İşlem kullanıcı tarafından durduruldu.",
+                    prompt: subIntent,
+                    continuePrompt: undefined,
+                    toolName: undefined,
+                    lastsegment: true,
+                    isSpecial: false,
+                    list: []
+                });
+                return;
+            }
+
+            this.agentGateway.sendCurrentTool(userId, {
+                currentOp: `(${subIntent})'nin emrini yerine getirmeye hazırlanıyoruz.`
+            });
+
+            const condinateToolsName = await this.condinate.getCondinateToolsForRunPrompt(
+                subIntent, this.history.getPreviousTool(username, sessionId) as string
+            );
+            const selectedToolName = await this.agentToolsService.extractSelectedTool(
+                subIntent, condinateToolsName, this.history.getHistory(0, username, sessionId) as string
+            );
+
+            if (selectedToolName.startsWith("delete_")) {
+                // حالا "بقیه‌ی segment ها" و "از کجا باید ادامه بدیم" رو هم
+                // ذخیره می‌کنیم -- تا بعد از تایید، اگه segment دیگه‌ای هم
+                // مونده بود، از دست نره
+                this.pendingConfirmationService.set(userId, {
+                    files: files,
+                    isLastSegment: i === segmentsPrompts.length - 1,
+                    req: req,
+                    selectedToolName: selectedToolName,
+                    submission: submission,
+                    subIntent,
+                    sessionId,
+                    remainingSegments: segmentsPrompts, // ⬅️ جدید
+                    resumeIndex: i + 1,                 // ⬅️ جدید
+                    controller,                          // ⬅️ جدید (برای ساخت continuation)
+                });
+
+                this.agentGateway.sendToolResult(userId, {
+                    result: "confirm_required",
+                    message: `"${subIntent}" işlemini onaylıyor musunuz?`,
+                    continuePrompt: undefined,
+                    toolName: selectedToolName,
+                    isSpecial: false,
+                    prompt: subIntent,
+                    lastsegment: true,
+                    list: []
+                });
+
+                return;
+            }
+
+            const selectedTool = await this.agentToolsService.extractTools(
+                subIntent, selectedToolName, this.history.getHistory(0, username, sessionId) as string
+            );
+
+            // پارامترهای جدید: کل لیست segment ها + اندیس بعدی -- برای
+            // اینکه اگه handler خودش (به‌شکل generator) متوقف شد، بشه
+            // بعداً درست از همینجا ادامه داد
+            const { success, paused } = await this.runFinalStep(
+                subIntent,
+                selectedToolName,
+                selectedTool,
+                submission,
+                req,
+                files,
+                sessionId,
+                i === segmentsPrompts.length - 1,
+                segmentsPrompts,
+                i + 1
+            );
+
+            if (paused) {
+                return;
+            }
+
+            if (!success) {
+                break;
+            }
         }
     }
 

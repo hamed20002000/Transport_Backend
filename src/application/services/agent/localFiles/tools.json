@@ -559,7 +559,7 @@
         },
         {
             "name": "update_region",
-            "description": "Mevcut bir bölgenin bilgilerini günceller. Bölgenin adını değiştirmek için kullanılır. Bölgenin mevcut adıyla birlikte yeni adı belirtilerek güncelleme yapılmasını sağlar.",
+            "description": "Mevcut bir bölgenin adını veya bağlı olduğu üst bölgeyi günceller.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -569,7 +569,11 @@
                     },
                     "newname": {
                         "type": "string",
-                        "description": "Bölgenin yeni adı. Kullanıcı tarafından belirtilmişse değeri aynen al."
+                        "description": "Bölgenin yeni adı. Kullanıcı tarafından belirtilmişse değeri aynen al. Çeviri yapma, değiştirme veya düzeltme. Kullanıcı yeni bir ad belirtmemişse bu parametreyi gönderme."
+                    },
+                    "newparentname": {
+                        "type": "string",
+                        "description": "Bölgenin bağlanacağı yeni üst bölgenin adı. Kullanıcı tarafından belirtilmişse değeri aynen al. Çeviri yapma, değiştirme veya düzeltme. Kullanıcı yeni bir üst bölge belirtmemişse bu parametreyi gönderme."
                     }
                 },
                 "required": [
@@ -1075,6 +1079,33 @@
                 "required": [
                     "title",
                     "recordstatus"
+                ]
+            }
+        },
+        {
+            "name": "create_work",
+            "description": "Yeni bir rol oluşturur. Sisteme yeni yetki veya erişim rolü eklemek için kullanılır.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Yalnızca rol adını döndür. Rol adını çevreleyen kelimeleri ekleme. Çıktı sadece rol adından oluşmalıdır. Örnekler: 'Vekil rolünü oluştur' → 'Vekil', 'Muhasebe rolünü sil' → 'Muhasebe', 'Admin rolünü aktif et' → 'Admin'.Oluşturulacak rolün adı. Kullanıcının yazdığı değeri aynen al. Çeviri yapma, değiştirme veya yorumlama."
+                    },
+                     "tendername": {
+                        "type": "string",
+                        "description": "Yalnızca rol adını döndür. Rol adını çevreleyen kelimeleri ekleme. Çıktı sadece rol adından oluşmalıdır. Örnekler: 'Vekil rolünü oluştur' → 'Vekil', 'Muhasebe rolünü sil' → 'Muhasebe', 'Admin rolünü aktif et' → 'Admin'.Oluşturulacak rolün adı. Kullanıcının yazdığı değeri aynen al. Çeviri yapma, değiştirme veya yorumlama."
+                    },
+                     "startdate": {
+                        "type": "string",
+                        "description": "Yalnızca rol adını döndür. Rol adını çevreleyen kelimeleri ekleme. Çıktı sadece rol adından oluşmalıdır. Örnekler: 'Vekil rolünü oluştur' → 'Vekil', 'Muhasebe rolünü sil' → 'Muhasebe', 'Admin rolünü aktif et' → 'Admin'.Oluşturulacak rolün adı. Kullanıcının yazdığı değeri aynen al. Çeviri yapma, değiştirme veya yorumlama."
+                    }
+                    
+                },
+                "required": [
+                    "title",
+                    "tendername",
+                    "startdate"
                 ]
             }
         }
