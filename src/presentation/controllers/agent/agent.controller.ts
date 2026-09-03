@@ -82,7 +82,7 @@ export class AgentController {
   @ApiBearerAuth()
   // @UseGuards(AuthGuard) // اگه سایر endpoint هات از یک Guard استفاده می‌کنن، اینجا هم اضافه کن
   async createNewSession(@Request() req: any) {
-    const result = await this.functionCallService.createNewSession(req.user.username);
+    const result = await this.functionCallService.createNewSession(req.user.userid);
     return result; // { sessionId: "..." }
   }
 
@@ -146,7 +146,17 @@ export class AgentController {
 
     if (body.confirmed) {
       const actionInfo: PendingAction = this.pendingConfirmation.get(req.user.userid)
-      const result = await this.functionCallService.runFinalStep(actionInfo.subIntent, actionInfo.selectedToolName, actionInfo.submission, actionInfo.req, actionInfo.files, actionInfo.sessionId, actionInfo.isLastSegment);
+      const result = await this.functionCallService.runFinalStep(
+        actionInfo.subIntent, 
+        actionInfo.selectedToolName,
+        actionInfo.selectedTool,
+         actionInfo.submission, 
+         actionInfo.req,
+          actionInfo.files, 
+          actionInfo.sessionId, 
+          actionInfo.isLastSegment,
+        actionInfo.remainingSegments,
+      actionInfo.resumeIndex);
       this.pendingConfirmation.clear(req.user.userid);
     }
     else {

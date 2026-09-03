@@ -85,6 +85,12 @@ export type ExecuteToolResultType={
     generator?: AsyncGenerator<any, any, any>;
     result?: RequestResult;
 }
+
+export type GeneratorDataType={
+    data:any,
+    type:"selection",
+    label:string
+}
 export type FunctionCallResultType = {
     result: "error" | "success" | "cancelled"|"confirm_required",
     message: string,
@@ -94,8 +100,7 @@ export type FunctionCallResultType = {
     lastsegment: boolean,
     isSpecial: boolean,
     isGenerator?:boolean,
-    generatorType?:string,
-    data?:any,
+    data?:GeneratorDataType,
     list: any[],
     source?:"telegram"|"web"|"whatsapp"
 }

@@ -609,14 +609,13 @@ Return JSON only, nothing else:
         this.agentGateway.sendToolResult(userId, {
             result: "confirm_required",
             message: request.message,
-            data: request.options,
+            data: request,
             continuePrompt:"",
-            generatorType:request.type,
             isGenerator:true,
             prompt: context.subIntent,
             toolName: context.toolName,
             isSpecial: false,
-            lastsegment: true,
+            lastsegment: false,
             list: []
         });
 

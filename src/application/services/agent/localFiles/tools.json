@@ -1084,28 +1084,25 @@
         },
         {
             "name": "create_work",
-            "description": "Yeni bir rol oluşturur. Sisteme yeni yetki veya erişim rolü eklemek için kullanılır.",
+            "description": "Yeni bir iş kaydı oluşturur. İşin başlığı, isteğe bağlı olarak bağlı olduğu ihale ve başlangıç tarihi belirtilerek oluşturulur.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "title": {
                         "type": "string",
-                        "description": "Yalnızca rol adını döndür. Rol adını çevreleyen kelimeleri ekleme. Çıktı sadece rol adından oluşmalıdır. Örnekler: 'Vekil rolünü oluştur' → 'Vekil', 'Muhasebe rolünü sil' → 'Muhasebe', 'Admin rolünü aktif et' → 'Admin'.Oluşturulacak rolün adı. Kullanıcının yazdığı değeri aynen al. Çeviri yapma, değiştirme veya yorumlama."
+                        "description": "Oluşturulacak işin başlığı. Kullanıcının belirttiği değeri aynen al. Çeviri yapma, değiştirme veya yorumlama. Çevreleyen kelimeleri (iş, oluştur, kaydet gibi) parametreye dahil etme."
                     },
-                     "tendername": {
+                    "tendername": {
                         "type": "string",
-                        "description": "Yalnızca rol adını döndür. Rol adını çevreleyen kelimeleri ekleme. Çıktı sadece rol adından oluşmalıdır. Örnekler: 'Vekil rolünü oluştur' → 'Vekil', 'Muhasebe rolünü sil' → 'Muhasebe', 'Admin rolünü aktif et' → 'Admin'.Oluşturulacak rolün adı. Kullanıcının yazdığı değeri aynen al. Çeviri yapma, değiştirme veya yorumlama."
+                        "description": "İşin bağlı olduğu ihalenin adı. SADECE cümlede 'ihale'/'ihalesi' gibi bir kelimeyle açıkça bir ihaleden bahsediliyorsa bu alanı doldur. Kullanıcının belirttiği ihale adını aynen al. Çeviri yapma, değiştirme veya yorumlama. Çevreleyen kelimeleri (ihale, ihalesi, için gibi) parametreye dahil etme -- örneğin 'K1 ihalesi için' ifadesinden yalnızca 'K1' alınmalıdır. Cümlede ihaleye dair açık bir referans yoksa bu parametreyi kesinlikle gönderme -- aynı değeri hem title hem tendername'e koyma."
                     },
-                     "startdate": {
+                    "startdate": {
                         "type": "string",
-                        "description": "Yalnızca rol adını döndür. Rol adını çevreleyen kelimeleri ekleme. Çıktı sadece rol adından oluşmalıdır. Örnekler: 'Vekil rolünü oluştur' → 'Vekil', 'Muhasebe rolünü sil' → 'Muhasebe', 'Admin rolünü aktif et' → 'Admin'.Oluşturulacak rolün adı. Kullanıcının yazdığı değeri aynen al. Çeviri yapma, değiştirme veya yorumlama."
+                        "description": "İşin başlangıç tarihi, GG/AA/YYYY formatında. Kullanıcının belirttiği tarihi aynen al. Eğer cümlede birden fazla tarih geçiyorsa (örneğin ihalenin bitiş tarihi gibi), yalnızca işin kendi başlangıç tarihini al -- diğer tarihleri bu parametreye dahil etme."
                     }
-                    
                 },
                 "required": [
-                    "title",
-                    "tendername",
-                    "startdate"
+                    "title"
                 ]
             }
         }

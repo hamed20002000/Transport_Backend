@@ -91,7 +91,7 @@ export class WorkService extends BaseService<Works> implements OnModuleInit {
         var tender = (await self.tenderService.getTenderByTitle(workTitle))?.[0]??undefined;
         if(!tender){
             const tenders=await self.tenderService.getAllTenders();
-            const tenderId=yield{type:"tenderList",data:tenders.map((item)=>({title:item.title,id:item.id}))}
+            const tenderId=yield{type:"selection",label:"İhalelerden birini seçin.",data:tenders.map((item)=>({title:item.title,id:item.id}))}
             tender=await self.tenderService.getById(tenderId)
         }
         const work = new Works();
