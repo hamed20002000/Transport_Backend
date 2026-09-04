@@ -93,7 +93,7 @@ export class AgentController {
   @UseGuards(JwtAuthGuard, AdminRolesGuard)
   @ApiBearerAuth()
   async getSessions(@Req() req: any) {
-    return this.functionCallService.getUserSessions(req.user.username);
+    return this.functionCallService.getUserSessions(req.user.userid);
   }
 
   /**
@@ -103,7 +103,7 @@ export class AgentController {
   @UseGuards(JwtAuthGuard, AdminRolesGuard)
   @ApiBearerAuth()
   async getSessionPrompts(@Req() req: any, @Param('sessionId') sessionId: string) {
-    return this.functionCallService.getSessionPrompts(sessionId, req.user.username);
+    return this.functionCallService.getSessionPrompts(sessionId, req.user.userid);
   }
 
   /**
@@ -114,7 +114,7 @@ export class AgentController {
   @UseGuards(JwtAuthGuard, AdminRolesGuard)
   @ApiBearerAuth()
   async getSessionExecutions(@Req() req: any, @Param('sessionId') sessionId: string) {
-    return this.functionCallService.getSessionExecutions(sessionId, req.user.username);
+    return this.functionCallService.getSessionExecutions(sessionId, req.user.userid);
   }
 
 

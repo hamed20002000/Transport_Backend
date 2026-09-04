@@ -28,7 +28,7 @@ export class AgentGateway {
     @Inject(forwardRef(() => TelegramService))
     private readonly telegramService: TelegramService,
     @Inject(forwardRef(() => FunctionCallService))
-    private readonly functionCallService: FunctionCallService
+    private readonly functionCallService: FunctionCallService,
   ) { }
 
 
@@ -115,32 +115,65 @@ export class AgentGateway {
   }
 
 
-  @SubscribeMessage('respond-to-pending-action')
+  
+// این رو هم توی respond-to-pending-action موقت اضافه کن تا socket.id رو ببینیم:
+@SubscribeMessage('respond-to-pending-action')
 handleRespondToPendingAction(
     @ConnectedSocket() client: Socket,
-    @MessageBody() body: { value: any }
+    @MessageBody() body: { value: any,cancel:boolean }
 ) {
+    console.log('[respond-to-pending-action] socket.id:', client.id, '| client.data:', client.data);
+ 
     const userId = client.data?.userId;
     if (!userId) return;
-
-    // fire-and-forget -- نتیجه از طریق همون کانال سوکت (sendToolResult/
-    // sendCurrentTool) به کاربر برمی‌گرده، نیازی به منتظرماندن اینجا نیست
-    void this.functionCallService.handleGeneratorResponse(userId, body.value);
+ 
+    void this.functionCallService.handleGeneratorResponse(userId, body.value,body.cancel);
 }
 
+  // handleConnection(client: any) {
+
+  //           const token = client.handshake.auth?.token || client.handshake.query?.token;
+ 
+  //       if (!token) {
+  //           client.disconnect();
+  //           return;
+  //       }
+ 
+  //       const payload = this.jwtService.verify(token); // اگه نامعتبر باشه، خودش throw می‌کنه
+  //       const userId = payload.userid; //
+
+
+  //   // const userId = client.handshake.query.userId;
+    
+  //   // console.log('[handleConnection] socket.id:', client.id, '| userId از query:', userId, '| نوعش:', typeof userId)
+
+  //   //     if (userId && typeof userId === 'string') {
+  //   //     client.join(`user:${userId}`);
+  //   //     client.data.userId = userId;
+  //   //     console.log('[handleConnection] client.data.userId ست شد:', client.data.userId);
+  //   // } else {
+  //   //     console.log('[handleConnection] شرط رد شد -- client.data.userId ست نشد!');
+  //   // }
 
 
 
+  //   // if (userId && typeof userId === 'string') {
+  //   //   client.join(`user:${userId}`);
+  //   // }
+
+  // }
 
 
-  handleConnection(client: any) {
+ handleConnection(client: any) {
     const userId = client.handshake.query.userId;
 
     if (userId && typeof userId === 'string') {
-      client.join(`user:${userId}`);
+        client.join(`user:${userId}`);
+        client.data.userId = userId;
     }
+}
 
-  }
+
 
   handleDisconnect(client: any) {
   }

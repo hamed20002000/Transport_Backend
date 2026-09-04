@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { BaseRepository } from '../base.repository';
-import { DataSource, EntityManager, In, Repository } from 'typeorm';
+import { DataSource, EntityManager, ILike, In, Repository } from 'typeorm';
 import { Roles } from 'src/domain/entities/Roles';
 import { SystemOperations } from 'src/domain/entities/SystemOperations';
 import { ItemUnits } from 'src/domain/entities/ItemUnits';
@@ -232,6 +232,13 @@ export class NetworkRepository extends BaseRepository<Networks> {
 
       // در نهایت حذف خود Network
       await manager.getRepository(Networks).delete({ id });
+    });
+  }
+  async getWorkNetworkWithTitle(title: string): Promise<Networks[]> { 
+    return await this.repository.find({
+      where: {
+        title: ILike(`%${title}%`)
+      }
     });
   }
 

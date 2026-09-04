@@ -9,7 +9,7 @@ import { UserService } from '../user/user.service';
 import { ContextManager } from '../agent/contextManager';
 import message from '../agent/localFiles/messages.json'
 import { TenderService } from './tender.service';
-import { CreateWorkDto } from 'src/presentation/dtos/initial-operations/work-dto';
+import { CreateWorkDto, UpdateWorkDto } from 'src/presentation/dtos/initial-operations/work-dto';
 import { recordStatus } from 'src/domain/enums/recordstatus.enum';
 import { title } from 'node:process';
 
@@ -88,11 +88,11 @@ export class WorkService extends BaseService<Works> implements OnModuleInit {
 
 
         const workTitle = self.toolRtegister.normalizingName(param.title).trim();
-        var tender = (await self.tenderService.getTenderByTitle(workTitle))?.[0]??undefined;
-        if(!tender){
-            const tenders=await self.tenderService.getAllTenders();
-            const tenderId=yield{type:"selection",label:"İhalelerden birini seçin.",data:tenders.map((item)=>({title:item.title,id:item.id}))}
-            tender=await self.tenderService.getById(tenderId)
+        var tender = (await self.tenderService.getTenderByTitle(workTitle))?.[0] ?? undefined;
+        if (!tender) {
+          const tenders = await self.tenderService.getAllTenders();
+          const tenderId = yield { type: "selection", label: "İhalelerden birini seçin.", data: tenders.map((item) => ({ title: item.title, id: item.id })) }
+          tender = await self.tenderService.getById(tenderId)
         }
         const work = new Works();
         work.title = workTitle;
@@ -126,350 +126,181 @@ export class WorkService extends BaseService<Works> implements OnModuleInit {
     })
 
 
-    // self.toolRtegister.register({
-    //   functionName: "update_user",
-    //   handler: async (param: any): Promise<RequestResult> => {
-    //     if (param.username == "" || param.username == null) {
-    //       self.history.addNewHistory({
-    //         status: "fault",
-    //         operation: "update_user",
-    //         parameters: self.history.getParams(param),
-    //         result: {
-    //           errorMessage: message.user.usernamerequired
-    //         }
-    //       }, param.req.user.username, param.sessionId)
-    //       throw new HttpException(message.user.usernamerequired, HttpStatus.BAD_REQUEST);
-    //     }
-    //     const dto = new UserUpdateDto();
-    //     dto.imageSrc = param.files[0];
-    //     dto.recordStatus = param.recordStatus;
-    //     dto.username = param.newusername;
+    self.toolRtegister.register({
+      functionName: "update_work",
+      handler: async function* (param: any): AsyncGenerator<any, RequestResult, any> {
 
-    //     var user = await self.userRepository.getByUserName(param.username);
-    //     if (!user) {
-    //       self.history.addNewHistory({
-    //         status: "fault",
-    //         operation: "update_user",
-    //         parameters: self.history.getParams(param),
-    //         result: {
-    //           errorMessage: message.user.Usernotfound
-    //         }
-    //       }, param.req.user.username, param.sessionId)
+        const title = self.toolRtegister.normalizingName(param.title).trim();
+        const newTitle = self.toolRtegister.normalizingName(param.newtitle).trim();
+        const tenderName = self.toolRtegister.normalizingName(param.tendername).trim();
+        const startDate = self.toolRtegister.normalizingName(param.startdate).trim();
 
-    //       throw new HttpException(message.user.Usernotfound, HttpStatus.NOT_FOUND);
-    //     }
-    //     user.username = dto.username ?? user.username;
-    //     user.imageSrc = dto.imageSrc ?? user.imageSrc;
-    //     user.recordStatus = dto.recordStatus ?? user.recordStatus;
-    //     var updatedUser = await self.update(user);
-    //     var result = GenericMapper.toDto(UserDto, updatedUser, { excludeExtraneousValues: true });
+        const workDto = new Works();
+        if (title == "" && title == null) {
+          self.history.addNewHistory({
+            status: "fault",
+            operation: "update_work",
+            parameters: self.history.getParams(param),
+            result: {
+              errorMessage: message.work.nameisrequired
+            }
+          }, param.req.user.username, param.sessionId)
 
-    //     self.history.addNewHistory({
-    //       status: "success",
-    //       operation: "update_user",
-    //       parameters: self.history.getParams(param),
-    //       result: {
-    //         "id": updatedUser.id.toString(),
-    //         "username": updatedUser.username,
-    //         "password": updatedUser.password,
-    //         "createAt": updatedUser.createAt.toString(),
-    //         "recordStatus": updatedUser.recordStatus.toString(),
-    //         "roles": updatedUser.roles.join(",")
-    //       }
-    //     }, param.req.user.username, param.sessionId)
+          throw new HttpException(message.work.nameisrequired, HttpStatus.BAD_REQUEST);
+        }
 
-    //     return {
-    //       continuePrompt: undefined,
-    //       toolName: "update_user"
-    //     };
-    //   }
-    // })
+        const checkedWork = await self.getWorkByTitle(title);
+        if (checkedWork.length > 1) {
+          const workId = yield { type: "selection", label: "İşlerden birini seçin.", data: checkedWork.map((item) => ({ title: item.title, id: item.id })) }
+          const work = await self.getWorkById(workId);
+          workDto.id = work.id;
+          workDto.recordStatus = work.recordStatus;
+          workDto.startDate = work.startDate;
+          workDto.endDate = work.endDate;
+          workDto.title = newTitle ?? title
+        }
+        else {
+          workDto.id = checkedWork[0].id;
+          workDto.recordStatus = checkedWork[0].recordStatus;
+          workDto.startDate = checkedWork[0].startDate;
+          workDto.endDate = checkedWork[0].endDate;
+          workDto.title = newTitle ?? title
+        }
 
+        if (tenderName != "" && tenderName != null) {
 
-    // self.toolRtegister.register({
-    //   functionName: "update_user_record_status",
-    //   handler: async (param: any): Promise<RequestResult> => {
-    //     if (param.username == "" || param.username == null) {
-    //       self.history.addNewHistory({
-    //         status: "fault",
-    //         operation: "update_user_record_status",
-    //         parameters: self.history.getParams(param),
-    //         result: {
-    //           errorMessage: message.user.usernamerequired
-    //         }
-    //       }, param.req.user.username, param.sessionId)
-    //       throw new HttpException(message.user.usernamerequired, HttpStatus.BAD_REQUEST);
-    //     }
-    //     const dto = new UserUpdateDto();
-    //     dto.recordStatus = param.recordStatus;
+          var tender = (await self.tenderService.getTenderByTitle(tenderName))?.[0] ?? undefined;
+          if (!tender) {
+            const tenders = await self.tenderService.getAllTenders();
+            const tenderId = yield { type: "selection", label: "İhalelerden birini seçin.", data: tenders.map((item) => ({ title: item.title, id: item.id })) }
+            workDto.tender = await self.tenderService.getById(tenderId)
+          }
+          else {
+            workDto.tender = tender
+          }
 
-    //     var user = await self.userRepository.getByUserName(param.username);
-    //     if (!user) {
-    //       self.history.addNewHistory({
-    //         status: "fault",
-    //         operation: "update_user_record_status",
-    //         parameters: self.history.getParams(param),
-    //         result: {
-    //           errorMessage: message.user.Usernotfound
-    //         }
-    //       }, param.req.user.username, param.sessionId)
-    //       throw new HttpException(message.user.Usernotfound, HttpStatus.NOT_FOUND);
-    //     }
-    //     user.recordStatus = dto.recordStatus ?? user.recordStatus;
-    //     var updatedUser = await self.update(user);
-    //     var result = GenericMapper.toDto(UserDto, updatedUser, { excludeExtraneousValues: true });
+        }
 
-    //     self.history.addNewHistory({
-    //       status: "success",
-    //       operation: "update_user_record_status",
-    //       parameters: self.history.getParams(param),
-    //       result: {
-    //         "id": updatedUser.id.toString(),
-    //         "username": updatedUser.username,
-    //         "password": updatedUser.password,
-    //         "createAt": updatedUser.createAt.toString(),
-    //         "recordStatus": updatedUser.recordStatus.toString(),
-    //       }
-    //     }, param.req.user.username, param.sessionId)
+        if (startDate != "" && startDate != null) {
+          workDto.startDate = new Date(startDate);
+        }
+        const updatedWork = await self.update(workDto);
+
+        self.history.addNewHistory({
+          status: "success",
+          operation: "update_work",
+          parameters: self.history.getParams(param),
+          result: {
+            "id": updatedWork.id.toString(),
+            "title": updatedWork.title,
+            "startDate": updatedWork.startDate.toDateString(),
+            "tender": updatedWork.tender.title,
+            "newtitle": newTitle
+          }
+        }, param.req.user.username, param.sessionId)
 
 
-
-    //     return {
-    //       continuePrompt: undefined,
-    //       toolName: "update_user_record_status"
-    //     };
-    //   }
-    // })
-
-    // self.toolRtegister.register({
-    //   functionName: "delete_user",
-    //   handler: async (param: any): Promise<RequestResult> => {
-    //     if (param.username == "" || param.username == null) {
-    //       self.history.addNewHistory({
-    //         status: "fault",
-    //         operation: "update_user",
-    //         parameters: self.history.getParams(param),
-    //         result: {
-    //           errorMessage: message.user.usernamerequired
-    //         }
-    //       }, param.req.user.username, param.sessionId)
-    //       throw new HttpException(message.user.usernamerequired, HttpStatus.BAD_REQUEST);
-    //     }
-    //     const dto = new UserUpdateDto();
-
-    //     var user = await self.userRepository.getByUserName(param.username);
-    //     if (!user) {
-    //       self.history.addNewHistory({
-    //         status: "fault",
-    //         operation: "update_user",
-    //         parameters: self.history.getParams(param),
-    //         result: {
-    //           errorMessage: message.user.Usernotfound
-    //         }
-    //       }, param.req.user.username, param.sessionId)
-    //       throw new HttpException(message.user.Usernotfound, HttpStatus.NOT_FOUND);
-    //     }
-    //     var updatedUser = await self.deleteUserWithRoles(user.id);
-    //     var result = GenericMapper.toDto(UserDto, updatedUser, { excludeExtraneousValues: true });
-
-    //     self.history.addNewHistory({
-    //       status: "success",
-    //       operation: "delete_user",
-    //       parameters: self.history.getParams(param),
-    //       result: {
-    //         "id": user.id.toString()
-    //       }
-    //     }, param.req.user.username, param.sessionId)
-    //     return {
-    //       continuePrompt: undefined,
-    //       toolName: "delete_user"
-    //     };
-    //   }
-    // })
-
-    // self.toolRtegister.register({
-    //   functionName: "change-user-password",
-    //   handler: async (param: any): Promise<RequestResult> => {
-    //     if (param.username == "" || param.username == null) {
-    //       self.history.addNewHistory({
-    //         status: "fault",
-    //         operation: "change-user-password",
-    //         parameters: self.history.getParams(param),
-    //         result: {
-    //           errorMessage: message.user.usernamerequired
-    //         }
-    //       }, param.req.user.username, param.sessionId)
-    //       throw new HttpException(message.user.usernamerequired, HttpStatus.BAD_REQUEST);
-    //     }
-    //     const dto = new changePasswordDto();
-    //     dto.username = param.username;
-    //     dto.currentPassword = param.currentPassword;
-    //     dto.newPassword = param.newPassword;
-    //     const specification = new UsernameSpecification(dto.username);
-    //     var checkUser = await self.getWithSpecification(specification, null,
-    //       { id: true, username: true, password: true });
-    //     if (checkUser.length < 1) {
-
-    //       self.history.addNewHistory({
-    //         status: "fault",
-    //         operation: "change-user-password",
-    //         parameters: self.history.getParams(param),
-    //         result: {
-    //           errorMessage: message.user.Usernotfound
-    //         }
-    //       }, param.req.user.username, param.sessionId)
-
-    //       throw new HttpException(message.user.Usernotfound, HttpStatus.NOT_FOUND);
-    //     }
-
-    //     var checkPass = await self.passwordService.comparePasswords(dto.currentPassword, checkUser[0].password);
-    //     if (!checkPass) {
-    //       self.history.addNewHistory({
-    //         status: "fault",
-    //         operation: "change-user-password",
-    //         parameters: self.history.getParams(param),
-    //         result: {
-    //           errorMessage: message.user.passwordisincorrect
-    //         }
-    //       }, param.req.user.username, param.sessionId)
-    //       throw new HttpException(message.user.passwordisincorrect, HttpStatus.BAD_REQUEST);
-    //     }
-    //     var user = checkUser[0];
-
-    //     user.password = await self.passwordService.hashPassword(dto.newPassword);
-
-    //     var createResult = await self.update(user);
-
-    //     var response_result = GenericMapper.toDto(UserDto, createResult, { excludeExtraneousValues: true });
-
-    //     self.history.addNewHistory({
-    //       status: "success",
-    //       operation: "change-user-password",
-    //       parameters: self.history.getParams(param),
-    //       result: {
-    //         "id": createResult.id.toString(),
-    //         "username": createResult.username,
-    //         "password": createResult.password,
-    //         "createAt": createResult.createAt.toString(),
-    //         "recordStatus": createResult.recordStatus.toString(),
-    //         "roles": createResult.roles.join(",")
-    //       }
-    //     }, param.req.user.username, param.sessionId)
-
-    //     return {
-    //       continuePrompt: undefined,
-    //       toolName: "change-user-password"
-    //     };
-    //   }
-    // })
+        return {
+          continuePrompt: undefined,
+          toolName: "update_work"
+        };
+      }
+    })
 
 
-    // self.toolRtegister.register({
-    //   functionName: "assign-user-roles",
-    //   handler: async (param: any): Promise<RequestResult> => {
-    //     if (param.username == "" || param.username == null) {
-    //       self.history.addNewHistory({
-    //         status: "fault",
-    //         operation: "assign-user-roles",
-    //         parameters: self.history.getParams(param),
-    //         result: {
-    //           errorMessage: message.user.usernamerequired
-    //         }
-    //       }, param.req.user.username, param.sessionId)
+    self.toolRtegister.register({
+      functionName: "update_work_record_status",
+      handler: async function* (param: any): AsyncGenerator<any, RequestResult, any> {
 
-    //       throw new HttpException(message.user.usernamerequired, HttpStatus.BAD_REQUEST);
-    //     }
-    //     const dto = new CreateUserRolesDto();
+        const title = self.toolRtegister.normalizingName(param.title).trim();
+        const recordStatus =param.recordstatus;
 
+        let workDto = new Works();
+        if (title == "" && title == null) {
+          self.history.addNewHistory({
+            status: "fault",
+            operation: "update_work_record_status",
+            parameters: self.history.getParams(param),
+            result: {
+              errorMessage: message.work.nameisrequired
+            }
+          }, param.req.user.username, param.sessionId)
 
-    //     const current_user = param.req.user;
-    //     const user_specification = new UsernameSpecification(current_user.username);
-    //     const checkUser = await self.getWithSpecification(user_specification, null, { id: true });
-    //     if (!checkUser || checkUser.length === 0) {
+          throw new HttpException(message.work.nameisrequired, HttpStatus.BAD_REQUEST);
+        }
 
-    //       self.history.addNewHistory({
-    //         status: "fault",
-    //         operation: "assign-user-roles",
-    //         parameters: self.history.getParams(param),
-    //         result: {
-    //           errorMessage: message.user.Usernotfound
-    //         }
-    //       }, param.req.user.username, param.sessionId)
+        const checkedWork = await self.getWorkByTitle(title);
+        if (checkedWork.length > 1) {
+          const workId = yield { type: "selection", label: "İşlerden birini seçin.", data: checkedWork.map((item) => ({ title: item.title, id: item.id })) }
+          workDto = await self.getWorkById(workId);
+          workDto.recordStatus = recordStatus??workDto.recordStatus;
+        }
+        else {
+          workDto.recordStatus = checkedWork[0].recordStatus;
+          
+        }
 
+        const updatedWork = await self.update(workDto);
 
-    //       throw new HttpException(message.user.Usernotfound, HttpStatus.NOT_FOUND);
-    //     }
-
-
-
-    //     const user = await self.userRepository.getByUserName(param.username);
-    //     if (!user) {
-    //       self.history.addNewHistory({
-    //         status: "fault",
-    //         operation: "assign-user-roles",
-    //         parameters: self.history.getParams(param),
-    //         result: {
-    //           errorMessage: message.user.Usernotfound
-    //         }
-    //       }, param.req.user.username, param.sessionId)
-    //       throw new HttpException(message.user.Usernotfound, HttpStatus.NOT_FOUND);
-    //     }
+        self.history.addNewHistory({
+          status: "success",
+          operation: "update_work_record_status",
+          parameters: self.history.getParams(param),
+          result: {
+            "id": updatedWork.id.toString(),
+            "title": updatedWork.title,
+            "recordstatus":updatedWork.recordStatus.toString()
+          }
+        }, param.req.user.username, param.sessionId)
 
 
-    //     const roles = await self.roleService.getWithSpecification(
-    //       new RoleIdsSpecification(dto.roleIds)
-    //     );
-    //     if (!roles || roles.length !== dto.roleIds.length) {
-    //       self.history.addNewHistory({
-    //         status: "fault",
-    //         operation: "assign-user-roles",
-    //         parameters: self.history.getParams(param),
-    //         result: {
-    //           errorMessage: message.user.Somerolesnotfound
-    //         }
-    //       }, param.req.user.username, param.sessionId)
-    //       throw new HttpException(message.user.Somerolesnotfound, HttpStatus.BAD_REQUEST);
-    //     }
+        return {
+          continuePrompt: undefined,
+          toolName: "update_work_record_status"
+        };
+      }
 
-    //     // ساخت RoleSystemOperations برای هر operation
-    //     const items: UserRoles[] = [];
-    //     for (const op of roles) {
-    //       const item = new UserRoles();
-    //       item.assigendUser = user;
-    //       item.role = op;
-    //       item.user = checkUser[0];
-    //       item.createAt = new Date();
-    //       item.recordStatus = recordStatus.Active;
-    //       items.push(item);
-    //     }
+    })
 
+    self.toolRtegister.register({
+      functionName: "delete_work",
+      handler: async function* (param: any): AsyncGenerator<any, RequestResult, any> {
+        if (param.title == "" || param.title == null) {
+          self.history.addNewHistory({
+            status: "fault",
+            operation: "delete_work",
+            parameters: self.history.getParams(param),
+            result: {
+              errorMessage: message.work.nameisrequired
+            }
+          }, param.req.user.username, param.sessionId)
+          throw new HttpException(message.work.nameisrequired, HttpStatus.BAD_REQUEST);
+        }
+        let workId;
+        const checkedWork = await self.getWorkByTitle(title);
+        if (checkedWork.length > 1) {
+          workId = yield { type: "selection", label: "İşlerden birini seçin.", data: checkedWork.map((item) => ({ title: item.title, id: item.id })) }
+        }
+        else {
+          workId = checkedWork[0].id;
+        }
 
-    //     await self.assignRolesToUser(items);
+        self.delete(workId);
 
-    //     const userWithOperations = await self.getUserWithRoleAndOperations(user.id);
-
-    //     const result = GenericMapper.toDto(UserDto, userWithOperations, { excludeExtraneousValues: true });
-
-    //     self.history.addNewHistory({
-    //       status: "success",
-    //       operation: "assign-user-roles",
-    //       parameters: self.history.getParams(param),
-    //       result: {
-    //         "id": user.id.toString(),
-    //         "roles": items.join(",")
-    //       }
-    //     }, param.req.user.username, param.sessionId)
-
-
-    //     return {
-    //       continuePrompt: undefined,
-    //       toolName: "assign-user-roles"
-    //     };
-    //   }
-    // })
-
-
-
+        self.history.addNewHistory({
+          status: "success",
+          operation: "delete_work",
+          parameters: self.history.getParams(param),
+          result: {
+            "id": workId.toString()
+          }
+        }, param.req.user.username, param.sessionId)
+        return {
+          continuePrompt: undefined,
+          toolName: "delete_work"
+        };
+      }
+    })
 
   }
 
@@ -479,6 +310,9 @@ export class WorkService extends BaseService<Works> implements OnModuleInit {
 
   async getWorkById(id: number): Promise<Works> {
     return this.workRepository.getWorkById(id);
+  }
+  async getWorkByTitle(title: string): Promise<Works[]> {
+    return this.workRepository.getWorkWithTitle(title);
   }
 }
 

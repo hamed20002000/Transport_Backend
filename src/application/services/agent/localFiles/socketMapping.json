@@ -138,5 +138,32 @@
          "delete_tender_end":"ihale silindi.",
 
           "update_tender_record_status":"ihale durumu güncelleniyor.",
-         "update_tender_record_status_end":"ihaledurumu güncellendi."
+         "update_tender_record_status_end":"ihaledurumu güncellendi.",
+
+
+          "create_work":"İş yaratılır",
+         "create_work_end":"İş oluşturuldu",
+
+
+         "update_work":"İş güncelleniyor",
+         "update_work_end":"İş güncellendi",
+
+          "delete_work":"İş siliniyor.",
+         "delete_work_end":"İş silindi.",
+
+          "update_work_record_status":"İş durumu güncelleniyor.",
+         "update_work_record_status_end":"İş durumu güncellendi.",
+
+           "create_network":"Şebeke yaratılır",
+         "create_network_end":"Şebeke oluşturuldu",
+
+
+         "update_network":"Şebeke güncelleniyor",
+         "update_network_end":"Şebeke güncellendi",
+
+          "delete_network":"Şebeke siliniyor.",
+         "delete_network_end":"Şebeke silindi.",
+
+          "update_network_record_status":"Şebeke durumu güncelleniyor.",
+         "update_network_record_status_end":"Şebeke durumu güncellendi."
 }

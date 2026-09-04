@@ -71,6 +71,10 @@
         "nameisrequired":"İş adı gereklidir.",
         "tendernameisrequired":"İhale adı gereklidir.",
         "startdaterequired":"Başlangıç tarihi gereklidir."
+    },
+     "network":{
+        "nameisrequired":"Şebeke adı gereklidir.",
+        "notfound":"Şebeke bulunamadı!"
     }
 
 }

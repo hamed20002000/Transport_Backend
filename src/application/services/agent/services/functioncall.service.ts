@@ -40,8 +40,8 @@ export class FunctionCallService {
 
     }
 
-    private pendingGenerators = new Map<string,{generator: AsyncGenerator<any, any, any>; context: PendingGeneratorType}>();
-    public source:"telegram"|"whatsapp"|"web"="web"
+    private pendingGenerators = new Map<string, { generator: AsyncGenerator<any, any, any>; context: PendingGeneratorType }>();
+    public source: "telegram" | "whatsapp" | "web" = "web"
 
     async extractSchema(prompt: string): Promise<string> {
 
@@ -455,6 +455,8 @@ Return JSON only, nothing else:
         switch (toolname) {
             case "create_tender":
                 return true
+            case "create_network":
+                return true
             default:
                 return false
         }
@@ -479,7 +481,7 @@ Return JSON only, nothing else:
         isLastSegment: boolean,
         remainingSegments: string[],
         resumeIndex: number
-    ): Promise<{ success: boolean; paused?: boolean}> {
+    ): Promise<{ success: boolean; paused?: boolean }> {
         const userId = req.user.userid;
         const username = req.user.username;
 
@@ -498,20 +500,20 @@ Return JSON only, nothing else:
                 sessionId
             );
 
-               if (execResult.isGenerator) {
+            if (execResult.isGenerator) {
                 return await this.driveHandler(execResult.generator!, {
-                toolName: selectedToolName,
-                 selectedTool:selectedTool,
-                subIntent,
-                sessionId,
-                submissionId: submission.Id,
-                req,
-                files,
-                resumeIndex,
-                remainingSegments,
-            });
-        }
- const toolResult = execResult.result!;
+                    toolName: selectedToolName,
+                    selectedTool: selectedTool,
+                    subIntent,
+                    sessionId,
+                    submissionId: submission.Id,
+                    req,
+                    files,
+                    resumeIndex,
+                    remainingSegments,
+                });
+            }
+            const toolResult = execResult.result!;
 
 
 
@@ -577,97 +579,122 @@ Return JSON only, nothing else:
     }
 
     async driveHandler(
-    generator: AsyncGenerator<any, any, any>,
-    context:PendingGeneratorType,
-    resumeValue?: any
-): Promise<{ success: boolean; paused?: boolean }> {
-    const userId = context.req.user.userid;
+        generator: AsyncGenerator<any, any, any>,
+        context: PendingGeneratorType,
+        resumeValue?: any
+    ): Promise<{ success: boolean; paused?: boolean }> {
+        const userId = context.req.user.userid;
 
-    let result;
-    try {
-        result = resumeValue !== undefined
-            ? await generator.next(resumeValue)
-            : await generator.next();
-    } catch (error: any) {
-        await this.agentGateway.sendToolResult(userId, {
-            result: "error",
-            message: error?.message || "İşlem gerçekleştirilirken hata oluştu.",
-            prompt: context.subIntent,
-            toolName: undefined,
-            isSpecial: false,
-            lastsegment: true,
-            continuePrompt:"",
-            list: []
+        let result;
+        try {
+            result = resumeValue !== undefined
+                ? await generator.next(resumeValue)
+                : await generator.next();
+        } catch (error: any) {
+            await this.agentGateway.sendToolResult(userId, {
+                result: "error",
+                message: error?.message || "İşlem gerçekleştirilirken hata oluştu.",
+                prompt: context.subIntent,
+                toolName: undefined,
+                isSpecial: false,
+                lastsegment: true,
+                continuePrompt: "",
+                list: []
+            });
+            return { success: false };
+        }
+
+        if (!result.done) {
+            this.pendingGenerators.set(userId, { generator, context });
+
+            const request = result.value;
+            this.agentGateway.sendToolResult(userId, {
+                result: "confirm_required",
+                message: request.message,
+                data: request,
+                continuePrompt: "",
+                isGenerator: true,
+                prompt: context.subIntent,
+                toolName: context.toolName,
+                isSpecial: false,
+                lastsegment: false,
+                list: []
+            });
+
+            return { success: false, paused: true };
+        }
+
+        const toolResult = result.value;
+
+        await this.dataSource.getRepository(ToolExecution).save({
+            SubmissionId: context.submissionId,
+            SubIntentText: context.subIntent,
+            Operation: context.toolName,
+            Parameters: {},
+            Result: toolResult,
+            Status: "success",
         });
-        return { success: false };
-    }
 
-    if (!result.done) {
-        this.pendingGenerators.set(userId, { generator, context });
-
-        const request = result.value;
         this.agentGateway.sendToolResult(userId, {
-            result: "confirm_required",
-            message: request.message,
-            data: request,
-            continuePrompt:"",
-            isGenerator:true,
+            result: "success",
+            message: socketMapping[`${context.toolName}_end`],
             prompt: context.subIntent,
-            toolName: context.toolName,
+            continuePrompt: toolResult?.continuePrompt,
+            toolName: toolResult?.toolName,
             isSpecial: false,
-            lastsegment: false,
+            lastsegment: context.resumeIndex >= context.remainingSegments.length,
             list: []
         });
 
-        return { success: false, paused: true };
+        return { success: true };
     }
+    async handleGeneratorResponse(userId: string, response: any, cancelled: boolean = false): Promise<void> {
+        const pending = this.pendingGenerators.get(userId);
+        if (!pending) return;
+        this.pendingGenerators.delete(userId);
 
-    const toolResult = result.value;
+        const { generator, context } = pending;
+        if (cancelled) {
+            // کاربر کنسل کرد -- generator رو مستقیم next() نمی‌کنیم، بلکه
+            // با return() به‌درستی می‌بندیمش (اگه handler خودش بلوک finally
+            // داشت، اونجا هم اجرا می‌شه). به segment های بعدی هم ادامه
+            // نمی‌دیم -- کل فرایند همینجا تمام می‌شه
+            try {
+                await generator.return(undefined);
+            } catch {
+                // فقط برای cleanup صدا زده شده، خطاش مهم نیست
+            }
 
-    await this.dataSource.getRepository(ToolExecution).save({
-        SubmissionId: context.submissionId,
-        SubIntentText: context.subIntent,
-        Operation: context.toolName,
-        Parameters: {},
-        Result: toolResult,
-        Status: "success",
-    });
+            this.agentGateway.sendToolResult(userId, {
+                result: "cancelled",
+                message: "İşlem kullanıcı tarafından iptal edildi.",
+                prompt: context.subIntent,
+                continuePrompt: "",
+                toolName: context.toolName,
+                isSpecial: false,
+                lastsegment: true,
+                list: []
+            });
 
-    this.agentGateway.sendToolResult(userId, {
-        result: "success",
-        message: socketMapping[`${context.toolName}_end`],
-        prompt: context.subIntent,
-        continuePrompt: toolResult?.continuePrompt,
-        toolName: toolResult?.toolName,
-        isSpecial: false,
-        lastsegment: context.resumeIndex >= context.remainingSegments.length,
-        list: []
-    });
+            return;
+        }
 
-    return { success: true };
-}
-async handleGeneratorResponse(userId: string, response: any): Promise<void> {
-    const pending = this.pendingGenerators.get(userId);
-    if (!pending) return;
-    this.pendingGenerators.delete(userId);
 
-    const { generator, context } = pending;
+        const result = await this.driveHandler(generator, context, response);
 
-    const result = await this.driveHandler(generator, context, response);
-
-    if (result.success && context.resumeIndex < context.remainingSegments.length) {
-        const controller = this.cancellation.start(userId);
-        await this.processSegments(
-            context.remainingSegments,
-            context.resumeIndex,
-            { Id: context.submissionId },
-            context.req,
-            context.files,
-            context.sessionId,
-            controller
-        );
+        if (result.success && context.resumeIndex < context.remainingSegments.length) {
+            const controller = this.cancellation.start(userId);
+            await this.processSegments(
+                context.remainingSegments,
+                context.resumeIndex,
+                { Id: context.submissionId },
+                context.req,
+                context.files,
+                context.sessionId,
+                controller
+            );
+        }
     }
-}
 
 
     /**

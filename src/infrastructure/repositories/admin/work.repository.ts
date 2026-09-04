@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { BaseRepository } from '../base.repository';
-import { DataSource, EntityManager, In, Repository } from 'typeorm';
+import { DataSource, EntityManager, ILike, In, Repository } from 'typeorm';
 import { Roles } from 'src/domain/entities/Roles';
 import { SystemOperations } from 'src/domain/entities/SystemOperations';
 import { ItemUnits } from 'src/domain/entities/ItemUnits';
@@ -21,10 +21,10 @@ export class WorkRepository extends BaseRepository<Works> {
   }
   async getAllWorks(): Promise<Works[]> {
     const works = await this.repository.find({
-        relations: [
-          'tender',
-         
-        ],
+      relations: [
+        'tender',
+
+      ],
       order: {
         createAt: 'DESC',
       },
@@ -36,7 +36,7 @@ export class WorkRepository extends BaseRepository<Works> {
     const work = await this.repository.findOne({
       where: { id },
       relations: [
-        'tender'       
+        'tender'
       ],
     });
 
@@ -45,6 +45,14 @@ export class WorkRepository extends BaseRepository<Works> {
     }
 
     return work;
+  }
+
+  async getWorkWithTitle(title: string): Promise<Works[]> {
+    return await this.repository.find({
+      where: {
+        title: ILike(`%${title}%`)
+      }
+    });
   }
 
 

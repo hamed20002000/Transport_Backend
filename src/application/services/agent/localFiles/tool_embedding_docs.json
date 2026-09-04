@@ -223,5 +223,40 @@
     "tool_name": "create_work",
     "embedding_text": "Henüz kayıtlı olmayan yeni bir iş kaydı açar. İşin başlığı, bağlı olduğu ihale ve başlangıç tarihi belirtilerek oluşturulur.",
     "domain_name": "work"
+  },
+  {
+    "tool_name": "update_work",
+    "embedding_text": "Var olan bir iş kaydının başlığını, bağlı olduğu ihaleyi veya tarihlerini değiştirir. İş zaten mevcuttur, sadece bilgileri güncellenir.",
+    "domain_name": "work"
+  },
+  {
+    "tool_name": "delete_work",
+    "embedding_text": "Var olan bir iş kaydını kalıcı olarak kaldırır. İş artık kayıtlarda bulunmaz.",
+    "domain_name": "work"
+  },
+  {
+    "tool_name": "update_work_record_status",
+    "embedding_text": "Var olan bir iş kaydını kullanıma açık veya kapalı hale getirir. İş silinmez, yalnızca durumu değişir.",
+    "domain_name": "work"
+  },
+  {
+    "tool_name": "create_network",
+    "embedding_text": "Bir işe bağlı olarak henüz kayıtlı olmayan yeni bir şebeke oluşturur. Şebekenin başlığı, açıklaması ve bağlı olduğu iş belirtilerek kaydedilir.",
+    "domain_name": "network"
+  },
+  {
+    "tool_name": "update_network",
+    "embedding_text": "Mevcut ve daha önce kaydedilmiş bir şebekenin bilgilerini değiştirir. Yeni bir şebeke oluşturmaz; şebekeyi sistemden kaldırmaz veya sadece durumunu değiştirmez, içeriğini günceller.",
+    "domain_name": "network"
+  },
+  {
+    "tool_name": "update_network_record_status",
+    "embedding_text": "Mevcut bir şebekenin kayıt durumunu (aktif/pasif) değiştirir. Şebekenin başlığı, açıklaması veya bağlı olduğu iş gibi bilgilerini değiştirmez, sadece durumunu günceller.",
+    "domain_name": "network"
+  },
+  {
+    "tool_name": "delete_network",
+    "embedding_text": "Mevcut bir şebekeyi sistemden kaldırır. Yeni bir şebeke oluşturmaz ve bilgilerini değiştirmez, şebekeyi tamamen siler.",
+    "domain_name": "network"
   }
 ]

@@ -16,6 +16,7 @@ import { UserModule } from '../../user/appModuls/user.module';
 import { AuthService } from 'src/auth/auth.service';
 import { AuthModule } from 'src/auth/auth.module';
 import { WhatsappService } from '../services/whatsapp.service';
+import { JwtService } from '@nestjs/jwt';
 
 @Module({
   imports: [
@@ -36,6 +37,8 @@ import { WhatsappService } from '../services/whatsapp.service';
     SpeechToTextService,
     TelegramService,
     UserService,
+    JwtService,
+    FunctionCallService,
     //WhatsappService
   ],
   exports: [
@@ -49,6 +52,8 @@ import { WhatsappService } from '../services/whatsapp.service';
     SpeechToTextService,
     TelegramService,
     UserService,
+     JwtService,
+    FunctionCallService,
    // WhatsappService
   ],
 

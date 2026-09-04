@@ -42,5 +42,9 @@
   {
     "domain_name": "work",
     "embedding_text": "Bir ihaleye bağlı olarak yürütülen işler. İşin başlığı, ilişkili olduğu ihale ve başlangıç-bitiş tarihleri buraya dahildir."
+  },
+  {
+    "domain_name": "network",
+    "embedding_text": "Bir işe bağlı olarak tanımlanan şebeke. İşin fiziksel altyapı bilgilerini ve şebekeye eklenen malzeme/miktar kayıtlarını içerir. Şebekenin ilk kez oluşturulup kaydedilmesidir; mevcut bir şebekenin bilgilerinin değiştirilmesi veya şebekenin kaldırılması bu kapsamda değildir."
   }
 ]

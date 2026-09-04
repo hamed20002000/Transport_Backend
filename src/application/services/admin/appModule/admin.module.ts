@@ -127,7 +127,8 @@ import { CancellationService } from '../../agent/services/cancellation.service';
             NotificationLists, RoleNotificationLists, UserNotificationLists]),
         forwardRef(() => AuthModule),
         forwardRef(() => UserModule),
-        AgentModule
+        forwardRef(() => AgentModule),
+        
 
     ],
     controllers: [BaseinfoController, InitialOperationsController],
@@ -194,7 +195,6 @@ import { CancellationService } from '../../agent/services/cancellation.service';
            UserRoleRepository, 
            UserRoleService,
             InsertTools,
-            FunctionCallService,
             CondinateService,
             CancellationService
     ],
@@ -261,7 +261,6 @@ import { CancellationService } from '../../agent/services/cancellation.service';
          UserRoleRepository,
           UserRoleService, 
           InsertTools,
-            FunctionCallService,
             CondinateService,
             CancellationService
     ]
