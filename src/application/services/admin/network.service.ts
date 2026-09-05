@@ -23,6 +23,10 @@ import { WorkService } from './work.service';
 import * as XLSX from 'xlsx';
 import { ItemDefinition, ParsedExcelResult, WorkDetailRow, WorkDetailSubEntry, WorkItemDetail } from '../agent/interfaces/IExcel';
 import { UserUpdateDto } from 'src/presentation/dtos/user/user.dto';
+import { join } from 'path';
+import { ProductTypeService } from './product-type.service';
+import { ItemService } from './item.service';
+import { ILike } from 'typeorm';
 
 
 @Injectable()
@@ -33,7 +37,9 @@ export class NetworkService extends BaseService<Networks> {
     private readonly toolRtegister: ToolRegister,
     private readonly userService: UserService,
     private readonly history: ContextManager,
-    private readonly workService: WorkService
+    private readonly workService: WorkService,
+    private readonly itemTypeService: ProductTypeService,
+    private readonly productService: ItemService
   ) {
     super(networkRepository);
   }
@@ -52,11 +58,11 @@ export class NetworkService extends BaseService<Networks> {
             operation: "create_network",
             parameters: self.history.getParams(param),
             result: {
-              errorMessage: message.user.usernamerequired
+              errorMessage: message.network.nameisrequired
             }
           }, param.req.user.username, param.sessionId)
 
-          throw new HttpException(message.user.usernamerequired, HttpStatus.BAD_REQUEST);
+          throw new HttpException(message.network.nameisrequired, HttpStatus.BAD_REQUEST);
         }
 
 
@@ -79,11 +85,23 @@ export class NetworkService extends BaseService<Networks> {
         network.description = description;
         var works = (await self.workService.getWorkByTitle(workname));
         if (works.length > 1) {
-          const workId = yield { type: "selection", label: "İhalelerden birini seçin.", data: works.map((item) => ({ title: item.title, id: item.id })) }
+          const workId = yield { type: "selection", label: "İşlerden birini seçin.", data: works.map((item) => ({ title: item.title, id: item.id })) }
           network.work = await self.workService.getById(workId)
         }
-        else {
+        else if(works.length === 1) {
           network.work = works[0]
+        }
+        else{
+          self.history.addNewHistory({
+            status: "fault",
+            operation: "create_network",
+            parameters: self.history.getParams(param),
+            result: {
+              errorMessage: message.work.notfound
+            }
+          }, param.req.user.username, param.sessionId)
+
+          throw new HttpException(message.work.notfound, HttpStatus.BAD_REQUEST);
         }
         network.createAt = new Date();
         network.recordStatus = recordStatus.Active;
@@ -116,64 +134,117 @@ export class NetworkService extends BaseService<Networks> {
     })
 
 
-    // this.toolRtegister.register({
-    //   functionName: "update_user",
-    //   handler: async (param: any): Promise<RequestResult> => {
-    //     if (param.username == "" || param.username == null) {
-    //       this.history.addNewHistory({
-    //         status: "fault",
-    //         operation: "update_user",
-    //         parameters: this.history.getParams(param),
-    //         result: {
-    //           errorMessage: message.user.usernamerequired
-    //         }
-    //       }, param.req.user.username, param.sessionId)
-    //       throw new HttpException(message.user.usernamerequired, HttpStatus.BAD_REQUEST);
-    //     }
-    //     const dto = new UserUpdateDto();
-    //     dto.imageSrc = param.files[0];
-    //     dto.recordStatus = param.recordStatus;
-    //     dto.username = param.newusername;
+    this.toolRtegister.register({
+      functionName: "update_network",
+      handler: async function* (param: any): AsyncGenerator<any, RequestResult, any> {
 
-    //     var user = await this.userRepository.getByUserName(param.username);
-    //     if (!user) {
-    //       this.history.addNewHistory({
-    //         status: "fault",
-    //         operation: "update_user",
-    //         parameters: this.history.getParams(param),
-    //         result: {
-    //           errorMessage: message.user.Usernotfound
-    //         }
-    //       }, param.req.user.username, param.sessionId)
+        const title = self.toolRtegister.normalizingName(param.title.trim());
+        const newtitle = param.newtitle!=null&&param.newtitle!=""?self.toolRtegister.normalizingName(param.newtitle).trim():null;
+        const description =param.description!=null&&param.description!=""?self.toolRtegister.normalizingName(param.description).trim():null;
+        const workname = param.newworkname!=null&&param.newworkname!=""?self.toolRtegister.normalizingName(param.newworkname).trim():null;
+        var updateDto = new Networks();
+      
 
-    //       throw new HttpException(message.user.Usernotfound, HttpStatus.NOT_FOUND);
-    //     }
-    //     user.username = dto.username ?? user.username;
-    //     user.imageSrc = dto.imageSrc ?? user.imageSrc;
-    //     user.recordStatus = dto.recordStatus ?? user.recordStatus;
-    //     var updatedUser = await this.update(user);
-    //     var result = GenericMapper.toDto(UserDto, updatedUser, { excludeExtraneousValues: true });
+          if (param.title == "" || param.title == null) {
+          self.history.addNewHistory({
+            status: "fault",
+            operation: "update_network",
+            parameters: self.history.getParams(param),
+            result: {
+              errorMessage: message.network.nameisrequired
+            }
+          }, param.req.user.username, param.sessionId)
+          throw new HttpException(message.network.nameisrequired, HttpStatus.BAD_REQUEST);
+        }
 
-    //     this.history.addNewHistory({
-    //       status: "success",
-    //       operation: "update_user",
-    //       parameters: this.history.getParams(param),
-    //       result: {
-    //         "id": updatedUser.id.toString(),
-    //         "username": updatedUser.username,
-    //         "password": updatedUser.password,
-    //         "createAt": updatedUser.createAt.toString(),
-    //         "recordStatus": updatedUser.recordStatus.toString(),
-    //         "roles": updatedUser.roles.join(",")
-    //       }
-    //     }, param.req.user.username, param.sessionId)
+         var networks = (await self.getWorkNetworkWithTitle(workname));
+        if (networks.length > 1) {
+          const networkId = yield { type: "selection", label: "Şebekelerden birini seçin.", data: networks.map((item) => ({ title: item.title, id: item.id })) }
+          updateDto= await self.getNetworkById(networkId)
+        }
+        else if(networks.length === 1) {
+          updateDto = networks[0]
+        }
+        else{
+          self.history.addNewHistory({
+            status: "fault",
+            operation: "create_network",
+            parameters: self.history.getParams(param),
+            result: {
+              errorMessage: message.work.notfound
+            }
+          }, param.req.user.username, param.sessionId)
 
-    //     return {
-    //       continuePrompt: undefined,
-    //       toolName: "update_user"
-    //     };
-    //   }
-    // })
+          throw new HttpException(message.work.notfound, HttpStatus.BAD_REQUEST);
+        }
+        
+            if (newtitle!= "" && newtitle != null) {
+                 updateDto.title=newtitle
+         }
+            if (description!= "" && description != null) {
+                 updateDto.description=description
+         }
+
+
+        if (workname != "" && workname != null) {
+          var works = (await self.workService.getWorkByTitle(workname));
+          if (works.length > 1) {
+           const workId = yield { type: "selection", label: "İşlerden birini seçin.", data: works.map((item) => ({ title: item.title, id: item.id })) }
+           updateDto.work=await self.workService.getById(workId);
+          }
+          else if (works.length == 0) {
+            updateDto.work = works[0]
+          }
+          else {
+            self.history.addNewHistory({
+              status: "fault",
+              operation: "update_network",
+              parameters: self.history.getParams(param),
+              result: {
+                errorMessage: message.work.notfound
+              }
+            }, param.req.user.username, param.sessionId)
+            throw new HttpException(message.work.notfound, HttpStatus.BAD_REQUEST);
+          }
+        }
+
+      
+
+
+
+        if (param.files && param.files.length > 0) {
+          const user = param.req.user;
+          const user_specification = new UsernameSpecification(user.username);
+          const productTypes = new Set((await self.itemTypeService.getAllRecords()).map((item) => item.name));
+          const products = new Set((await self.productService.getAllRecords()).map((item) => item.name));
+          const excelResult = self.parseWorkExcelFile(param.files[0], productTypes, products)
+        }
+
+
+
+
+             await self.update(updateDto)
+
+        // self.history.addNewHistory({
+        //   status: "success",
+        //   operation: "update_network",
+        //   parameters: self.history.getParams(param),
+        //   result: {
+        //     "id": updatedUser.id.toString(),
+        //     "username": updatedUser.username,
+        //     "password": updatedUser.password,
+        //     "createAt": updatedUser.createAt.toString(),
+        //     "recordStatus": updatedUser.recordStatus.toString(),
+        //     "roles": updatedUser.roles.join(",")
+        //   }
+        // }, param.req.user.username, param.sessionId)
+
+        return {
+          continuePrompt: undefined,
+          toolName: "update_network"
+        };
+      }
+    })
 
 
     this.toolRtegister.register({
@@ -193,18 +264,18 @@ export class NetworkService extends BaseService<Networks> {
         }
 
         const title = self.toolRtegister.normalizingName(param.title).trim();
-        let network=new Networks();
+        let network = new Networks();
         var networks = (await self.networkRepository.getWorkNetworkWithTitle(title));
 
         if (networks.length > 1) {
           const networkId = yield { type: "selection", label: "Şebekelerden birini seçin.", data: networks.map((item) => ({ title: item.title, id: item.id })) }
-          network= await self.networkRepository.getNetworkById(networkId)
+          network = await self.networkRepository.getNetworkById(networkId)
         }
-        else if(networks.length==1){
-          network=networks[0]
+        else if (networks.length == 1) {
+          network = networks[0]
         }
-        else{
-            self.history.addNewHistory({
+        else {
+          self.history.addNewHistory({
             status: "fault",
             operation: "update_network_record_status",
             parameters: self.history.getParams(param),
@@ -237,7 +308,7 @@ export class NetworkService extends BaseService<Networks> {
 
     this.toolRtegister.register({
       functionName: "delete_network",
-       handler: async function* (param: any): AsyncGenerator<any, RequestResult, any> {
+      handler: async function* (param: any): AsyncGenerator<any, RequestResult, any> {
         if (param.title == "" || param.title == null) {
           self.history.addNewHistory({
             status: "fault",
@@ -252,17 +323,17 @@ export class NetworkService extends BaseService<Networks> {
         }
 
         const title = self.toolRtegister.normalizingName(param.title).trim();
-        let networkId=null
+        let networkId = null
         var networks = (await self.networkRepository.getWorkNetworkWithTitle(title));
 
         if (networks.length > 1) {
-           networkId = yield { type: "selection", label: "Şebekelerden birini seçin.", data: networks.map((item) => ({ title: item.title, id: item.id })) }
+          networkId = yield { type: "selection", label: "Şebekelerden birini seçin.", data: networks.map((item) => ({ title: item.title, id: item.id })) }
         }
-        else if(networks.length==1){
-          networkId=networks[0].id
+        else if (networks.length == 1) {
+          networkId = networks[0].id
         }
-        else{
-            self.history.addNewHistory({
+        else {
+          self.history.addNewHistory({
             status: "fault",
             operation: "update_network_record_status",
             parameters: self.history.getParams(param),
@@ -291,7 +362,7 @@ export class NetworkService extends BaseService<Networks> {
       }
     })
 
-   
+
 
 
 
@@ -321,10 +392,13 @@ export class NetworkService extends BaseService<Networks> {
     return this.networkRepository.deleteNetwork(id);
   }
 
-    async getWorkWithTitle(title: string): Promise<Works[]> {
-      return await this.workService.getWorkByTitle(title);
+  async getWorkWithTitle(title: string): Promise<Works[]> {
+    return await this.workService.getWorkByTitle(title);
+  }
+    async getWorkNetworkWithTitle(title: string): Promise<Networks[]> { 
+      return await this.networkRepository.getWorkNetworkWithTitle(title);
     }
-  
+
   getCellValueIntelligently(
     worksheet: XLSX.WorkSheet,
     row: number,
@@ -402,14 +476,16 @@ export class NetworkService extends BaseService<Networks> {
  * @param existingItemNames DB'deki mevcut öğe isimleri (lowercase)
  * @throws Error Excel formatı geçersizse (BadRequestException'a çevirmek çağıran tarafın işi)
  */
-  parseWorkExcelBuffer(
-    buffer: Buffer,
+  parseWorkExcelFile(
+    file: string,
     existingProductTypeNames: Set<string>,
     existingItemNames: Set<string>,
   ): ParsedExcelResult {
+    const actualPath = file.startsWith('/cdn') ? join(process.cwd(), file) : file;
+
     let workbook: XLSX.WorkBook;
     try {
-      workbook = XLSX.read(buffer, { type: 'buffer' });
+      workbook = XLSX.readFile(actualPath);
     } catch {
       throw new Error(
         'Excel dosyası işlenirken bir hata oluştu. Lütfen dosyanın formatını kontrol edin.',
@@ -565,6 +641,8 @@ export class NetworkService extends BaseService<Networks> {
       unregisteredItems: Array.from(newUnregisteredItems),
     };
   }
+
+
 
 
 

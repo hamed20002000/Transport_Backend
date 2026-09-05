@@ -70,7 +70,8 @@
     "work":{
         "nameisrequired":"İş adı gereklidir.",
         "tendernameisrequired":"İhale adı gereklidir.",
-        "startdaterequired":"Başlangıç tarihi gereklidir."
+        "startdaterequired":"Başlangıç tarihi gereklidir.",
+        "notfound":"İş adı bulunamadı!"
     },
      "network":{
         "nameisrequired":"Şebeke adı gereklidir.",

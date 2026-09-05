@@ -515,5 +515,9 @@ DMM TUTARI-TL Toplamı:${dmmTotal} TOPLAM KEŞİF BEDELİ TL:${grandTotal}`,
 
        return this.tenderRepository.getTenderByTitle(title);
   }
+    async getTendersByTitle(title: string): Promise<TenderHeaders[]>{
+
+       return this.tenderRepository.getTendersByTitle(title);
+  }
 
 }

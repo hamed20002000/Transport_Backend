@@ -494,7 +494,7 @@ Return JSON only, nothing else:
 
 
             const execResult = await this.agentToolsService.executeTool(
-                selectedTool.functionName,
+                selectedTool.functionName??selectedToolName,
                 { ...selectedTool.parameters, files },
                 req,
                 sessionId
@@ -630,7 +630,7 @@ Return JSON only, nothing else:
             SubmissionId: context.submissionId,
             SubIntentText: context.subIntent,
             Operation: context.toolName,
-            Parameters: {},
+            Parameters: context.selectedTool.parameters,
             Result: toolResult,
             Status: "success",
         });
@@ -641,10 +641,11 @@ Return JSON only, nothing else:
             prompt: context.subIntent,
             continuePrompt: toolResult?.continuePrompt,
             toolName: toolResult?.toolName,
-            isSpecial: false,
+            isSpecial: this.isSpecial(toolResult?.toolName),
             lastsegment: context.resumeIndex >= context.remainingSegments.length,
             list: []
         });
+            this.agentGateway.broadcastDomainChange(await this.condinate.getDomainOfPreviousTool(context.toolName), {})
 
         return { success: true };
     }
@@ -719,7 +720,7 @@ Return JSON only, nothing else:
          FROM "ToolExecution" te
          INNER JOIN "PromptSubmission" ps ON ps."Id" = te."SubmissionId"
          INNER JOIN "ConversationSession" cs ON cs."Id" = ps."SessionId"
-         WHERE cs."Username" = $1
+         WHERE cs."Userid" = $1
            AND (
              te."SubIntentText" ILIKE $2
              OR te."Parameters"::text ILIKE $2
@@ -981,6 +982,9 @@ Return JSON only, nothing else:
             const selectedToolName = await this.agentToolsService.extractSelectedTool(
                 subIntent, condinateToolsName, this.history.getHistory(0, username, sessionId) as string
             );
+                const selectedTool = await this.agentToolsService.extractTools(
+                subIntent, selectedToolName, this.history.getHistory(0, username, sessionId) as string
+            );
 
             if (selectedToolName.startsWith("delete_")) {
                 // حالا "بقیه‌ی segment ها" و "از کجا باید ادامه بدیم" رو هم
@@ -992,6 +996,7 @@ Return JSON only, nothing else:
                     req: req,
                     selectedToolName: selectedToolName,
                     submission: submission,
+                    selectedTool:selectedTool,
                     subIntent,
                     sessionId,
                     remainingSegments: segmentsPrompts, // ⬅️ جدید
@@ -1013,9 +1018,7 @@ Return JSON only, nothing else:
                 return;
             }
 
-            const selectedTool = await this.agentToolsService.extractTools(
-                subIntent, selectedToolName, this.history.getHistory(0, username, sessionId) as string
-            );
+        
 
             // پارامترهای جدید: کل لیست segment ها + اندیس بعدی -- برای
             // اینکه اگه handler خودش (به‌شکل generator) متوقف شد، بشه

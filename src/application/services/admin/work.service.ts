@@ -131,11 +131,11 @@ export class WorkService extends BaseService<Works> implements OnModuleInit {
       handler: async function* (param: any): AsyncGenerator<any, RequestResult, any> {
 
         const title = self.toolRtegister.normalizingName(param.title).trim();
-        const newTitle = self.toolRtegister.normalizingName(param.newtitle).trim();
-        const tenderName = self.toolRtegister.normalizingName(param.tendername).trim();
-        const startDate = self.toolRtegister.normalizingName(param.startdate).trim();
+        const newTitle = param.newtitle!=null&&param.newtitle!=""?self.toolRtegister.normalizingName(param.newtitle)?.trim():null;
+        const tenderName = param.tendername!=null&&param.tendername!=""?self.toolRtegister.normalizingName(param.tendername)?.trim():null;
+        const startDate = param.startdate!=null&&param.startdate!=""?self.toolRtegister.normalizingName(param.startdate)?.trim():null;
 
-        const workDto = new Works();
+        let workDto = new Works();
         if (title == "" && title == null) {
           self.history.addNewHistory({
             status: "fault",
@@ -152,37 +152,55 @@ export class WorkService extends BaseService<Works> implements OnModuleInit {
         const checkedWork = await self.getWorkByTitle(title);
         if (checkedWork.length > 1) {
           const workId = yield { type: "selection", label: "İşlerden birini seçin.", data: checkedWork.map((item) => ({ title: item.title, id: item.id })) }
-          const work = await self.getWorkById(workId);
-          workDto.id = work.id;
-          workDto.recordStatus = work.recordStatus;
-          workDto.startDate = work.startDate;
-          workDto.endDate = work.endDate;
-          workDto.title = newTitle ?? title
+          workDto=await self.getWorkById(workId);
         }
-        else {
-          workDto.id = checkedWork[0].id;
-          workDto.recordStatus = checkedWork[0].recordStatus;
-          workDto.startDate = checkedWork[0].startDate;
-          workDto.endDate = checkedWork[0].endDate;
-          workDto.title = newTitle ?? title
+        else if(checkedWork.length==1){
+          workDto = checkedWork[0];
+        }
+        else{
+             self.history.addNewHistory({
+            status: "fault",
+            operation: "update_work",
+            parameters: self.history.getParams(param),
+            result: {
+              errorMessage: message.work.notfound
+            }
+          }, param.req.user.username, param.sessionId)
+
+          throw new HttpException(message.work.notfound, HttpStatus.BAD_REQUEST);
         }
 
         if (tenderName != "" && tenderName != null) {
 
-          var tender = (await self.tenderService.getTenderByTitle(tenderName))?.[0] ?? undefined;
-          if (!tender) {
+          var tender = (await self.tenderService.getTendersByTitle(tenderName));
+          if (tender && tender.length > 1) {
             const tenders = await self.tenderService.getAllTenders();
             const tenderId = yield { type: "selection", label: "İhalelerden birini seçin.", data: tenders.map((item) => ({ title: item.title, id: item.id })) }
             workDto.tender = await self.tenderService.getById(tenderId)
           }
-          else {
-            workDto.tender = tender
+          else if(tender && tender.length==1){
+            workDto.tender = tender[0]
+          }
+          else{
+            self.history.addNewHistory({
+            status: "fault",
+            operation: "update_work",
+            parameters: self.history.getParams(param),
+            result: {
+              errorMessage: message.tender.notfound
+            }
+          }, param.req.user.username, param.sessionId)
+
+          throw new HttpException(message.tender.notfound, HttpStatus.BAD_REQUEST);
           }
 
         }
 
         if (startDate != "" && startDate != null) {
           workDto.startDate = new Date(startDate);
+        }
+        if(newTitle!=null && newTitle!=""){
+          workDto.title = newTitle;
         }
         const updatedWork = await self.update(workDto);
 
@@ -194,7 +212,7 @@ export class WorkService extends BaseService<Works> implements OnModuleInit {
             "id": updatedWork.id.toString(),
             "title": updatedWork.title,
             "startDate": updatedWork.startDate.toDateString(),
-            "tender": updatedWork.tender.title,
+            "tender": updatedWork.tender?.title??"",
             "newtitle": newTitle
           }
         }, param.req.user.username, param.sessionId)
@@ -235,9 +253,21 @@ export class WorkService extends BaseService<Works> implements OnModuleInit {
           workDto = await self.getWorkById(workId);
           workDto.recordStatus = recordStatus??workDto.recordStatus;
         }
-        else {
-          workDto.recordStatus = checkedWork[0].recordStatus;
-          
+        else if(checkedWork.length==1) {
+          workDto=checkedWork[0];
+          workDto.recordStatus =recordStatus??workDto.recordStatus;
+        }
+        else{
+            self.history.addNewHistory({
+            status: "fault",
+            operation: "update_work_record_status",
+            parameters: self.history.getParams(param),
+            result: {
+              errorMessage: message.work.notfound
+            }
+          }, param.req.user.username, param.sessionId)
+
+          throw new HttpException(message.work.notfound, HttpStatus.BAD_REQUEST);
         }
 
         const updatedWork = await self.update(workDto);
@@ -265,7 +295,8 @@ export class WorkService extends BaseService<Works> implements OnModuleInit {
     self.toolRtegister.register({
       functionName: "delete_work",
       handler: async function* (param: any): AsyncGenerator<any, RequestResult, any> {
-        if (param.title == "" || param.title == null) {
+        const title=self.toolRtegister.normalizingName(param.title).trim()
+        if (title == "" || title == null) {
           self.history.addNewHistory({
             status: "fault",
             operation: "delete_work",

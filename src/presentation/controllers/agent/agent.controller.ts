@@ -170,7 +170,7 @@ export class AgentController {
 @UseGuards(JwtAuthGuard, AdminRolesGuard)
 @ApiBearerAuth()
 async searchSessions(@Req() req: any, @Query('q') query: string) {
-    return this.functionCallService.searchUserSessions(req.user.username, query ?? "");
+    return this.functionCallService.searchUserSessions(req.user.userid, query ?? "");
 }
 
     @Post('speech/transcribe-test')
