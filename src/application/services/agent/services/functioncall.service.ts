@@ -43,6 +43,10 @@ export class FunctionCallService {
     private pendingGenerators = new Map<string, { generator: AsyncGenerator<any, any, any>; context: PendingGeneratorType }>();
     public source: "telegram" | "whatsapp" | "web" = "web"
 
+    public hasPendingGenerator(userId: string): boolean {
+    return this.pendingGenerators.has(userId);
+}
+
     async extractSchema(prompt: string): Promise<string> {
 
 

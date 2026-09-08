@@ -11,8 +11,7 @@ export const typeOrmConfig = (configService: ConfigService): TypeOrmModuleOption
   password: configService.get<string>('DB_PASSWORD', '123qwe$%'),
   database: configService.get<string>('DB_DATABASE', 'SETASTAKIP'),
  /*  entities: ['src/domain/entities/*.ts'], */
-  entities: ['src/application/services/agent/entities/ConversationSession.ts','src/application/services/agent/entities/PromptSubmission.ts','src/application/services/agent/entities/ToolExecution.ts'
-  ],
+  entities: ['src/application/services/agent/entities/WhatsappUserMapping.ts'],
   migrations: ['src/infrastructure/database/migrations/*.ts'],  
   migrationsRun: false,   
   synchronize: false, // Disable auto schema synchronization

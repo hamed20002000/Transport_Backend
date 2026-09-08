@@ -34,6 +34,15 @@ export class TelegramService implements OnModuleInit {
     // متن‌های تشخیص‌داده‌شده از صدا که هنوز منتظر تایید کاربرن
     private pendingTranscriptions = new Map<string, string>();
 
+    // جدید: انتخاب‌های معلق -- وقتی یک generator یک لیست گزینه yield
+    // می‌کنه، این‌جا نگه می‌داریم تا وقتی کاربر روی یکی از دکمه‌ها زد،
+    // بتونیم اندیس دکمه (که توی callback_data محدود به ۶۴ بایته) رو
+    // به value واقعی گزینه ترجمه کنیم
+    private pendingSelections = new Map<
+        string,
+        { userId: string; options: { value: any; label: string }[] }
+    >();
+
     // شناسه‌ی پیام‌هایی که اخیراً پردازش شدن -- برای جلوگیری از پردازش
     // دوباره‌ی همون پیام (مثلاً اگه به‌خاطر قطعی/تاخیر شبکه، تلگرام
     // دوباره deliverش کنه -- که دقیقاً همون چیزی بود که با پینگ بالا
@@ -43,7 +52,7 @@ export class TelegramService implements OnModuleInit {
     onModuleInit() {
         const token = process.env.TELEGRAM_BOT_TOKEN;
         if (!token) {
-            this.logger.warn('TELEGRAM_BOT_TOKEN تنظیم نشده -- بات تلگرام غیرفعاله.');
+            this.logger.warn('TELEGRAM_BOT_TOKEN tanımlanmadı -- Telegram bot devre dışı.');
             return;
         }
 
@@ -157,6 +166,49 @@ export class TelegramService implements OnModuleInit {
         await this.safeSendMessage(chatId, text);
     }
 
+    /**
+     * جدید: AgentGateway.sendToolResult این متد رو صدا می‌زنه وقتی
+     * data.result === "confirm_required" باشه و options داشته باشه.
+     *
+     * callback_data روی هر دکمه فقط اندیس گزینه (sel_0, sel_1, ...) رو
+     * حمل می‌کنه -- چون callback_data تلگرام محدود به ۶۴ بایته و
+     * value واقعی گزینه (مثلاً یک UUID) ممکنه جا نشه. لیست کامل
+     * (با value واقعی هر گزینه) موقتاً توی pendingSelections نگه
+     * داشته می‌شه تا وقتی کاربر کلیک کرد، اندیس رو به value ترجمه کنیم.
+     */
+    async sendSelectionRequest(
+        userId: string,
+        message: string,
+        options: { value: any; label: string }[],
+    ): Promise<void> {
+        const chatId = await this.getChatIdForUsername(userId);
+        if (!chatId) return;
+
+        // جدید: به‌جای یک دکمه در هر ردیف (که با ۲۰ گزینه یعنی ۲۰ ردیف
+        // و اسکرول زیاد)، هر ردیف چند دکمه (BUTTONS_PER_ROW تا) داره
+        const BUTTONS_PER_ROW = 2;
+        const inline_keyboard: TelegramBot.InlineKeyboardButton[][] = [];
+
+        for (let i = 0; i < options.length; i += BUTTONS_PER_ROW) {
+            const rowOptions = options.slice(i, i + BUTTONS_PER_ROW);
+            inline_keyboard.push(
+                rowOptions.map((option, offset) => ({
+                    text: option.label,
+                    callback_data: `sel_${i + offset}`,
+                })),
+            );
+        }
+        inline_keyboard.push([{ text: '❌ İptal', callback_data: 'sel_cancel' }]);
+
+        const sent = await this.safeSendMessage(chatId, message, {
+            reply_markup: { inline_keyboard },
+        });
+
+        if (sent) {
+            this.pendingSelections.set(chatId, { userId, options });
+        }
+    }
+
     private async handleMessage(msg: TelegramBot.Message): Promise<void> {
         // اگه این message_id رو قبلاً پردازش کردیم، دوباره پردازشش نکن --
         // این دقیقاً همون محافظتیه که به‌خاطر پینگ بالا (redelivery
@@ -175,14 +227,6 @@ export class TelegramService implements OnModuleInit {
 
         const chatId = msg.chat.id.toString();
         const text = msg.text?.trim();
-
-        // // اگه یک chatId مشخص توی .env تعریف شده، فقط همون یکی رو
-        // // پردازش کن -- بقیه رو کاملاً نادیده بگیر (بدون هیچ پاسخی)
-        // const allowedChatId = process.env.TELEGRAM_ALLOWED_CHAT_ID;
-        // if (allowedChatId && chatId !== allowedChatId) {
-        //     this.logger.debug(`پیام از chatId غیرمجاز نادیده گرفته شد: ${chatId}`);
-        //     return;
-        // }
 
         if (msg.text == "/start") {
             await this.safeSendMessage(chatId, 'Merhaba! Ben Setash Agent botuyum. Hesabınızı bağlamak için şunu yazın: /link kullaniciadiniz parolanız');
@@ -219,9 +263,6 @@ export class TelegramService implements OnModuleInit {
         try {
             await this.bot.sendMessage(chatId, '🎤 Ses işleniyor...');
 
-            // دانلود و خروجی رو کاملاً توی دو پوشه‌ی جدا نگه می‌داریم --
-            // تا الگوریتم نام‌گذاری داخلی node-telegram-bot-api هیچ‌وقت
-            // با فایل‌های خروجی خودمون برخورد نکنه
             const downloadDir = join(process.cwd(), 'uploads', 'telegram-voice', 'downloads');
             const convertedDir = join(process.cwd(), 'uploads', 'telegram-voice', 'converted');
             await mkdir(downloadDir, { recursive: true });
@@ -230,8 +271,6 @@ export class TelegramService implements OnModuleInit {
             const oggPath = await this.bot.downloadFile(fileId, downloadDir);
             this.logger.debug(`>>> oggPath: ${oggPath}`);
 
-            // اسم خروجی رو با یک شناسه‌ی تصادفی می‌سازیم (نه بر اساس
-            // اسم ورودی) تا کاملاً مستقل و بدون ابهام باشه
             const wavPath = join(convertedDir, `${Date.now()}-${Math.random().toString(36).slice(2)}.wav`);
             this.logger.debug(`>>> wavPath: ${wavPath}`);
 
@@ -244,7 +283,6 @@ export class TelegramService implements OnModuleInit {
                 return;
             }
 
-            // متن رو نگه می‌داریم تا وقتی کاربر تایید کرد، همینو اجرا کنیم
             this.pendingTranscriptions.set(chatId, text);
 
             await this.bot.sendMessage(
@@ -261,7 +299,6 @@ export class TelegramService implements OnModuleInit {
             );
         } catch (error: any) {
             this.logger.error(`Ses işleme hatası: ${error.message}`);
-            // AggregateError چند تا خطای تودرتو داره -- این‌ها رو هم جدا چاپ کن
             if (error.errors) {
                 error.errors.forEach((e: any, i: number) => {
                     this.logger.error(`  خطای داخلی [${i}]: ${e.message} (code: ${e.code})`);
@@ -302,12 +339,63 @@ export class TelegramService implements OnModuleInit {
             });
 
             await this.processPromptText(chatId, text);
-        } else if (query.data === 'cancel_voice') {
+            return;
+        }
+
+        if (query.data === 'cancel_voice') {
             this.pendingTranscriptions.delete(chatId);
             await this.bot.editMessageText('❌ İptal edildi. Lütfen tekrar deneyin.', {
                 chat_id: chatId,
                 message_id: query.message.message_id,
             });
+            return;
+        }
+
+        // جدید: کلیک روی یکی از دکمه‌های انتخاب گزینه (sel_0, sel_1, ...) یا لغو (sel_cancel)
+        if (query.data === 'sel_cancel' || query.data?.startsWith('sel_')) {
+            const pending = this.pendingSelections.get(chatId);
+            this.pendingSelections.delete(chatId);
+
+            if (!pending) {
+                await this.bot.editMessageText('Seçim süresi dolmuş.', {
+                    chat_id: chatId,
+                    message_id: query.message.message_id,
+                });
+                return;
+            }
+
+            this.functionCallService.source = 'telegram';
+
+            if (query.data === 'sel_cancel') {
+                await this.bot.editMessageText('❌ İşlem iptal edildi.', {
+                    chat_id: chatId,
+                    message_id: query.message.message_id,
+                });
+                void this.functionCallService.handleGeneratorResponse(pending.userId, null, true);
+                return;
+            }
+
+            const index = Number(query.data.slice('sel_'.length));
+            const selectedOption = pending.options[index];
+
+            if (!selectedOption) {
+                await this.bot.editMessageText('Geçersiz seçim.', {
+                    chat_id: chatId,
+                    message_id: query.message.message_id,
+                });
+                return;
+            }
+
+            await this.bot.editMessageText(`✅ Seçildi: ${selectedOption.label}`, {
+                chat_id: chatId,
+                message_id: query.message.message_id,
+            });
+
+            void this.functionCallService.handleGeneratorResponse(
+                pending.userId,
+                selectedOption.value,
+                false,
+            );
         }
     }
 
@@ -339,6 +427,18 @@ export class TelegramService implements OnModuleInit {
             return;
         }
 
+        // جدید: اگه این کاربر یک انتخاب معلق داره ولی متن معمولی فرستاده
+        // (نه دکمه زده)، به‌جای اجرای یک دستور جدید، یادآوری کن که باید
+        // از دکمه‌ها استفاده کنه -- وگرنه pendingGenerators توی
+        // FunctionCallService برای همیشه معلق می‌مونه
+        if (this.pendingSelections.has(chatId)) {
+            await this.safeSendMessage(
+                chatId,
+                'Lütfen yukarıdaki seçeneklerden birine tıklayın veya "İptal" butonuna basın.'
+            );
+            return;
+        }
+
         const { sessionId } = await this.functionCallService.createNewSession(link.Userid);
         const user = await this.userService.getByUserId(link.Userid);
 
@@ -352,7 +452,7 @@ export class TelegramService implements OnModuleInit {
         await this.safeSendMessage(chatId, '⏳ İşleniyor...');
 
         try {
-            this.functionCallService.source="telegram";
+            this.functionCallService.source = "telegram";
             await this.functionCallService.RunFunctionCalling(text, fakeReq, [], sessionId);
         } catch (error: any) {
             await this.safeSendMessage(chatId, `Hata: ${error?.message || 'Bilinmeyen bir hata oluştu.'}`);
@@ -386,13 +486,8 @@ export class TelegramService implements OnModuleInit {
             return;
         }
 
-        // اعتبارسنجی واقعی -- باید همون منطقی که برای لاگین وب استفاده
-        // می‌شه (بررسی هش رمز عبور) رو اینجا هم صدا بزنیم
         const isValid = await this.authService.validateUser({ password, username });
 
-
-        // پیام حاوی رمز عبور رو فوراً پاک کن -- چه موفق چه ناموفق --
-        // تا حداقل توی UI چت باقی نمونه
         try {
             await this.bot.deleteMessage(chatId, messageId);
         } catch (error) {
@@ -405,9 +500,6 @@ export class TelegramService implements OnModuleInit {
             return;
         }
 
-        // اگه از قبل یک لینک برای این chat وجود داره، همونو آپدیت کن
-        // (نه یک ردیف جدید بساز) -- @UpdateDateColumn خودکار
-        // LastVerifiedAt رو به الان تنظیم می‌کنه
         const repo = this.dataSource.getRepository(TelegramLink);
         const existing = await repo.findOne({ where: { ChatId: chatId } });
 

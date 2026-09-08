@@ -11,6 +11,8 @@ import { FunctionCallResultType } from './types';
 import { CancellationService } from './services/cancellation.service';
 import { Socket } from 'socket.io';
 import { TelegramService } from './services/Telegram.service';
+// جدید: WhatsappService رو هم import کنید (مسیر واقعی پروژه‌تون)
+import { WhatsappService } from './services/whatsapp.service';
 import { forwardRef, Inject } from '@nestjs/common';
 import { FunctionCallService } from './services/functioncall.service';
 
@@ -27,6 +29,9 @@ export class AgentGateway {
     private readonly cancellation: CancellationService,
     @Inject(forwardRef(() => TelegramService))
     private readonly telegramService: TelegramService,
+    // جدید: WhatsappService رو هم inject کنید (همون الگوی forwardRef تلگرام)
+    @Inject(forwardRef(() => WhatsappService))
+    private readonly whatsappService: WhatsappService,
     @Inject(forwardRef(() => FunctionCallService))
     private readonly functionCallService: FunctionCallService,
   ) { }
@@ -42,6 +47,16 @@ export class AgentGateway {
       .emit('agent-tool-result', data);
 
     if (this.functionCallService.source == "telegram") {
+      // جدید: حالت انتخاب از لیست/تایید -- باید قبل از شاخه‌ی success/error چک بشه
+      if (data.result === "confirm_required" && (data as any).data?.options) {
+        await this.telegramService.sendSelectionRequest(
+          userId,
+          (data as any).data.message || data.message,
+          (data as any).data.options,
+        );
+        return;
+      }
+
       const chatId = await this.telegramService.getChatIdForUsername(userId);
       if (chatId) {
         const text = data.result === "success"
@@ -50,6 +65,28 @@ export class AgentGateway {
         await this.telegramService.sendOrUpdateProgress(chatId, `⏳ ${text}`, ++this.currentSegment, this.totalSegments);
 
         //await this.telegramService.sendMessageToChat(chatId, text);
+        this.currentSegment = 0;
+      }
+    }
+
+    // جدید: همون منطق تلگرام، برای واتساپ
+    if (this.functionCallService.source == "whatsapp") {
+      // جدید: حالت انتخاب از لیست/تایید (صفحه‌بندی‌شده)
+      if (data.result === "confirm_required" && (data as any).data?.options) {
+        await this.whatsappService.sendSelectionRequest(
+          userId,
+          (data as any).data.message || data.message,
+          (data as any).data.options,
+        );
+        return;
+      }
+
+      const jid = await this.whatsappService.getJidForUsername(userId);
+      if (jid) {
+        const text = data.result === "success"
+          ? `✅ ${data.message}`
+          : `❌ ${data.message}`;
+        await this.whatsappService.sendOrUpdateProgress(jid, `⏳ ${text}`, ++this.currentSegment, this.totalSegments);
         this.currentSegment = 0;
       }
     }
@@ -67,6 +104,14 @@ export class AgentGateway {
         // این یک مرحله‌ی میانیه -- همون پیام رو ویرایش کن (progressbar)،
         // نه یک پیام جدید بفرست
         await this.telegramService.sendOrUpdateProgress(chatId, `⏳ ${data.currentOp}`, ++this.currentSegment, this.totalSegments);
+      }
+    }
+
+    // جدید: شاخه‌ی واتساپ
+    if (this.functionCallService.source == "whatsapp") {
+      const jid = await this.whatsappService.getJidForUsername(userId);
+      if (jid) {
+        await this.whatsappService.sendOrUpdateProgress(jid, `⏳ ${data.currentOp}`, ++this.currentSegment, this.totalSegments);
       }
     }
 
@@ -115,63 +160,29 @@ export class AgentGateway {
   }
 
 
-  
-// این رو هم توی respond-to-pending-action موقت اضافه کن تا socket.id رو ببینیم:
-@SubscribeMessage('respond-to-pending-action')
-handleRespondToPendingAction(
+
+  // این رو هم توی respond-to-pending-action موقت اضافه کن تا socket.id رو ببینیم:
+  @SubscribeMessage('respond-to-pending-action')
+  handleRespondToPendingAction(
     @ConnectedSocket() client: Socket,
-    @MessageBody() body: { value: any,cancel:boolean }
-) {
+    @MessageBody() body: { value: any, cancel: boolean }
+  ) {
     console.log('[respond-to-pending-action] socket.id:', client.id, '| client.data:', client.data);
- 
+
     const userId = client.data?.userId;
     if (!userId) return;
- 
-    void this.functionCallService.handleGeneratorResponse(userId, body.value,body.cancel);
-}
 
-  // handleConnection(client: any) {
+    void this.functionCallService.handleGeneratorResponse(userId, body.value, body.cancel);
+  }
 
-  //           const token = client.handshake.auth?.token || client.handshake.query?.token;
- 
-  //       if (!token) {
-  //           client.disconnect();
-  //           return;
-  //       }
- 
-  //       const payload = this.jwtService.verify(token); // اگه نامعتبر باشه، خودش throw می‌کنه
-  //       const userId = payload.userid; //
-
-
-  //   // const userId = client.handshake.query.userId;
-    
-  //   // console.log('[handleConnection] socket.id:', client.id, '| userId از query:', userId, '| نوعش:', typeof userId)
-
-  //   //     if (userId && typeof userId === 'string') {
-  //   //     client.join(`user:${userId}`);
-  //   //     client.data.userId = userId;
-  //   //     console.log('[handleConnection] client.data.userId ست شد:', client.data.userId);
-  //   // } else {
-  //   //     console.log('[handleConnection] شرط رد شد -- client.data.userId ست نشد!');
-  //   // }
-
-
-
-  //   // if (userId && typeof userId === 'string') {
-  //   //   client.join(`user:${userId}`);
-  //   // }
-
-  // }
-
-
- handleConnection(client: any) {
+  handleConnection(client: any) {
     const userId = client.handshake.query.userId;
 
     if (userId && typeof userId === 'string') {
-        client.join(`user:${userId}`);
-        client.data.userId = userId;
+      client.join(`user:${userId}`);
+      client.data.userId = userId;
     }
-}
+  }
 
 
 

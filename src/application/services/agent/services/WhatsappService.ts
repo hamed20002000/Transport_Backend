@@ -5,11 +5,11 @@ import makeWASocket, { DisconnectReason, WASocket, proto } from '@whiskeysockets
 import { Boom } from '@hapi/boom';
 import * as qrcode from 'qrcode-terminal';
 import { WhatsappAuthCredential } from '../entities/WhatsappAuthCredential';
-import { WhatsappAuthKey } from '../entities/WhatsappAuthKey';
+import { WhatsappAuthKey } from '..//entities/WhatsappAuthKey';
 import { WhatsappUserMapping } from '../entities/WhatsappUserMapping';
 import { useDbAuthState } from '../hooks/useDbAuthState';
 // این importها رو با مسیر واقعی پروژه‌تون جایگزین کنید
-import { FunctionCallService } from './functioncall.service';
+import { FunctionCallService } from './functioncall.service'; 
 
 const DEFAULT_SESSION_ID = 'main';
 
@@ -17,21 +17,6 @@ const DEFAULT_SESSION_ID = 'main';
 export class WhatsappService implements OnModuleInit {
   private readonly logger = new Logger(WhatsappService.name);
   private sock: WASocket | null = null;
-
-  // جدید: کلید آخرین پیام "در حال پردازش" هر jid -- برای اینکه بتونیم
-  // بجای فرستادن پیام جدید، همون پیام رو ادیت کنیم (مثل progressbar تلگرام)
-  private activeProgressMessages = new Map<string, proto.IMessageKey>();
-
-  // جدید: انتخاب‌های معلق -- چون واتساپ دکمه‌ی واقعی امن نداره، لیست
-  // گزینه‌ها به‌شکل شماره‌گذاری‌شده و صفحه‌بندی‌شده (۱۰ تا در هر پیام)
-  // فرستاده می‌شه؛ اینجا نگه می‌داریم کدوم jid روی کدوم صفحه‌ست و
-  // گزینه‌های واقعیش چیه، تا وقتی عددی فرستاد بتونیم value واقعی رو پیدا کنیم
-  private pendingSelections = new Map<
-    string,
-    { userId: string; options: { value: any; label: string }[]; page: number; message: string }
-  >();
-
-  private static readonly SELECTION_PAGE_SIZE = 10;
 
   constructor(
     @InjectRepository(WhatsappAuthCredential)
@@ -137,14 +122,6 @@ export class WhatsappService implements OnModuleInit {
     // cevabı Telegram'a mı, WhatsApp'a mı, yoksa sadece socket.io'ya mı
     // relay edeceğine karar veriyor.
     this.functionCallService.source = 'whatsapp';
-
-    // جدید: اول چک کن آیا یک انتخاب صفحه‌بندی‌شده (با گزینه‌های واقعی)
-    // منتظر این jid هست -- این دقیق‌تر از حالت عمومی زیره چون خودِ
-    // متن گزینه‌ها و value واقعی‌شون رو داره، نه فقط یک عدد خام
-    if (this.pendingSelections.has(jid)) {
-      await this.handleSelectionReply(jid, text);
-      return;
-    }
 
     // pendingGenerators FunctionCallService içinde private olduğu için,
     // FunctionCallService'e eklenen hasPendingGenerator(userid) üzerinden kontrol ediyoruz
@@ -300,118 +277,6 @@ export class WhatsappService implements OnModuleInit {
     return row?.jid ?? null;
   }
 
-  /**
-   * AgentGateway.sendToolResult bunu, data.result === "confirm_required" ve
-   * options varken çağırır -- Telegram'daki sendSelectionRequest'in
-   * WhatsApp karşılığı. Baileys'te gerçek buton olmadığı için, liste
-   * numaralandırılmış metin olarak, ${SELECTION_PAGE_SIZE} tanesi bir arada
-   * gönderiliyor (sayfalama).
-   */
-  async sendSelectionRequest(
-    userId: string,
-    message: string,
-    options: { value: any; label: string }[],
-  ): Promise<void> {
-    const jid = await this.getJidForUsername(userId);
-    if (!jid) return;
-
-    this.pendingSelections.set(jid, { userId, options, page: 0, message });
-    await this.sendSelectionPage(jid);
-  }
-
-  private async sendSelectionPage(jid: string): Promise<void> {
-    const pending = this.pendingSelections.get(jid);
-    if (!pending) return;
-
-    const { options, page, message } = pending;
-    const pageSize = WhatsappService.SELECTION_PAGE_SIZE;
-    const start = page * pageSize;
-    const end = start + pageSize;
-    const pageOptions = options.slice(start, end);
-
-    const lines = pageOptions.map((option, i) => `${start + i + 1}) ${option.label}`);
-
-    const hasNext = end < options.length;
-    const hasPrev = page > 0;
-
-    const navHints: string[] = [];
-    if (hasNext) {
-      navHints.push(`'devam' yazarak sonraki ${Math.min(pageSize, options.length - end)} seçeneği görün`);
-    }
-    if (hasPrev) {
-      navHints.push(`'geri' yazarak önceki sayfaya dönün`);
-    }
-    navHints.push(`İptal etmek için 'iptal' yazın`);
-
-    const text = [
-      page === 0 ? message : null,
-      lines.join('\n'),
-      navHints.join('\n'),
-    ]
-      .filter(Boolean)
-      .join('\n\n');
-
-    await this.sendMessage(jid, text);
-  }
-
-  /**
-   * pendingSelections'ta bir kayıt varken gelen mesajı işler: sayfa
-   * gezinme komutları ('devam'/'geri'), iptal, veya bir seçim numarası.
-   */
-  private async handleSelectionReply(jid: string, text: string): Promise<void> {
-    const pending = this.pendingSelections.get(jid);
-    if (!pending) return;
-
-    const normalized = text.trim().toLowerCase();
-    const pageSize = WhatsappService.SELECTION_PAGE_SIZE;
-
-    if (this.isCancelReply(text)) {
-      this.pendingSelections.delete(jid);
-      void this.functionCallService.handleGeneratorResponse(pending.userId, null, true);
-      return;
-    }
-
-    if (normalized === 'devam') {
-      const nextStart = (pending.page + 1) * pageSize;
-      if (nextStart >= pending.options.length) {
-        await this.sendMessage(jid, 'Başka seçenek yok.');
-        return;
-      }
-      pending.page += 1;
-      await this.sendSelectionPage(jid);
-      return;
-    }
-
-    if (normalized === 'geri') {
-      if (pending.page === 0) {
-        await this.sendMessage(jid, 'Zaten ilk sayfadasınız.');
-        return;
-      }
-      pending.page -= 1;
-      await this.sendSelectionPage(jid);
-      return;
-    }
-
-    const selectionNumber = this.parseUserSelectionReply(text);
-    if (selectionNumber === null) {
-      await this.sendMessage(
-        jid,
-        `Lütfen listeden bir numara girin, veya 'devam' / 'geri' / 'iptal' yazın.`,
-      );
-      return;
-    }
-
-    // شماره‌گذاری از ۱ شروع می‌شه (نه ۰)، پس ایندکس واقعی آرایه یکی کمتره
-    const selectedOption = pending.options[selectionNumber - 1];
-    if (!selectedOption) {
-      await this.sendMessage(jid, 'Geçersiz numara. Lütfen listedeki bir numarayı girin.');
-      return;
-    }
-
-    this.pendingSelections.delete(jid);
-    void this.functionCallService.handleGeneratorResponse(pending.userId, selectedOption.value, false);
-  }
-
   // مرحله ۷: ارسال پاسخ نهایی (توسط AgentGateway صدا زده می‌شه)
   async sendMessage(jid: string, text: string): Promise<void> {
     if (!this.sock) {
@@ -422,59 +287,18 @@ export class WhatsappService implements OnModuleInit {
   }
 
   /**
-   * Telegram'daki sendOrUpdateProgress'in gerçek karşılığı -- Baileys'in
-   * mesaj düzenleme (edit) özelliğini kullanır. İlk çağrıda yeni bir mesaj
-   * gönderilir ve key'i saklanır; sonraki çağrılarda aynı key ile aynı
-   * mesaj güncellenir (yeni mesaj gönderilmez).
+   * Telegram'daki sendOrUpdateProgress'in karşılığı. WhatsApp'ta mesaj
+   * düzenleme (edit) Baileys'te daha kısıtlı/karmaşık olduğundan, burada
+   * her ilerleme adımını ayrı bir mesaj olarak gönderiyoruz. İsterseniz
+   * ileride gerçek mesaj düzenlemeyi (sock.sendMessage ile edit alanı)
+   * ekleyebilirsiniz.
    */
   async sendOrUpdateProgress(
     jid: string,
     text: string,
-    currentSegment?: number,
-    totalSegments?: number,
+    currentSegment: number,
+    totalSegments: number,
   ): Promise<void> {
-    if (!this.sock) {
-      this.logger.error('WhatsApp soketi hazır değil.');
-      return;
-    }
-
-    const displayText =
-      currentSegment && totalSegments
-        ? `${this.buildProgressBar(currentSegment, totalSegments)}\n${text}`
-        : text;
-
-    const existingKey = this.activeProgressMessages.get(jid);
-
-    if (existingKey) {
-      try {
-        await this.sock.sendMessage(jid, { text: displayText, edit: existingKey });
-        return;
-      } catch (error) {
-        this.logger.warn(`Mesaj düzenlenemedi, yeni mesaj gönderiliyor: ${jid}`, error as Error);
-        // devam et -- aşağıda yeni bir mesaj gönderilecek
-      }
-    }
-
-    const sent = await this.sock.sendMessage(jid, { text: displayText });
-    if (sent?.key) {
-      this.activeProgressMessages.set(jid, sent.key);
-    }
-  }
-
-  /**
-   * Operasyon tamamen bittiğinde çağrılır -- son mesajı günceller ve
-   * key'i temizler, çünkü bir sonraki operasyon kendi yeni "işleniyor"
-   * mesajını oluşturmalı (eskisini düzenlemeye devam etmemeli).
-   */
-  async finalizeProgress(jid: string, text: string): Promise<void> {
-    await this.sendOrUpdateProgress(jid, text);
-    this.activeProgressMessages.delete(jid);
-  }
-
-  private buildProgressBar(current: number, total: number, barLength: number = 10): string {
-    const percent = total > 0 ? Math.round((current / total) * 100) : 0;
-    const filledCount = total > 0 ? Math.round((current / total) * barLength) : 0;
-    const bar = '█'.repeat(filledCount) + '░'.repeat(barLength - filledCount);
-    return `[${bar}] ${percent}%`;
+    await this.sendMessage(jid, text);
   }
 }

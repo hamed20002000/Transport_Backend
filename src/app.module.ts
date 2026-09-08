@@ -113,6 +113,10 @@ import { PromptSubmission } from './application/services/agent/entities/PromptSu
 import { ToolExecution } from './application/services/agent/entities/ToolExecution';
 import { TelegramLink } from './application/services/agent/entities/TelegramLink';
 import { TelegramLinkCode } from './application/services/agent/entities/TelegramLinkCode';
+import { WhatsappModule } from './application/services/agent/appModule/whatsapp.module';
+import { WhatsappAuthCredential } from './application/services/agent/entities/WhatsappAuthCredential';
+import { WhatsappAuthKey } from './application/services/agent/entities/WhatsappAuthKey';
+import { WhatsappUserMapping } from './application/services/agent/entities/WhatsappUserMapping';
 
 @Module({
   imports: [
@@ -160,7 +164,7 @@ import { TelegramLinkCode } from './application/services/agent/entities/Telegram
         WorkhouseRents,WorkhouseRentStatusHistories,CourseDateTimes,CommiteMembers,ConfirmationProjectReport,
         ConfirmationReportCommiteMember,ConfirmationReportCommiteMemberAnswer,PersonnelSalary,NotificationLists,
         RoleNotificationLists,UserNotificationLists,ConversationSession,PromptSubmission,ToolExecution,TelegramLink,
-        TelegramLinkCode
+        TelegramLinkCode,WhatsappAuthCredential,WhatsappAuthKey,WhatsappUserMapping
        ],
         migrations: ['domain/migrations/*.ts'],
           migrationsRun: false,   
@@ -183,7 +187,8 @@ import { TelegramLinkCode } from './application/services/agent/entities/Telegram
     EducationModule,
     ReportModule,
     ToolRegisterModule,
-    ContextManagerModule
+    ContextManagerModule,
+    WhatsappModule
   ],
   controllers: [AgentAssistantController],
   providers: [OllamaAssistantService],
