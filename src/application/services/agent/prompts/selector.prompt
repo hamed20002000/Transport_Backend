@@ -21,6 +21,7 @@ There are two execution processes:
    - assigning something
    - changing a status
    - executing any business operation
+   - saving or storing a new report/record in the system
    - any other operation that causes a state change in the system
 
 2. sql
@@ -36,9 +37,10 @@ There are two execution processes:
    - counting data
    - aggregating data
    - comparing stored data
-   - generating reports
    - viewing existing records
    - checking existing information
+   - displaying or exporting existing data on the fly (a "report" in this
+     sense means presenting data that already exists, not saving anything)
 
 IMPORTANT DISTINCTION:
 
@@ -54,6 +56,10 @@ If the request only asks for information from existing data,
 return sql.
 
 A deletion is a state-changing operation and MUST use functionCalling.
+
+If the user asks to create, save, or store a new report or record in the
+system, that IS a state change -- use functionCalling, not sql, even
+though the word "report" appears.
 
 Examples:
 
@@ -81,6 +87,9 @@ Examples:
 "Activate the Hamed account"
 -> functionCalling
 
+"Save this month's summary as a report"
+-> functionCalling
+
 "List all users"
 -> sql
 
@@ -99,6 +108,9 @@ Examples:
 "Show users and their roles"
 -> sql
 
+"Generate a report of this month's sales"
+-> sql
+
 When the user's wording is short, colloquial, abbreviated, or written in
 another language, determine the intended operation from its meaning rather
 than relying on exact keywords.
@@ -106,13 +118,10 @@ than relying on exact keywords.
 Do not classify a request as sql merely because it contains a word that can
 also appear in a search or database query.
 
-Return exactly one value:
+Return your answer as JSON, and nothing else:
 
-functionCalling
+{"decision": "functionCalling"}
 
 or
 
-sql
-
-Do not return any explanation.
-Do not return any additional text.
+{"decision": "sql"}

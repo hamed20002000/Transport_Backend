@@ -251,6 +251,8 @@ export class TelegramService implements OnModuleInit {
 
         // متن تایپ‌شده -- چون خود کاربر مستقیم نوشته، نیازی به تایید
         // اضافه (که مخصوص خطای تشخیص صوته) نداره
+
+        this.functionCallService.source="telegram";
         await this.processPromptText(chatId, text);
     }
 

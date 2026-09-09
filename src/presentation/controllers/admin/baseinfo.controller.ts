@@ -95,9 +95,9 @@ export class BaseinfoController {
         private readonly insertTools: InsertTools,
         private readonly agentSqlService: AgentSqlService,
         private readonly agentToolsService: AgentToolsService,
-        private readonly functioncall:FunctionCallService,
+        private readonly functioncall: FunctionCallService,
         private readonly agentGateway: AgentGateway,
-        
+
     ) { }
 
     //#region Upload
@@ -202,39 +202,42 @@ export class BaseinfoController {
     @UseGuards(JwtAuthGuard, AdminRolesGuard)
     @UseInterceptors(FilesInterceptor("files", 10))
     @ApiBearerAuth()
-    async agent(@Request() req, @Body("prompt") text: string, @Body("files") files: string[],@Body("sessionId") sessionId:string): Promise<any> {
+    async agent(@Request() req, @Body("prompt") text: string, @Body("files") files: string[], @Body("sessionId") sessionId: string): Promise<any> {
 
-
+        //#region ----------------- Exctract Prompt
         const prompt = text?.trim() || 'nothink';
+        this.agentGateway.sendCurrentTool(req.user.userid, {
+            currentOp: `Komut türünün işlenmesi`
+        })
+        //#endregion ------------------------------- 
 
-        
-          this.agentGateway.sendCurrentTool(req.user.userid, {
-                        currentOp: `Komut türünün işlenmesi`
-                    })
 
+        //#region ----------------- Determine Type of Prompt
         const sqlOrFunctionCall = await this.functioncall.FunctionCallingOrSqlSelection(prompt);
+        this.functioncall.source = "web"
 
         switch (sqlOrFunctionCall) {
             case "functionCalling":
-                this.functioncall.RunFunctionCalling(prompt, req, files,sessionId).catch(error => {
+                this.functioncall.RunFunctionCalling(prompt, req, files, sessionId).catch(error => {
                     console.error(error);
                 });
                 return {
                     result: "started"
                 }
             case "sql":
-                  this.agentGateway.sendToolResult(req.user.userid, {
-                                    result: "error",
-                                    message: "İstek belirsiz. Lütfen düzeltin.",
-                                    prompt:"",
-                                    continuePrompt:undefined,
-                                    toolName:"",
-                                    lastsegment:true,
-                                    isSpecial:false,
-                                    list: []
-                                })
+                this.agentGateway.sendToolResult(req.user.userid, {
+                    result: "error",
+                    message: "İstek belirsiz. Lütfen düzeltin.",
+                    prompt: "",
+                    continuePrompt: undefined,
+                    toolName: "",
+                    lastsegment: true,
+                    isSpecial: false,
+                    list: []
+                })
                 break;
         }
+        //#endregion --------------------------------------------
 
     }
 

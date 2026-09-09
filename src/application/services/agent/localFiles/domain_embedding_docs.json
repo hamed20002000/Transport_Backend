@@ -9,7 +9,7 @@
   },
   {
     "domain_name": "category",
-    "embedding_text": "Ürünlerin sınıflandırıldığı kategori yapısıyla ilgili kayıtlar. Kategoriler, kategori hiyerarşisi ve kategorilerin aktiflik durumu bu kapsamdadır."
+    "embedding_text": "Ürünlerin sınıflandırıldığı kategori (category) yapısıyla ilgili kayıtlar. Kategoriler, kategori hiyerarşisi ve kategorilerin aktiflik durumu bu kapsamdadır."
   },
   {
     "domain_name": "item_unit",
@@ -17,9 +17,9 @@
   },
   {
     "domain_name": "product",
-    "embedding_text": "Ürün ve malzeme kayıtlarıyla ilgili işlemler. Ürün adı, kodu, açıklaması, ağırlığı, kategorisi, birimi ve ürünün aktiflik durumu bu kapsamdadır."
+    "embedding_text": "Ürün ve malzeme kayıtlarıyla ilgili işlemler. Ürün adı, kodu, açıklaması, ağırlığı, birimi ve ürünün aktiflik durumu bu kapsamdadır. Ürünün hangi kategoriye ait olduğu da ürün bilgisinin bir parçasıdır; ancak kategorinin kendisinin oluşturulması, güncellenmesi veya silinmesi bu kapsamda değildir."
   },
-  {
+    {
     "domain_name": "product_type",
     "embedding_text": "Elektrik şebekesinde kullanılan direk ve transformatör tipleriyle ilgili kayıtlar. Demir direk, beton direk, trafo tipleri ve bu tiplerin aktiflik durumu bu kapsamdadır."
   },

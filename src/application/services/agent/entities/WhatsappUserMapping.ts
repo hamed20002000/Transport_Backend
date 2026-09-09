@@ -13,6 +13,6 @@ export class WhatsappUserMapping {
   @Column({ type: 'varchar', length: 100 })
   username: string;
 
-  @Column({ type: 'varchar', length: 100 })
+  @Column({ type: 'varchar', length: 100,unique:true })
   jid: string;
 }

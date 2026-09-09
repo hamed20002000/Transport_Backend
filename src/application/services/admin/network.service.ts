@@ -157,7 +157,7 @@ export class NetworkService extends BaseService<Networks> {
           throw new HttpException(message.network.nameisrequired, HttpStatus.BAD_REQUEST);
         }
 
-         var networks = (await self.getWorkNetworkWithTitle(workname));
+         var networks = (await self.getWorkNetworkWithTitle(title));
         if (networks.length > 1) {
           const networkId = yield { type: "selection", label: "Şebekelerden birini seçin.", data: networks.map((item) => ({ title: item.title, id: item.id })) }
           updateDto= await self.getNetworkById(networkId)
@@ -218,6 +218,7 @@ export class NetworkService extends BaseService<Networks> {
           const productTypes = new Set((await self.itemTypeService.getAllRecords()).map((item) => item.name));
           const products = new Set((await self.productService.getAllRecords()).map((item) => item.name));
           const excelResult = self.parseWorkExcelFile(param.files[0], productTypes, products)
+          
         }
 
 

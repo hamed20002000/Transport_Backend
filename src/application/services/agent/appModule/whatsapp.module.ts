@@ -1,11 +1,12 @@
 import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { WhatsappService } from '../services/WhatsappService';
+import { WhatsappService } from '../services/whatsapp.service';
 import { WhatsappAuthCredential } from '../entities/WhatsappAuthCredential';
 import { WhatsappAuthKey } from '../entities/WhatsappAuthKey';
 import { WhatsappUserMapping } from '../entities/WhatsappUserMapping';
 // این importو با ماژولی که AgentGateway/FunctionCallService رو export می‌کنه جایگزین کنید
 import { AgentModule } from './agent.module';
+import { AuthModule } from 'src/auth/auth.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { AgentModule } from './agent.module';
     ]),
     // forwardRef چون AgentGateway هم برعکس به WhatsappService نیاز داره
     forwardRef(() => AgentModule),
+    AuthModule
   ],
   providers: [WhatsappService],
   exports: [WhatsappService],

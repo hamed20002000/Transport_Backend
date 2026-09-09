@@ -1,15 +1,28 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import makeWASocket, { DisconnectReason, WASocket, proto } from '@whiskeysockets/baileys';
+import makeWASocket, {
+  DisconnectReason,
+  WASocket,
+  proto,
+  downloadMediaMessage,
+  WAMessage,
+} from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import * as qrcode from 'qrcode-terminal';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
+import { join } from 'node:path';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { WhatsappAuthCredential } from '../entities/WhatsappAuthCredential';
 import { WhatsappAuthKey } from '../entities/WhatsappAuthKey';
 import { WhatsappUserMapping } from '../entities/WhatsappUserMapping';
 import { useDbAuthState } from '../hooks/useDbAuthState';
-// این importها رو با مسیر واقعی پروژه‌تون جایگزین کنید
 import { FunctionCallService } from './functioncall.service';
+import { AuthService } from 'src/auth/auth.service';
+import { SpeechToTextService } from './Speechtotext.service';
+
+const execAsync = promisify(exec);
 
 const DEFAULT_SESSION_ID = 'main';
 
@@ -18,20 +31,24 @@ export class WhatsappService implements OnModuleInit {
   private readonly logger = new Logger(WhatsappService.name);
   private sock: WASocket | null = null;
 
-  // جدید: کلید آخرین پیام "در حال پردازش" هر jid -- برای اینکه بتونیم
-  // بجای فرستادن پیام جدید، همون پیام رو ادیت کنیم (مثل progressbar تلگرام)
+  //The key to the last "processing" message of each jid -- 
+  //so that we can edit the same message instead of sending a new one (like Telegram's progressbar)
   private activeProgressMessages = new Map<string, proto.IMessageKey>();
 
-  // جدید: انتخاب‌های معلق -- چون واتساپ دکمه‌ی واقعی امن نداره، لیست
-  // گزینه‌ها به‌شکل شماره‌گذاری‌شده و صفحه‌بندی‌شده (۱۰ تا در هر پیام)
-  // فرستاده می‌شه؛ اینجا نگه می‌داریم کدوم jid روی کدوم صفحه‌ست و
-  // گزینه‌های واقعیش چیه، تا وقتی عددی فرستاد بتونیم value واقعی رو پیدا کنیم
+  //Pending options -- Since WhatsApp doesn't have a real secure button,
+  //  the list of options is sent in a numbered and paginated form (10 per message); 
+  // here we keep track of which jid is on which page and what the actual options are, 
+  // so that when a number is sent we can find the actual value
   private pendingSelections = new Map<
     string,
     { userId: string; options: { value: any; label: string }[]; page: number; message: string }
   >();
 
   private static readonly SELECTION_PAGE_SIZE = 10;
+
+  //Voice-recognized transcripts that are still waiting for user approval -- 
+  // exactly equivalent to pendingTranscriptions in TelegramService
+  private pendingTranscriptions = new Map<string, string>();
 
   constructor(
     @InjectRepository(WhatsappAuthCredential)
@@ -40,8 +57,11 @@ export class WhatsappService implements OnModuleInit {
     private readonly keyRepo: Repository<WhatsappAuthKey>,
     @InjectRepository(WhatsappUserMapping)
     private readonly userMappingRepo: Repository<WhatsappUserMapping>,
+    @Inject(forwardRef(() => FunctionCallService))
     private readonly functionCallService: FunctionCallService,
-  ) {}
+    private readonly authService: AuthService,
+    private readonly speechToTextService: SpeechToTextService,
+  ) { }
 
   async onModuleInit() {
     await this.connect();
@@ -91,8 +111,34 @@ export class WhatsappService implements OnModuleInit {
       for (const msg of messages) {
         if (!msg.message || msg.key.fromMe) continue;
 
-        const jid = msg.key.remoteJid;
+        // جدید: واتساپ داره به‌جای شماره‌تلفن، از یک شناسه‌ی جدید به اسم
+        // LID استفاده می‌کنه -- گاهی msg.key.remoteJid به‌شکل "xxxx@lid"
+        // میاد که ارسال پیام مستقیم بهش باعث hang شدن sendMessage می‌شه.
+        // اگه remoteJidAlt موجود بود (نسخه‌ی JID واقعی/شماره‌تلفن)، همونو
+        // ترجیح بده؛ وگرنه از remoteJid خام استفاده کن.
+        const rawJid = msg.key.remoteJid;
+        const jid = msg.key.remoteJid?.endsWith('@lid')
+          ? (msg.key as any).remoteJidAlt || rawJid
+          : rawJid;
+
         if (!jid) continue;
+
+        if (rawJid?.endsWith('@lid') && jid === rawJid) {
+          this.logger.warn(
+            `@lid jid için remoteJidAlt bulunamadı, ham @lid ile devam ediliyor: ${rawJid}`,
+          );
+        }
+
+        // جدید: پیام صوتی (ptt = true یعنی voice note، نه فایل صوتی معمولی)
+        const audioMessage = msg.message.audioMessage;
+        if (audioMessage?.ptt) {
+          try {
+            await this.handleVoiceMessage(jid, msg);
+          } catch (error) {
+            this.logger.error(`Ses mesajı işlenirken hata: ${jid}`, error as Error);
+          }
+          continue;
+        }
 
         const text =
           msg.message.conversation || msg.message.extendedTextMessage?.text || '';
@@ -138,6 +184,13 @@ export class WhatsappService implements OnModuleInit {
     // relay edeceğine karar veriyor.
     this.functionCallService.source = 'whatsapp';
 
+    // جدید: اول چک کن آیا این کاربر منتظر تایید یک متن تشخیص‌داده‌شده
+    // از صداست -- این باید قبل از هر چیز دیگه چک بشه
+    if (this.pendingTranscriptions.has(jid)) {
+      await this.handleTranscriptionReply(jid, text, userid, username);
+      return;
+    }
+
     // جدید: اول چک کن آیا یک انتخاب صفحه‌بندی‌شده (با گزینه‌های واقعی)
     // منتظر این jid هست -- این دقیق‌تر از حالت عمومی زیره چون خودِ
     // متن گزینه‌ها و value واقعی‌شون رو داره، نه فقط یک عدد خام
@@ -173,6 +226,15 @@ export class WhatsappService implements OnModuleInit {
       return;
     }
 
+    await this.runCommand(userid, username, text);
+  }
+
+  /**
+   * "Yeni bir komut" olarak RunFunctionCalling'e gönderme mantığı --
+   * hem normal metin akışından, hem sesli mesaj onaylandıktan sonra
+   * kullanılıyor, bu yüzden ayrı bir metoda çıkarıldı.
+   */
+  private async runCommand(userid: string, username: string, text: string): Promise<void> {
     // RunFunctionCalling(prompt, req, files, sessionId) bekliyor -- userid/username
     // req.user üzerinden okunuyor, ikisi de gerçek (birbirinden farklı) değerler.
     const req = {
@@ -185,7 +247,7 @@ export class WhatsappService implements OnModuleInit {
     // createNewSession, ContextManager.hasSession/hydrate gibi metotlar
     // username üzerinden çalıştığı için, session da username ile açılıyor
     // -- Telegram tarafındaki kullanım da muhtemelen aynı şekilde.
-    const { sessionId } = await this.functionCallService.createNewSession(username);
+    const { sessionId } = await this.functionCallService.createNewSession(userid);
 
     void this.functionCallService.RunFunctionCalling(text, req, [], sessionId);
     // NOT: burada await/response yok -- cevap AgentGateway üzerinden
@@ -218,7 +280,15 @@ export class WhatsappService implements OnModuleInit {
     // username/password doğrulaması için kullandığı servisle aynısı olmalı).
     // Şu an sadece bir placeholder -- aşağıdaki verifyCredentials'ı kendi
     // AuthService'inize göre implement edin.
-    const authResult = await this.verifyCredentials(username, password);
+    let authResult: { userid: string } | null;
+    try {
+      authResult = await this.verifyCredentials(username, password);
+    } catch (error) {
+      this.logger.error(`verifyCredentials hata verdi: ${username}`, error as Error);
+      await this.deleteMessage(jid, messageKey);
+      await this.sendMessage(jid, 'Giriş sırasında bir hata oluştu. Lütfen tekrar deneyin.');
+      return;
+    }
 
     // Şifre içeren mesaj artık işlendi -- sohbet geçmişinde düz metin olarak
     // kalmasın diye siliniyor (sadece bu bot'un tarafında silinir).
@@ -241,17 +311,16 @@ export class WhatsappService implements OnModuleInit {
   }
 
   /**
-   * TODO: gerçek AuthService'inize bağlayın. Telegram tarafında username/password
-   * doğrulaması için kullandığınız servisin aynısı buraya inject edilip
-   * çağrılmalı (constructor'a ekleyin).
+   * Telegram tarafındaki handleLinkCommand'daki authService.validateUser çağrısıyla
+   * aynı -- aynı doğrulama mantığını (şifre hash kontrolü dahil) kullanır.
    */
   private async verifyCredentials(
     username: string,
     password: string,
   ): Promise<{ userid: string } | null> {
-    throw new Error(
-      'verifyCredentials henüz implement edilmedi -- gerçek AuthService ile değiştirin.',
-    );
+    const result = await this.authService.validateUser({ password, username });
+    if (!result) return null;
+    return { userid: result.user.id };
   }
 
   private async deleteMessage(jid: string, messageKey: proto.IMessageKey): Promise<void> {
@@ -280,6 +349,108 @@ export class WhatsappService implements OnModuleInit {
   private isCancelReply(text: string): boolean {
     const normalized = text.trim().toLowerCase();
     return ['iptal', 'vazgeç', 'hayır'].includes(normalized);
+  }
+
+  /**
+   * Telegram'daki handleVoiceMessage'ın WhatsApp karşılığı: sesi indirir,
+   * ffmpeg ile wav'a çevirir, metne dönüştürür ve -- doğrudan çalıştırmak
+   * yerine -- kullanıcıdan metin onayı ister (ses tanıma yanlış olabilir).
+   */
+  private async handleVoiceMessage(jid: string, msg: WAMessage): Promise<void> {
+    const mapping = await this.resolveUserFromJid(jid);
+    if (!mapping) {
+      await this.sendMessage(
+        jid,
+        'Bu numara sisteme kayıtlı değil. Lütfen önce kullanıcı adınızı ve şifrenizi şu formatta gönderin:\nkullaniciadi sifre',
+      );
+      return;
+    }
+
+    if (!this.sock) {
+      this.logger.error('WhatsApp soketi hazır değil.');
+      return;
+    }
+
+    try {
+      await this.sendMessage(jid, '🎤 Ses işleniyor...');
+
+      // دانلود و خروجی رو توی دو پوشه‌ی جدا نگه می‌داریم -- دقیقاً همون
+      // منطق TelegramService.handleVoiceMessage
+      const downloadDir = join(process.cwd(), 'uploads', 'whatsapp-voice', 'downloads');
+      const convertedDir = join(process.cwd(), 'uploads', 'whatsapp-voice', 'converted');
+      await mkdir(downloadDir, { recursive: true });
+      await mkdir(convertedDir, { recursive: true });
+
+      const buffer = (await downloadMediaMessage(
+        msg,
+        'buffer',
+        {},
+        { logger: this.logger as any, reuploadRequest: this.sock.updateMediaMessage },
+      )) as Buffer;
+
+      const oggPath = join(
+        downloadDir,
+        `${Date.now()}-${Math.random().toString(36).slice(2)}.ogg`,
+      );
+      await writeFile(oggPath, buffer);
+
+      const wavPath = join(
+        convertedDir,
+        `${Date.now()}-${Math.random().toString(36).slice(2)}.wav`,
+      );
+      await execAsync(`ffmpeg -y -i "${oggPath}" -ar 16000 -ac 1 -c:a pcm_s16le "${wavPath}"`);
+
+      const text = await this.speechToTextService.transcribeFile(wavPath);
+
+      if (!text) {
+        await this.sendMessage(jid, 'Ses metne dönüştürülemedi. Lütfen tekrar deneyin.');
+        return;
+      }
+
+      this.pendingTranscriptions.set(jid, text);
+
+      await this.sendMessage(
+        jid,
+        `🎤 Şunu anladım:\n"${text}"\n\n1) Evet, çalıştır\n2) Hayır, iptal et`,
+      );
+    } catch (error) {
+      this.logger.error(`Ses işleme hatası: ${jid}`, error as Error);
+      await this.sendMessage(jid, 'Ses işlenirken bir hata oluştu.');
+    }
+  }
+
+  /**
+   * pendingTranscriptions'ta bir kayıt varken gelen metin cevabını işler --
+   * '1' -> onaylanan metni normal komut gibi çalıştır, '2' -> iptal,
+   * başka bir şey -> tekrar sor. Serbest metin ('evet'/'hayır') yerine
+   * numara istemek yazım hatası riskini azaltıyor.
+   */
+  private async handleTranscriptionReply(
+    jid: string,
+    text: string,
+    userid: string,
+    username: string,
+  ): Promise<void> {
+    const pendingText = this.pendingTranscriptions.get(jid);
+    if (!pendingText) return;
+
+    const choice = this.parseUserSelectionReply(text);
+
+    if (choice === 1) {
+      this.pendingTranscriptions.delete(jid);
+      await this.sendMessage(jid, `✅ Onaylandı: "${pendingText}"`);
+      await this.runCommand(userid, username, pendingText);
+      return;
+    }
+
+    if (choice === 2) {
+      this.pendingTranscriptions.delete(jid);
+      await this.sendMessage(jid, '❌ İptal edildi. Lütfen tekrar deneyin.');
+      return;
+    }
+
+    // پاسخ نامفهوم بود -- دوباره منتظر بمون (پاکش نکن)
+    await this.sendMessage(jid, `Lütfen 1 (Evet) veya 2 (Hayır) yazın.`);
   }
 
   private async resolveUserFromJid(
@@ -418,7 +589,21 @@ export class WhatsappService implements OnModuleInit {
       this.logger.error('WhatsApp soketi hazır değil.');
       return;
     }
-    await this.sock.sendMessage(jid, { text });
+
+    // جدید: یک timeout ایمنی -- بعضی حالت‌ها (مثلاً jid از نوع @lid بدون
+    // remoteJidAlt) باعث می‌شن sock.sendMessage تا ابد hang کنه. بدون این
+    // timeout، await هیچ‌وقت resolve/reject نمی‌شه و کد بعدی اجرا نمی‌شه.
+    const SEND_TIMEOUT_MS = 15000;
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(`sendMessage zaman aşımı: ${jid}`)), SEND_TIMEOUT_MS);
+    });
+
+    try {
+      await Promise.race([this.sock.sendMessage(jid, { text }), timeoutPromise]);
+    } catch (error) {
+      this.logger.error(`sendMessage başarısız: ${jid}`, error as Error);
+    }
   }
 
   /**

@@ -17,12 +17,14 @@ import { AuthService } from 'src/auth/auth.service';
 import { AuthModule } from 'src/auth/auth.module';
 import { WhatsappService } from '../services/whatsapp.service';
 import { JwtService } from '@nestjs/jwt';
+import { WhatsappModule } from './whatsapp.module';
 
 @Module({
   imports: [
     ToolRegisterModule,
     forwardRef(() => UserModule),
       forwardRef(() => AuthModule), 
+      forwardRef(() => WhatsappModule), 
   ],
 
   providers: [
@@ -38,8 +40,8 @@ import { JwtService } from '@nestjs/jwt';
     TelegramService,
     UserService,
     JwtService,
-    FunctionCallService,
-    //WhatsappService
+    FunctionCallService
+    
   ],
   exports: [
     AgentSqlService,
@@ -53,8 +55,8 @@ import { JwtService } from '@nestjs/jwt';
     TelegramService,
     UserService,
      JwtService,
-    FunctionCallService,
-   // WhatsappService
+    FunctionCallService
+   
   ],
 
   controllers: [AgentController],
