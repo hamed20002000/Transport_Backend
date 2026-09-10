@@ -1,0 +1,200 @@
+# WhatsApp Integration — Technical Overview
+
+## Architecture
+
+The system reuses the **same pipeline** as the existing Telegram integration
+(`FunctionCallService.RunFunctionCalling` / `handleGeneratorResponse`).
+WhatsApp only adds a new **transport layer** on top of it — it carries no
+business logic of its own.
+
+```
+WhatsApp user
+      │ (Baileys WebSocket)
+      ▼
+WhatsappService.messages.upsert
+      │
+      ├─ voice message (ptt) ──► handleVoiceMessage ──► transcript confirm (1/2)
+      │
+      └─ text message ──► handleIncomingMessage
+                              │
+                              ├─ unregistered number ──► onboarding (username/password)
+                              ├─ pendingTranscriptions ──► handleTranscriptionReply
+                              ├─ pendingSelections ──► handleSelectionReply
+                              ├─ hasPendingGenerator ──► handleGeneratorResponse
+                              └─ (none of the above) ──► runCommand ──► RunFunctionCalling
+                                                                  │
+                                                                  ▼
+                                                          FunctionCallService
+                                                          (SHARED with Telegram)
+                                                                  │
+                                                                  ▼
+                                                          AgentGateway.sendToolResult /
+                                                          sendCurrentTool
+                                                                  │
+                              if source === 'whatsapp' ───────────┘
+                                                                  ▼
+                                                    WhatsappService.sendOrUpdateProgress
+                                                    WhatsappService.sendSelectionRequest
+```
+
+The connection is **single and centralized**: there is exactly one WhatsApp
+number and one `makeWASocket` connection for the entire system (think of it
+like a Telegram bot — one `@bot_username`, not one account per user).
+The `WhatsappUserMapping` table links the individual phone numbers (`jid`)
+that message this single number to actual system users (`userid`/`username`).
+
+---
+
+## 1. Auth Persistence (`whatsapp-db-auth-state.ts`)
+
+Baileys' default `useMultiFileAuthState` writes to the filesystem, meaning
+the session would be lost on every deploy/restart. Instead, `useDbAuthState()`
+implements the same `AuthenticationState` interface backed by PostgreSQL:
+
+- `WhatsappAuthCredential` — a single row (`sessionId = 'main'`) holding
+  `creds` as JSON
+- `WhatsappAuthKey` — stores the hundreds of individual Signal Protocol
+  records (pre-keys, sessions, sender-keys, etc.) as key-value rows
+
+Since `Buffer` fields don't survive plain JSON, `BufferJSON.replacer`/`reviver`
+are used for serialization. The `saveCreds` closure doesn't receive
+`sessionId` as an argument each time — it captures it from the enclosing
+function's parameter via closure.
+
+## 2. Connecting (`connect()`)
+
+`makeWASocket({ auth: state, printQRInTerminal: false })` opens the actual
+WebSocket connection. Three events are listened to:
+
+- `creds.update` → `saveCreds()` (persist to DB on every credential change)
+- `connection.update` → QR display + automatic reconnect, except when
+  `DisconnectReason.loggedOut`
+- `messages.upsert` → the main entry point for processing incoming messages
+
+**Known limitation — `@lid`:** Due to WhatsApp's newer identity system
+(Linked ID), `msg.key.remoteJid` can sometimes arrive as `xxxx@lid`. Sending
+a message directly to that jid can cause Baileys to hang indefinitely (a
+known open issue in Baileys itself). We prefer `remoteJidAlt` when present;
+`sendMessage` also has a 15-second safety timeout so an `await` can never
+hang forever regardless of the cause.
+
+## 3. Message Routing Priority
+
+Inside `handleIncomingMessage`, checks happen **in this order** (order
+matters, since each one can pre-empt the next):
+
+1. `pendingTranscriptions` (is a voice confirmation pending?)
+2. `pendingSelections` (is a paginated selection list pending?)
+3. `hasPendingGenerator` (is a generic generator/confirmation pending in
+   FunctionCallService?)
+4. none of the above → treat as a new command (`runCommand`)
+
+These three "pending" states are independent `Map`s (all keyed by `jid`),
+because each comes from a different source and carries a different shape
+of data (raw text / options array / nothing extra).
+
+## 4. Onboarding
+
+A message from an unregistered `jid` is interpreted as
+`"username password"` (`handleOnboardingMessage`). On successful
+verification:
+
+- A new row is `upsert`ed into `WhatsappUserMapping`
+  (`conflictColumns: ['jid']` — which is why `jid` must be marked
+  `unique: true` on the entity)
+- The message containing the password is deleted via `deleteMessage()` so
+  it doesn't remain as plain text in the chat history
+
+`verifyCredentials` calls the exact same `AuthService.validateUser` used by
+the Telegram side.
+
+## 5. Returning Responses (AgentGateway integration)
+
+`RunFunctionCalling` and `handleGeneratorResponse` return **void** — the
+actual response comes back **asynchronously** through
+`AgentGateway.sendToolResult` / `sendCurrentTool`, which checks the
+`FunctionCallService.source` flag:
+
+```typescript
+this.functionCallService.source = 'whatsapp'; // set before every command
+
+// inside AgentGateway:
+if (this.functionCallService.source == "whatsapp") {
+  if (data.result === "confirm_required" && data.data?.options) {
+    await this.whatsappService.sendSelectionRequest(userId, message, options);
+  } else {
+    const jid = await this.whatsappService.getJidForUsername(userId);
+    await this.whatsappService.sendOrUpdateProgress(jid, text, ...);
+  }
+}
+```
+
+Since `source` is a single shared field, there is a theoretical race
+condition if multiple users act through different channels (one on
+Telegram, one on WhatsApp) at the same time — this risk already exists on
+the Telegram side today; adding WhatsApp doesn't introduce a new category
+of problem, it's an existing architectural trade-off.
+
+## 6. Selection Lists (`sendSelectionRequest` / `pendingSelections`)
+
+Since real interactive buttons are unreliable on non-official (non-Business
+API) WhatsApp accounts via Baileys, options are sent as numbered plain text
+and **paginated** (`SELECTION_PAGE_SIZE = 10`):
+
+```
+1) Option 1
+...
+10) Option 10
+
+'devam' → next page
+'iptal' to cancel
+```
+
+The number the user replies with is resolved via
+`pending.options[number - 1]` into the actual `value`, then passed to
+`handleGeneratorResponse(userId, value, false)`. On the Telegram side, the
+same flow uses a real `inline_keyboard` (2 buttons per row) with
+`callback_data: sel_${index}` — Telegram's own `pendingSelections` map
+(same name, separate instance) is used to translate that index back into
+the real value, since Telegram's `callback_data` is capped at 64 bytes and
+can't carry the value directly.
+
+## 7. Voice Message Handling
+
+Messages where `audioMessage.ptt === true` (push-to-talk — an actual voice
+note, not a file attachment) are routed to `handleVoiceMessage`:
+
+1. Download the buffer via `downloadMediaMessage()`
+2. Write it to disk as `.ogg`
+3. Convert to 16kHz mono `.wav` via `ffmpeg` (identical command to the
+   Telegram flow)
+4. Transcribe with `SpeechToTextService.transcribeFile()`
+5. Instead of executing directly, store the transcript in
+   `pendingTranscriptions` and ask the user to confirm via `1) Yes / 2) No`
+   (speech recognition can be wrong)
+6. On confirmation, run it through `runCommand()` like a normal command
+
+## 8. Progress Messages (Editing)
+
+`sendOrUpdateProgress` mimics Telegram's `editMessageText` behavior using
+Baileys' message-edit feature: the `activeProgressMessages` map holds the
+`key` of the last sent message; subsequent calls update that same message
+via `sock.sendMessage(jid, { text, edit: existingKey })` instead of sending
+a new one. Since WhatsApp rejects edits after roughly 15 minutes, a failed
+edit automatically falls back to sending a fresh message.
+
+---
+
+## Known Limitations / Future Work
+
+- **Single number / single session**: No multi-number support. If needed,
+  `DEFAULT_SESSION_ID` would need to become parametric, with either
+  multiple `WhatsappService` instances or a session-based socket pool.
+- **`@lid` resolution isn't guaranteed**: `remoteJidAlt` isn't always
+  present — this is an open problem area in Baileys itself.
+- **No real buttons**: All confirmation/selection flows rely on numbered
+  text lists — real interactive buttons would require migrating to the
+  official Business API.
+- **`source` is global state**: There's a theoretical race condition
+  between concurrent requests from different channels (already present on
+  the Telegram side, not unique to WhatsApp).

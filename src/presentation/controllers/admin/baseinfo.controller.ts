@@ -213,7 +213,7 @@ export class BaseinfoController {
 
 
         //#region ----------------- Determine Type of Prompt
-        const sqlOrFunctionCall = await this.functioncall.FunctionCallingOrSqlSelection(prompt);
+        const sqlOrFunctionCall = await this.agentToolsService.FunctionCallingOrSqlSelection(prompt);
         this.functioncall.source = "web"
 
         switch (sqlOrFunctionCall) {

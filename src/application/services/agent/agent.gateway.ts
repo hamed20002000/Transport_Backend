@@ -57,6 +57,13 @@ export class AgentGateway {
         return;
       }
 
+      // جدید: delete_* گونه تاییدهای ساده (بدون options) -- قبلاً به‌اشتباه
+      // به شاخه‌ی success/error می‌رفت و با ❌ نمایش داده می‌شد
+      if (data.result === "confirm_required") {
+        await this.telegramService.sendYesNoConfirmation(userId, data.message);
+        return;
+      }
+
       const chatId = await this.telegramService.getChatIdForUsername(userId);
       if (chatId) {
         const text = data.result === "success"
@@ -71,13 +78,20 @@ export class AgentGateway {
 
     // جدید: همون منطق تلگرام، برای واتساپ
     if (this.functionCallService.source == "whatsapp") {
-      // جدید: حالت انتخاب از لیست/تایید (صفحه‌بندی‌شده)
+      // جدید: حالت انتخاب از لیست/تایید (صفحه‌بندی‌شده) -- برای موقعی که options داره
       if (data.result === "confirm_required" && (data as any).data?.options) {
         await this.whatsappService.sendSelectionRequest(
           userId,
           (data as any).data.message || data.message,
           (data as any).data.options,
         );
+        return;
+      }
+
+      // جدید: delete_* گونه تاییدهای ساده (بدون options) -- قبلاً به‌اشتباه
+      // به شاخه‌ی success/error می‌رفت و با ❌ نمایش داده می‌شد
+      if (data.result === "confirm_required") {
+        await this.whatsappService.sendYesNoConfirmation(userId, data.message);
         return;
       }
 

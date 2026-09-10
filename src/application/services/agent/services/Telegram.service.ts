@@ -209,6 +209,27 @@ export class TelegramService implements OnModuleInit {
         }
     }
 
+    /**
+     * جدید: AgentGateway.sendToolResult این متد رو صدا می‌زنه وقتی
+     * data.result === "confirm_required" باشه ولی options نداشته باشه --
+     * یعنی حالت delete_* (تایید ساده‌ی بله/خیر، نه انتخاب از لیست).
+     * WhatsApp معادلش sendYesNoConfirmation با شماره‌ی متنیه؛ چون تلگرام
+     * دکمه‌ی واقعی داره، همون رو استفاده می‌کنیم.
+     */
+    async sendYesNoConfirmation(userId: string, message: string): Promise<void> {
+        const chatId = await this.getChatIdForUsername(userId);
+        if (!chatId) return;
+
+        await this.safeSendMessage(chatId, message, {
+            reply_markup: {
+                inline_keyboard: [[
+                    { text: '✅ Evet', callback_data: 'confirm_delete' },
+                    { text: '❌ Hayır', callback_data: 'cancel_delete' },
+                ]],
+            },
+        });
+    }
+
     private async handleMessage(msg: TelegramBot.Message): Promise<void> {
         // اگه این message_id رو قبلاً پردازش کردیم، دوباره پردازشش نکن --
         // این دقیقاً همون محافظتیه که به‌خاطر پینگ بالا (redelivery
@@ -236,6 +257,13 @@ export class TelegramService implements OnModuleInit {
         // پیام صوتی -- باید اول تایید بگیریم، مستقیم اجرا نمی‌کنیم
         if (msg.voice) {
             await this.handleVoiceMessage(msg.voice.file_id, chatId);
+            return;
+        }
+
+        // جدید: پیام حاوی عکس یا فایل -- دانلود می‌کنیم و مسیرش رو
+        // به‌عنوان files وارد pipeline می‌کنیم؛ caption همون پیام‌متنیه
+        if (msg.photo || msg.document) {
+            await this.handleFileMessage(msg, chatId);
             return;
         }
 
@@ -311,6 +339,44 @@ export class TelegramService implements OnModuleInit {
         }
     }
 
+    /**
+     * پیام حاوی عکس (msg.photo) یا فایل (msg.document) رو دانلود می‌کنه
+     * و مسیرش رو به‌عنوان files وارد pipeline می‌کنه. متن همراه فایل
+     * (caption) به‌عنوان prompt استفاده می‌شه -- بدون caption، پیام رو
+     * پردازش نمی‌کنیم چون RunFunctionCalling/segmentation به متن نیاز داره.
+     */
+    private async handleFileMessage(msg: TelegramBot.Message, chatId: string): Promise<void> {
+        const caption = msg.caption?.trim();
+
+        if (!caption) {
+            await this.safeSendMessage(
+                chatId,
+                'Lütfen dosya/resimle birlikte ne yapmak istediğinizi de açıklama (caption) olarak yazın.'
+            );
+            return;
+        }
+
+        try {
+            const downloadDir = join(process.cwd(), 'uploads', 'telegram-files');
+            await mkdir(downloadDir, { recursive: true });
+
+            // msg.document tek bir dosya; msg.photo ise Telegram'ın aynı
+            // resmi farklı çözünürlüklerde gönderdiği bir dizi -- en
+            // yüksek çözünürlük her zaman dizinin son elemanıdır.
+            const fileId = msg.document
+                ? msg.document.file_id
+                : msg.photo![msg.photo!.length - 1].file_id;
+
+            const filePath = await this.bot.downloadFile(fileId, downloadDir);
+
+            this.functionCallService.source = "telegram";
+            await this.processPromptText(chatId, caption, [filePath]);
+        } catch (error: any) {
+            this.logger.error(`Dosya işleme hatası: ${error?.message || error}`);
+            await this.safeSendMessage(chatId, 'Dosya işlenirken bir hata oluştu.');
+        }
+    }
+
 
     /**
      * وقتی کاربر روی یکی از دکمه‌های تایید/رد کلیک می‌کنه، این هندلر
@@ -350,6 +416,47 @@ export class TelegramService implements OnModuleInit {
                 chat_id: chatId,
                 message_id: query.message.message_id,
             });
+            return;
+        }
+
+        // جدید: کلیک روی یکی از دکمه‌های تایید/رد یک عملیات delete_* معلق.
+        // برخلاف sel_*/confirm_voice، اینجا یک pendingXxx Map محلی نداریم --
+        // FunctionCallService.pendingConfirmationService از قبل بر اساس
+        // userId (نه chatId) این وضعیت رو نگه می‌داره، پس فقط باید
+        // chatId رو به userId ترجمه کنیم (از طریق TelegramLink).
+        if (query.data === 'confirm_delete' || query.data === 'cancel_delete') {
+            const link = await this.dataSource.getRepository(TelegramLink).findOne({
+                where: { ChatId: chatId },
+            });
+
+            if (!link) {
+                await this.bot.editMessageText('Oturum bulunamadı.', {
+                    chat_id: chatId,
+                    message_id: query.message.message_id,
+                });
+                return;
+            }
+
+            this.functionCallService.source = 'telegram';
+
+            if (query.data === 'cancel_delete') {
+                await this.bot.editMessageText('❌ İşlem iptal edildi.', {
+                    chat_id: chatId,
+                    message_id: query.message.message_id,
+                });
+                await this.functionCallService.resumePendingConfirmation(link.Userid, false);
+                return;
+            }
+
+            // NOT: resumePendingConfirmation içeride agentGateway.sendToolResult'ı
+            // kendisi çağırır (hem runFinalStep için hem de devam eden
+            // segment'ler için) -- gerçek "başarılı/başarısız" cevabı zaten
+            // source='telegram' üzerinden sendOrUpdateProgress ile ayrıca gelecek.
+            await this.bot.editMessageText('✅ Onaylandı, işleniyor...', {
+                chat_id: chatId,
+                message_id: query.message.message_id,
+            });
+            await this.functionCallService.resumePendingConfirmation(link.Userid, true);
             return;
         }
 
@@ -405,7 +512,7 @@ export class TelegramService implements OnModuleInit {
      * منطق مشترک "این متن رو به‌عنوان یک prompt واقعی پردازش کن" --
      * چه از تایپ مستقیم بیاد، چه از تایید یک متن صوتی
      */
-    private async processPromptText(chatId: string, text: string): Promise<void> {
+    private async processPromptText(chatId: string, text: string, files: string[] = []): Promise<void> {
         const link = await this.dataSource.getRepository(TelegramLink).findOne({
             where: { ChatId: chatId },
         });
@@ -441,6 +548,18 @@ export class TelegramService implements OnModuleInit {
             return;
         }
 
+        // جدید: همون منطق -- اگه یک تایید delete_* معلق داره ولی متن
+        // معمولی فرستاده (نه روی دکمه‌ی Evet/Hayır زده)، یادآوری کن.
+        // hasPendingConfirmation توی FunctionCallService اضافه شده چون
+        // pendingConfirmationService اونجا private/injected هست.
+        if (this.functionCallService.hasPendingConfirmation(link.Userid)) {
+            await this.safeSendMessage(
+                chatId,
+                'Lütfen yukarıdaki "Evet" veya "Hayır" butonuna basın.'
+            );
+            return;
+        }
+
         const { sessionId } = await this.functionCallService.createNewSession(link.Userid);
         const user = await this.userService.getByUserId(link.Userid);
 
@@ -455,7 +574,7 @@ export class TelegramService implements OnModuleInit {
 
         try {
             this.functionCallService.source = "telegram";
-            await this.functionCallService.RunFunctionCalling(text, fakeReq, [], sessionId);
+            await this.functionCallService.RunFunctionCalling(text, fakeReq, files, sessionId);
         } catch (error: any) {
             await this.safeSendMessage(chatId, `Hata: ${error?.message || 'Bilinmeyen bir hata oluştu.'}`);
         }

@@ -28,6 +28,63 @@ export class AgentToolsService {
 
     }
 
+        async FunctionCallingOrSqlSelection(prompt: string): Promise<string> {
+
+        const systemContent = readFileSync(
+            join(process.cwd(), 'src/application/services/agent/prompts/selector.prompt'),
+            'utf8'
+        );
+        const ollamareq: ChatRequest = {
+            model: "qwen3:8b",
+            messages: [
+                {
+                    role: 'system',
+                    content: systemContent
+                },
+                {
+                    role: "user",
+                    content: prompt
+                }],
+            stream: false,
+            options: {
+                temperature: 0,
+                top_p: 0.9,
+                repeat_penalty: 1.1
+            }
+
+        }
+
+
+        const resp = await axios.post(
+            "http://localhost:11434/api/chat",
+            JSON.stringify({
+                ...ollamareq, format: {
+                    type: "object",
+                    properties: {
+                        decision: {
+                            type: "string",
+                            enum: [
+                                "functionCalling",
+                                "sql"
+                            ]
+                        }
+                    },
+                    required: [
+                        "decision"
+                    ]
+                }
+            }),
+
+            {
+                headers: {
+                    "Content-Type": "application/json",
+                },
+            },
+        );
+
+        return JSON.parse(resp.data.message.content).decision;
+    }
+
     async extractSelectedTool(prompt: string, condinateTools: string[], history: string): Promise<string> {
         const systemRules = `
 You are a tool selection agent.
@@ -349,27 +406,6 @@ ${JSON.stringify(
     }
 
 
-    // async executeTool(toolName: string, parameter: any, req: any,sessionId:string): Promise<ExecuteToolResultType> {
-
-    //      try{
-
-    //              const currentDomain: { DomainName: string }[] = await this.dataSource.query(
-    //         `SELECT "DomainName" FROM "EmbeddingTool" WHERE "ToolName" = $1 LIMIT 1;`,
-    //         [toolName]
-    //     );
-
-
-    //           const result = await this.toolRegister.execute(toolName, { ...parameter, req,toolDomain:currentDomain.length > 0 ? currentDomain[0].DomainName : null,sessionId });
-
-    //           return result;
-
-
-    //      }
-    //      catch(error:any){
-    //     throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
-
-    //      }
-    // }
 
     async executeTool(toolName: string, parameter: any, req: any, sessionId: string): Promise<{
         isGenerator: boolean;
@@ -388,11 +424,6 @@ ${JSON.stringify(
                 toolDomain: currentDomain.length > 0 ? currentDomain[0].DomainName : null,
                 sessionId
             });
-
-            // تشخیص: آیا این چیزی که برگشته یک AsyncGenerator زنده‌ست
-            // (یعنی handler خودش generator بوده)، یا یک نتیجه‌ی نهایی
-            // معمولی؟ معیار دقیق: آیا Symbol.asyncIterator داره یا نه --
-            // این همون چیزیه که یک AsyncGenerator رو مشخص می‌کنه.
             const isGenerator = result != null && typeof result[Symbol.asyncIterator] === 'function';
 
             if (isGenerator) {

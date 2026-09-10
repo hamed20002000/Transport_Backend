@@ -4,27 +4,34 @@ import type { AuthenticationState, AuthenticationCreds } from '@whiskeysockets/b
 import { WhatsappAuthCredential } from '../entities/WhatsappAuthCredential';
 import { WhatsappAuthKey } from '../entities/WhatsappAuthKey';
 
+
 /**
- * useMultiFileAuthState'in dosya sistemi yerine PostgreSQL kullanan versiyonu.
- * Sunucu her restart olduğunda credentials kaybolmasın diye bu gerekli --
- * aksi halde her deploy'da yeniden QR okutmanız gerekir.
- */
+* A version of useMultiFileAuthState that uses PostgreSQL instead of the file system. 
+* This is necessary to prevent credentials from being lost whenever the server restarts—
+* otherwise, you would have to scan the QR code again after every deployment. 
+*/
+
 export async function useDbAuthState(
   sessionId: string,
   credentialRepo: Repository<WhatsappAuthCredential>,
   keyRepo: Repository<WhatsappAuthKey>,
 ): Promise<{ state: AuthenticationState; saveCreds: () => Promise<void> }> {
+
+  //Load existing credentials from the database
   const existingCredRow = await credentialRepo.findOne({ where: { sessionId } });
 
+  // If no existing credentials are found, initialize new credentials
   const creds: AuthenticationCreds = existingCredRow
     ? JSON.parse(existingCredRow.credsJson, BufferJSON.reviver)
     : initAuthCreds();
-
+  
+    // Save the credentials to the database if they are new
   const saveCreds = async () => {
     const credsJson = JSON.stringify(creds, BufferJSON.replacer);
     await credentialRepo.upsert({ sessionId, credsJson }, ['sessionId']);
   };
 
+  // Create the authentication state object with methods to get and set keys in the database
   const state: AuthenticationState = {
     creds,
     keys: {

@@ -143,52 +143,32 @@ export class AgentController {
   @UseGuards(JwtAuthGuard, AdminRolesGuard)
   @ApiBearerAuth()
   async confirmPendingAction(@Req() req: any, @Body() body: { confirmed: boolean }) {
-
-    if (body.confirmed) {
-      const actionInfo: PendingAction = this.pendingConfirmation.get(req.user.userid)
-      const result = await this.functionCallService.runFinalStep(
-        actionInfo.subIntent, 
-        actionInfo.selectedToolName,
-        actionInfo.selectedTool,
-         actionInfo.submission, 
-         actionInfo.req,
-          actionInfo.files, 
-          actionInfo.sessionId, 
-          actionInfo.isLastSegment,
-        actionInfo.remainingSegments,
-      actionInfo.resumeIndex);
-      this.pendingConfirmation.clear(req.user.userid);
-    }
-    else {
-      this.pendingConfirmation.clear(req.user.userid);
-    }
-
-    return true;
-
+    return this.functionCallService.resumePendingConfirmation(req.user.userid, body.confirmed);
   }
+  
   @Get('sessions/search')
-@UseGuards(JwtAuthGuard, AdminRolesGuard)
-@ApiBearerAuth()
-async searchSessions(@Req() req: any, @Query('q') query: string) {
+  @UseGuards(JwtAuthGuard, AdminRolesGuard)
+  @ApiBearerAuth()
+  async searchSessions(@Req() req: any, @Query('q') query: string) {
     return this.functionCallService.searchUserSessions(req.user.userid, query ?? "");
-}
+  }
 
-    @Post('speech/transcribe-test')
-    @UseInterceptors(
-        FileInterceptor('file', {
-            storage: diskStorage({
-                destination: './uploads/audio-temp',
-                filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
-            }),
-        })
-    )
-    async transcribeTest(@UploadedFile() file: Express.Multer.File) {
-        const startTime = Date.now();
-        const text = await this.speechToTextService.transcribeFile(file.path);
-        const elapsedMs = Date.now() - startTime;
+  @Post('speech/transcribe-test')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads/audio-temp',
+        filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
+      }),
+    })
+  )
+  async transcribeTest(@UploadedFile() file: Express.Multer.File) {
+    const startTime = Date.now();
+    const text = await this.speechToTextService.transcribeFile(file.path);
+    const elapsedMs = Date.now() - startTime;
 
-        return { text, elapsedMs };
-    }
+    return { text, elapsedMs };
+  }
 
 }
 
