@@ -9,7 +9,8 @@ import { SpeechToTextService } from './Speechtotext.service';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join } from 'node:path';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
+import axios from 'axios';
 import { TelegramLinkCode } from '../entities/TelegramLinkCode';
 import { UserService } from '../../user/user.service';
 import { UUID } from 'node:crypto';
@@ -40,7 +41,7 @@ export class TelegramService implements OnModuleInit {
     // به value واقعی گزینه ترجمه کنیم
     private pendingSelections = new Map<
         string,
-        { userId: string; options: { value: any; label: string }[] }
+        { userId: string; options: { id: any; title: string }[] }
     >();
 
     // شناسه‌ی پیام‌هایی که اخیراً پردازش شدن -- برای جلوگیری از پردازش
@@ -81,14 +82,35 @@ export class TelegramService implements OnModuleInit {
      * برای AgentGateway لازمه تا بفهمه یک userId، chatId تلگرام‌شده رو
      * داره یا نه -- تا نتیجه رو هم از این طریق بفرسته.
      */
-    private buildProgressBar(current: number, total: number, barLength: number = 10): string {
-        const percent = total > 0 ? Math.round((current / total) * 100) : 0;
-        const filledCount = total > 0 ? Math.round((current / total) * barLength) : 0;
-        const bar = "█".repeat(filledCount) + "░".repeat(barLength - filledCount);
+    /**
+     * برای مراحل میانی: یک نوار که واقعاً "پر می‌شه" -- با هر بار صدا زده
+     * شدن، یکی بیشتر پر می‌شه، ولی سقفش barLength-1 (نه barLength کامل)ه --
+     * یعنی تا وقتی finalizeProgress واقعی صدا زده نشه، هیچ‌وقت ۱۰۰٪/کامل
+     * نشون نمی‌ده (که گمراه‌کننده می‌بود). چون Math.min سقف رو نگه می‌داره،
+     * مهم نیست step چقدر بزرگ بشه یا چندبار صدا زده بشه -- هیچ‌وقت
+     * RangeError نمی‌ده.
+     */
+    private buildFillingBar(step: number, barLength: number = 10): string {
+        const filledCount = Math.min(barLength - 1, Math.max(1, step));
+        const percent = Math.min(95, Math.round((filledCount / barLength) * 100));
+        const bar = '█'.repeat(filledCount) + '░'.repeat(barLength - filledCount);
         return `[${bar}] ${percent}%`;
     }
 
+    /**
+     * نوار کامل -- فقط برای پیام نهایی (finalizeProgress) استفاده می‌شه.
+     */
+    private buildFullBar(barLength: number = 10): string {
+        return `[${'█'.repeat(barLength)}] 100%`;
+    }
+
     private activeProgressMessages = new Map<string, number>();
+
+    // شمارنده‌ی انیمیشن -- به‌ازای هر چت جدا (نه global)، فقط برای حس
+    // بصری "داره کار می‌کنه" استفاده می‌شه. چون فقط با % (باقیمانده) در
+    // buildFillingBar استفاده می‌شه، هیچ‌وقت مهم نیست چقدر بزرگ بشه یا
+    // چندبار صدا زده بشه -- امن در برابر هر تعداد فراخوانی/هم‌پوشانی.
+    private animationFrames = new Map<string, number>();
 
     private async safeSendMessage(
         chatId: string,
@@ -96,6 +118,18 @@ export class TelegramService implements OnModuleInit {
         options?: TelegramBot.SendMessageOptions,
     ): Promise<TelegramBot.Message | null> {
         if (!this.bot) return null;
+
+        // جدید: Telegram API با متن خالی/undefined خطای "message text is
+        // empty" می‌ده و کل پیام گم می‌شه. این معمولاً یعنی یه‌جای بالادست
+        // (مثلاً یک generator handler که بدون فیلد message چیزی yield
+        // کرده) متن رو فراموش کرده -- به‌جای کرش کردن، یه متن پیش‌فرض
+        // می‌فرستیم و warning لاگ می‌کنیم تا بشه منبع واقعی رو پیدا کرد.
+        if (!text || !text.trim()) {
+            this.logger.warn(
+                `safeSendMessage boş/undefined metinle çağrıldı (chatId=${chatId}) -- çağıran tarafta bir yerde .message eksik olabilir.`,
+            );
+            text = 'İşlem tamamlandı.';
+        }
 
         try {
             return await this.bot.sendMessage(chatId, text, options);
@@ -110,18 +144,16 @@ export class TelegramService implements OnModuleInit {
     /**
      * حس progressbar می‌ده -- اگه از قبل یک پیام "در حال پردازش" برای
      * این چت داریم، همونو ویرایش می‌کنه؛ وگرنه یک پیام جدید می‌سازه.
+     * هر بار صدا زده بشه، یک فریم از نوار متحرک نشون می‌ده (خودش داخلی
+     * شمارنده رو مدیریت می‌کنه، نیازی نیست فراخوان چیزی حساب کنه).
      */
-    async sendOrUpdateProgress(
-        chatId: string,
-        currentOp: string,
-        currentSegment?: number,
-        totalSegments?: number
-    ): Promise<void> {
+    async sendOrUpdateProgress(chatId: string, currentOp: string): Promise<void> {
         if (!this.bot) return;
 
-        const text = currentSegment && totalSegments
-            ? `${this.buildProgressBar(currentSegment, totalSegments)}\n${currentOp}`
-            : currentOp;
+        const frame = (this.animationFrames.get(chatId) ?? 0) + 1;
+        this.animationFrames.set(chatId, frame);
+
+        const text = `${this.buildFillingBar(frame)}\n${currentOp}`;
 
         const existingMessageId = this.activeProgressMessages.get(chatId);
 
@@ -147,12 +179,30 @@ export class TelegramService implements OnModuleInit {
 
     /**
      * وقتی عملیات کامل تموم شد (نتیجه‌ی نهایی) -- همون پیام رو با
-     * نتیجه‌ی نهایی ویرایش می‌کنه، و ردش رو از نقشه پاک می‌کنه چون
-     * دیگه عملیات بعدی باید پیام "در حال پردازش" جدید خودش رو بسازه
+     * نتیجه‌ی نهایی و یک نوار پیشرفت کامل ۱۰۰٪ ویرایش می‌کنه (این یکی،
+     * برخلاف نوار متحرکِ مراحل میانی، یک نوار واقعاً کامل و معتبره چون
+     * دیگه چیزی برای ادامه نیست)، و ردش رو از نقشه‌ها پاک می‌کنه چون
+     * دیگه عملیات بعدی باید پیام "در حال پردازش" جدید خودش رو بسازه.
      */
     async finalizeProgress(chatId: string, text: string): Promise<void> {
-        await this.sendOrUpdateProgress(chatId, text);
+        const finalText = `${this.buildFullBar()}\n${text}`;
+        const existingMessageId = this.activeProgressMessages.get(chatId);
+
+        if (existingMessageId) {
+            try {
+                await this.bot.editMessageText(finalText, {
+                    chat_id: chatId,
+                    message_id: existingMessageId,
+                });
+            } catch (error) {
+                await this.safeSendMessage(chatId, finalText);
+            }
+        } else {
+            await this.safeSendMessage(chatId, finalText);
+        }
+
         this.activeProgressMessages.delete(chatId);
+        this.animationFrames.delete(chatId);
     }
 
     async getChatIdForUsername(userid: string): Promise<string | null> {
@@ -179,10 +229,17 @@ export class TelegramService implements OnModuleInit {
     async sendSelectionRequest(
         userId: string,
         message: string,
-        options: { value: any; label: string }[],
+        options: { id: any; title: string }[],
     ): Promise<void> {
         const chatId = await this.getChatIdForUsername(userId);
         if (!chatId) return;
+
+        // جدید: بعضی handler ها فقط options رو yield می‌کنن، بدون متن
+        // اضافه (چون خودِ گزینه‌ها گویاست) -- در این حالت، به‌جای متن
+        // خالی (که Telegram رد می‌کنه) یا fallback عمومی گمراه‌کننده‌ی
+        // safeSendMessage ("İşlem tamamlandı" کاملاً نادرسته اینجا،
+        // چون هنوز هیچی تموم نشده)، یک متن مخصوص همین context می‌ذاریم.
+        const finalMessage = message && message.trim() ? message : 'Lütfen bir seçenek seçin:';
 
         // جدید: به‌جای یک دکمه در هر ردیف (که با ۲۰ گزینه یعنی ۲۰ ردیف
         // و اسکرول زیاد)، هر ردیف چند دکمه (BUTTONS_PER_ROW تا) داره
@@ -193,14 +250,14 @@ export class TelegramService implements OnModuleInit {
             const rowOptions = options.slice(i, i + BUTTONS_PER_ROW);
             inline_keyboard.push(
                 rowOptions.map((option, offset) => ({
-                    text: option.label,
+                    text: option.title,
                     callback_data: `sel_${i + offset}`,
                 })),
             );
         }
         inline_keyboard.push([{ text: '❌ İptal', callback_data: 'sel_cancel' }]);
 
-        const sent = await this.safeSendMessage(chatId, message, {
+        const sent = await this.safeSendMessage(chatId, finalMessage, {
             reply_markup: { inline_keyboard },
         });
 
@@ -220,7 +277,14 @@ export class TelegramService implements OnModuleInit {
         const chatId = await this.getChatIdForUsername(userId);
         if (!chatId) return;
 
-        await this.safeSendMessage(chatId, message, {
+        // جدید: همون مشکل sendSelectionRequest -- اگه handler بدون .message
+        // یه تایید ساده yield کرده باشه، safeSendMessage به‌جاش
+        // "İşlem tamamlandı." می‌ذاره که اینجا کاملاً گمراه‌کننده‌ست (چون
+        // هنوز هیچی تموم نشده، داره سوال می‌پرسه). به‌جاش یه متن مخصوص
+        // همین context.
+        const finalMessage = message && message.trim() ? message : 'Bu işlemi onaylıyor musunuz?';
+
+        await this.safeSendMessage(chatId, finalMessage, {
             reply_markup: {
                 inline_keyboard: [[
                     { text: '✅ Evet', callback_data: 'confirm_delete' },
@@ -274,6 +338,13 @@ export class TelegramService implements OnModuleInit {
             const parts = text.replace('/link ', '').trim().split(/\s+/);
             const [username, password] = parts;
             await this.handleLinkCommand(chatId, username, password, msg.message_id);
+            return;
+        }
+
+        // جدید: /yeni -- دقیقاً معادل دکمه‌ی "چت جدید" توی وب. CurrentSessionId
+        // رو پاک می‌کنه تا پیام بعدی یک session کاملاً تازه بسازه.
+        if (text.trim().toLowerCase() === '/yeni') {
+            await this.handleNewSessionCommand(chatId);
             return;
         }
 
@@ -367,7 +438,11 @@ export class TelegramService implements OnModuleInit {
                 ? msg.document.file_id
                 : msg.photo![msg.photo!.length - 1].file_id;
 
-            const filePath = await this.bot.downloadFile(fileId, downloadDir);
+            // جدید: bot.downloadFile (خودِ کتابخونه) گاهی با خطای
+            // "premature close" قطع می‌شد -- یک مشکل شناخته‌شده‌ی
+            // stream-based توی node-telegram-bot-api. به‌جاش خودمون
+            // لینک مستقیم رو می‌گیریم و با axios دانلود می‌کنیم.
+            const filePath = await this.downloadTelegramFile(fileId, downloadDir);
 
             this.functionCallService.source = "telegram";
             await this.processPromptText(chatId, caption, [filePath]);
@@ -375,6 +450,30 @@ export class TelegramService implements OnModuleInit {
             this.logger.error(`Dosya işleme hatası: ${error?.message || error}`);
             await this.safeSendMessage(chatId, 'Dosya işlenirken bir hata oluştu.');
         }
+    }
+
+    /**
+     * bot.downloadFile'ın (kütüphane içi, stream tabanlı) implementasyonu
+     * bazen "premature close" hatasıyla kesiliyordu -- bilinen bir sorun.
+     * Onun yerine dosyanın direkt Telegram sunucu linkini alıp axios ile
+     * (buffer olarak, tek seferde) kendimiz indiriyoruz -- daha güvenilir,
+     * çünkü stream pipe'ının ortasında bir şey kesilme riski yok.
+     */
+    private async downloadTelegramFile(fileId: string, downloadDir: string): Promise<string> {
+        const fileLink = await this.bot.getFileLink(fileId);
+
+        const response = await axios.get(fileLink, {
+            responseType: 'arraybuffer',
+            timeout: 30000,
+        });
+
+        const originalName =
+            fileLink.split('/').pop() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const filePath = join(downloadDir, originalName);
+
+        await writeFile(filePath, response.data);
+
+        return filePath;
     }
 
 
@@ -495,14 +594,14 @@ export class TelegramService implements OnModuleInit {
                 return;
             }
 
-            await this.bot.editMessageText(`✅ Seçildi: ${selectedOption.label}`, {
+            await this.bot.editMessageText(`✅ Seçildi: ${selectedOption.title}`, {
                 chat_id: chatId,
                 message_id: query.message.message_id,
             });
 
             void this.functionCallService.handleGeneratorResponse(
                 pending.userId,
-                selectedOption.value,
+                selectedOption.id,
                 false,
             );
         }
@@ -560,7 +659,22 @@ export class TelegramService implements OnModuleInit {
             return;
         }
 
-        const { sessionId } = await this.functionCallService.createNewSession(link.Userid);
+        // جدید: قبلاً هر پیام createNewSession صدا می‌زد -- که چون بعد از
+        // اولین submission، این تابع دیگه session قبلی رو reuse نمی‌کنه
+        // (submissionCount > 0 می‌شه)، هر پیام یه session کاملاً جدید و
+        // خالی می‌ساخت. یعنی history/context (مثلاً کتگوریی که تازه
+        // ساخته بودید) بین پیام‌های پشت‌سرهم گم می‌شد -- برخلاف وب که
+        // فرانت‌اند خودش یک sessionId رو تا "چت جدید" نگه می‌داره.
+        // اینجا هم همون رفتار رو شبیه‌سازی می‌کنیم: sessionId رو روی خودِ
+        // TelegramLink دائمی ذخیره می‌کنیم و فقط بار اول می‌سازیمش.
+        let sessionId = link.CurrentSessionId;
+        if (!sessionId) {
+            const created = await this.functionCallService.createNewSession(link.Userid);
+            sessionId = created.sessionId;
+            link.CurrentSessionId = sessionId;
+            await this.dataSource.getRepository(TelegramLink).save(link);
+        }
+
         const user = await this.userService.getByUserId(link.Userid);
 
         const fakeReq = {
@@ -570,7 +684,10 @@ export class TelegramService implements OnModuleInit {
             }
         };
 
-        await this.safeSendMessage(chatId, '⏳ İşleniyor...');
+        // NOT: "İşleniyor..." mesajı burada AYRICA gönderilmiyor -- RunFunctionCalling
+        // başlar başlamaz agentGateway.sendCurrentTool zaten tracked (activeProgressMessages
+        // içinde takip edilen) ilk ilerleme mesajını gönderiyor. Burada ayrıca ham bir
+        // mesaj göndermek, hiç güncellenmeyen/sonuçlanmayan başıboş bir bubble bırakıyordu.
 
         try {
             this.functionCallService.source = "telegram";
@@ -626,11 +743,40 @@ export class TelegramService implements OnModuleInit {
 
         if (existing) {
             existing.Userid = isValid.user.id;
+            // ÖNEMLİ: yeniden doğrulama olduğunda LastVerifiedAt'i de
+            // resetlemek gerekiyor -- yoksa 24 saat geçtikten sonra
+            // kullanıcı ne kadar tekrar /link yaparsa yapsın hep "yeniden
+            // doğrulama gerekiyor" mesajı almaya devam eder (çünkü
+            // processPromptText hâlâ eski LastVerifiedAt'e bakıyor).
+            existing.LastVerifiedAt = new Date();
             await repo.save(existing);
         } else {
-            await repo.save({ Userid: isValid.user.id, ChatId: chatId });
+            await repo.save({ Userid: isValid.user.id, ChatId: chatId, LastVerifiedAt: new Date() });
         }
 
         await this.safeSendMessage(chatId, `Hesabınız "${username}" olarak doğrulandı.`);
+    }
+
+    /**
+     * جدید: /yeni komutu -- web'deki "yeni chat" düğmesinin birebir aynısı.
+     * CurrentSessionId'yi temizler ki bir sonraki mesaj yepyeni, boş bir
+     * session'la başlasın (eski bağlam/geçmiş taşınmaz).
+     */
+    private async handleNewSessionCommand(chatId: string): Promise<void> {
+        const repo = this.dataSource.getRepository(TelegramLink);
+        const link = await repo.findOne({ where: { ChatId: chatId } });
+
+        if (!link) {
+            await this.safeSendMessage(
+                chatId,
+                'Hesabınızı bağlamak için önce şunu yazın: /link kullaniciadiniz parolanız'
+            );
+            return;
+        }
+
+        link.CurrentSessionId = null;
+        await repo.save(link);
+
+        await this.safeSendMessage(chatId, '🆕 Yeni bir sohbet başlatıldı.');
     }
 }

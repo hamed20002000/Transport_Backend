@@ -36,9 +36,14 @@ export class AgentGateway {
     private readonly functionCallService: FunctionCallService,
   ) { }
 
-
-  totalSegments = 4;
-  currentSegment = 0;
+  // حذف شد: totalSegments/currentSegment -- شمارش دقیق مراحل (چه مشترک،
+  // چه per-user) با ترکیب generator pause/resume و چندین segment، به‌سادگی
+  // قابل پیش‌بینی دقیق نیست (تعداد واقعی sendCurrentTool صداها بسته به
+  // این‌که چندتا segment، هر کدوم generator بودن یا نه، و چندبار
+  // pause/resume شدن فرق می‌کنه -- هیچ عدد ثابتی درست نیست). به‌جاش:
+  // مراحل میانی یک نوار متحرک/نمایشی نشون می‌دن (خودِ TelegramService/
+  // WhatsappService داخلی مدیریتش می‌کنن، امن در برابر هر تعداد
+  // فراخوانی)، و فقط پیام نهایی یک نوار ۱۰۰٪ واقعی می‌گیره.
 
 
   async sendToolResult(userId: string, data: FunctionCallResultType) {
@@ -48,11 +53,11 @@ export class AgentGateway {
 
     if (this.functionCallService.source == "telegram") {
       // جدید: حالت انتخاب از لیست/تایید -- باید قبل از شاخه‌ی success/error چک بشه
-      if (data.result === "confirm_required" && (data as any).data?.options) {
+      if (data.result === "confirm_required" && (data as any).data?.data) {
         await this.telegramService.sendSelectionRequest(
           userId,
           (data as any).data.message || data.message,
-          (data as any).data.options,
+          (data as any).data.data,
         );
         return;
       }
@@ -69,21 +74,30 @@ export class AgentGateway {
         const text = data.result === "success"
           ? `✅ ${data.message}`
           : `❌ ${data.message}`;
-        await this.telegramService.sendOrUpdateProgress(chatId, `⏳ ${text}`, ++this.currentSegment, this.totalSegments);
+
+        // جدید: فقط وقتی این واقعاً آخرین segment این دستوره (نه یک قدم
+        // میانی توی یک دستور چندبخشی)، finalizeProgress صدا زده می‌شه --
+        // که هم پیام رو نهایی می‌کنه (با نوار ۱۰۰٪ واقعی) هم
+        // activeProgressMessages رو پاک می‌کنه. قدم‌های میانی فقط متن +
+        // نوار متحرک (بدون درصد واقعی) می‌گیرن.
+        if ((data as any).lastsegment) {
+          await this.telegramService.finalizeProgress(chatId, `⏳ ${text}`);
+        } else {
+          await this.telegramService.sendOrUpdateProgress(chatId, `⏳ ${text}`);
+        }
 
         //await this.telegramService.sendMessageToChat(chatId, text);
-        this.currentSegment = 0;
       }
     }
 
     // جدید: همون منطق تلگرام، برای واتساپ
     if (this.functionCallService.source == "whatsapp") {
       // جدید: حالت انتخاب از لیست/تایید (صفحه‌بندی‌شده) -- برای موقعی که options داره
-      if (data.result === "confirm_required" && (data as any).data?.options) {
+      if (data.result === "confirm_required" && (data as any).data?.data) {
         await this.whatsappService.sendSelectionRequest(
           userId,
           (data as any).data.message || data.message,
-          (data as any).data.options,
+          (data as any).data.data,
         );
         return;
       }
@@ -100,8 +114,14 @@ export class AgentGateway {
         const text = data.result === "success"
           ? `✅ ${data.message}`
           : `❌ ${data.message}`;
-        await this.whatsappService.sendOrUpdateProgress(jid, `⏳ ${text}`, ++this.currentSegment, this.totalSegments);
-        this.currentSegment = 0;
+
+        // جدید: همون فیکس تلگرام -- فقط موقع آخرین segment، finalizeProgress
+        // صدا زده می‌شه (نوار ۱۰۰٪ واقعی)؛ قدم‌های میانی فقط نوار متحرک.
+        if ((data as any).lastsegment) {
+          await this.whatsappService.finalizeProgress(jid, `⏳ ${text}`);
+        } else {
+          await this.whatsappService.sendOrUpdateProgress(jid, `⏳ ${text}`);
+        }
       }
     }
 
@@ -115,9 +135,9 @@ export class AgentGateway {
     if (this.functionCallService.source == "telegram") {
       const chatId = await this.telegramService.getChatIdForUsername(userId);
       if (chatId) {
-        // این یک مرحله‌ی میانیه -- همون پیام رو ویرایش کن (progressbar)،
-        // نه یک پیام جدید بفرست
-        await this.telegramService.sendOrUpdateProgress(chatId, `⏳ ${data.currentOp}`, ++this.currentSegment, this.totalSegments);
+        // این یک مرحله‌ی میانیه -- همون پیام رو ویرایش کن (نوار متحرک،
+        // نه درصد واقعی)، نه یک پیام جدید بفرست
+        await this.telegramService.sendOrUpdateProgress(chatId, `⏳ ${data.currentOp}`);
       }
     }
 
@@ -125,7 +145,7 @@ export class AgentGateway {
     if (this.functionCallService.source == "whatsapp") {
       const jid = await this.whatsappService.getJidForUsername(userId);
       if (jid) {
-        await this.whatsappService.sendOrUpdateProgress(jid, `⏳ ${data.currentOp}`, ++this.currentSegment, this.totalSegments);
+        await this.whatsappService.sendOrUpdateProgress(jid, `⏳ ${data.currentOp}`);
       }
     }
 

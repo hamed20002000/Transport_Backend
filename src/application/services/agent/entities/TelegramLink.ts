@@ -14,4 +14,10 @@ export class TelegramLink {
 
     @UpdateDateColumn({ name: "LastVerifiedAt" })
     LastVerifiedAt: Date;
+
+    // جدید: session جاری این چت -- تا وقتی خالی نشه (یا کاربر /yeni بزنه)،
+    // همه‌ی پیام‌های این چت به همین session وصل می‌مونن (معادل رفتار
+    // فرانت‌اند وب که یک sessionId رو تا "چت جدید" نگه می‌داره).
+    @Column("varchar", { name: "CurrentSessionId", nullable: true })
+    CurrentSessionId: string | null;
 }

@@ -289,7 +289,7 @@ export class CategoryService extends BaseService<Categories> {
 
                 return {
                     continuePrompt: undefined,
-                    toolName: "deleteـcategory"
+                    toolName: "delete_category"
                 };
             }
         })

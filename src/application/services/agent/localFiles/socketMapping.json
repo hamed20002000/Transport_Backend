@@ -40,7 +40,7 @@
          "update_category_end":"kategori güncellendi",
 
          "delete_category":"kategori siliniyor",
-         "deleteـcategory_end":"kategori silindi",
+         "delete_category_end":"kategori silindi",
 
          "update_category_record_status":"Kategori durumu güncelleniyor.",
          "update_category_record_status_end":"kategori durumu güncellendi",

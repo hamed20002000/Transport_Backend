@@ -36,14 +36,25 @@ export class WhatsappService implements OnModuleInit {
   //so that we can edit the same message instead of sending a new one (like Telegram's progressbar)
   private activeProgressMessages = new Map<string, proto.IMessageKey>();
 
+  // Per-jid animation frame counter for the indeterminate progress bar --
+  // safe no matter how large it grows or how many operations overlap,
+  // since buildFillingBar caps its output, so growth never overflows.
+  private animationFrames = new Map<string, number>();
+
   //Pending options -- Since WhatsApp doesn't have a real secure button,
   //  the list of options is sent in a numbered and paginated form (10 per message); 
   // here we keep track of which jid is on which page and what the actual options are, 
   // so that when a number is sent we can find the actual value
   private pendingSelections = new Map<
     string,
-    { userId: string; options: { value: any; label: string }[]; page: number; message: string }
+    { jid: string; options: { id: any; title: string }[]; page: number; message: string }
   >();
+
+  // جدید: کلید پیامی که لیست گزینه‌ها توش فرستاده شده -- برای اینکه بعد
+  // از انتخاب کاربر (یا لغو/ورق‌زدن صفحه)، همون پیام رو ادیت کنیم به‌جای
+  // اینکه لیست بلند برای همیشه روی صفحه بمونه و نوار پیشرفت/نتیجه‌ی
+  // نهایی رو به بالا هل بده (جایی که کاربر باید اسکرول کنه تا ببینتش).
+  private selectionMessageKeys = new Map<string, proto.IMessageKey>();
 
   private static readonly SELECTION_PAGE_SIZE = 10;
 
@@ -318,8 +329,8 @@ export class WhatsappService implements OnModuleInit {
     // option-selection list (from a "confirm_required" generator prompt)?
     // More specific than the generic hasPendingGenerator check below,
     // because it already has the real option values, not just a raw number.
-    if (this.pendingSelections.has(jid)) {
-      await this.handleSelectionReply(jid, text);
+    if (this.pendingSelections.has(userid)) {
+      await this.handleSelectionReply(userid, text);
       return;
     }
 
@@ -370,6 +381,14 @@ export class WhatsappService implements OnModuleInit {
       return;
     }
 
+    // NEW: 'yeni sohbet' -- exact WhatsApp equivalent of Telegram's /yeni
+    // and the web's "new chat" button. Clears CurrentSessionId so the next
+    // message starts a brand-new, empty session (no old context carried over).
+    if (text.trim().toLowerCase() === 'yeni sohbet') {
+      await this.handleNewSessionCommand(jid, userid);
+      return;
+    }
+
     // None of the pending states applied -- this is a genuinely new command.
     await this.runCommand(userid, username, text);
   }
@@ -397,12 +416,25 @@ export class WhatsappService implements OnModuleInit {
       },
     };
 
-    // createNewSession() either reuses the caller's most recent still-empty
-    // session, or creates a new one -- this mirrors what the web frontend
-    // does when opening a "new chat". Passing `userid` here matches the
-    // ownership check inside RunFunctionCalling (`session.Userid !== userId`),
-    // which also compares against req.user.userid, not username..
-    const { sessionId } = await this.functionCallService.createNewSession(userid);
+    // NEW: previously createNewSession() was called on every single
+    // message -- but since it only reuses the last session while it still
+    // has ZERO submissions, the moment one command actually ran, the NEXT
+    // message would get a brand-new, empty session (losing all context/
+    // history from what was just created, e.g. a category the user just
+    // made). The web frontend avoids this by tracking one sessionId itself
+    // until the user starts a new chat -- here we replicate that by
+    // persisting the session id on the WhatsappUserMapping row and only
+    // creating a new one the first time.
+    const mappingRow = await this.userMappingRepo.findOne({ where: { userid } });
+    let sessionId = mappingRow?.CurrentSessionId;
+    if (!sessionId) {
+      const created = await this.functionCallService.createNewSession(userid);
+      sessionId = created.sessionId;
+      if (mappingRow) {
+        mappingRow.CurrentSessionId = sessionId;
+        await this.userMappingRepo.save(mappingRow);
+      }
+    }
 
     // RunFunctionCalling is fire-and-forget by design (it returns void; the
     // real response comes back later via AgentGateway, not through this
@@ -416,6 +448,20 @@ export class WhatsappService implements OnModuleInit {
       this.logger.error(`RunFunctionCalling hata verdi (WhatsApp): ${userid}`, error as Error);
     });
 
+  }
+
+  /**
+   * NEW: 'yeni sohbet' command -- WhatsApp's exact equivalent of Telegram's
+   * /yeni and the web's "new chat" button. Clears CurrentSessionId so the
+   * next message starts a brand-new, empty session.
+   */
+  private async handleNewSessionCommand(jid: string, userid: string): Promise<void> {
+    const mappingRow = await this.userMappingRepo.findOne({ where: { userid } });
+    if (mappingRow) {
+      mappingRow.CurrentSessionId = null;
+      await this.userMappingRepo.save(mappingRow);
+    }
+    await this.sendMessage(jid, '🆕 Yeni bir sohbet başlatıldı.');
   }
 
 
@@ -934,13 +980,19 @@ export class WhatsappService implements OnModuleInit {
     const jid = await this.getJidForUsername(userId);
     if (!jid) return;
 
+    // NEW: if the upstream handler yielded a confirmation without a
+    // .message field, sendMessage's own fallback ('İşlem tamamlandı.')
+    // would be misleading here -- nothing is done yet, it's asking a
+    // question. Use a context-appropriate default instead.
+    const finalMessage = message && message.trim() ? message : 'Bu işlemi onaylıyor musunuz?';
+
     // Append the numbered options directly onto whatever confirmation
     // message the pipeline generated (e.g. `"X kaydını sil" işlemini
     // onaylıyor musunuz?`), so the user sees both the question and exactly
     // how to answer it in one message. This is what
     // handleDeleteConfirmationReply above expects the user to respond to
     // with "1" or "2".
-    await this.sendMessage(jid, `${message}\n\n1) Evet\n2) Hayır`);
+    await this.sendMessage(jid, `${finalMessage}\n\n1) Evet\n2) Hayır`);
   }
   // Called by AgentGateway when a "confirm_required" result comes back WITH
   // an `options` array -- e.g. multiple ambiguous matches were found and the
@@ -951,24 +1003,24 @@ export class WhatsappService implements OnModuleInit {
   async sendSelectionRequest(
     userId: string,
     message: string,
-    options: { value: any; label: string }[],
+    options: { id: any; title: string }[],
   ): Promise<void> {
     // Resolve which WhatsApp number to send this to -- same pattern as
     // sendYesNoConfirmation above.
     const jid = await this.getJidForUsername(userId);
     if (!jid) return;
 
-    // Store the FULL option list and starting page (0) keyed by jid. This is
-    // what makes it possible for handleSelectionReply, later, to translate a
-    // plain number the user types back into the real underlying `value` --
-    // without this, all we'd have from the user's reply is a bare number
-    // with no idea what it actually refers to.
-    this.pendingSelections.set(jid, { userId, options, page: 0, message });
+    // NEW: keyed by userId (stable), not jid -- because the jid Baileys
+    // resolves for a reply message can differ from the jid we looked up
+    // here (WhatsApp's newer @lid identity system can resolve inconsistently
+    // across messages), which previously caused the reply to never be
+    // matched to this pending selection at all.
+    this.pendingSelections.set(userId, { jid, options, page: 0, message });
 
     // Delegate the actual message formatting/sending to sendSelectionPage,
     // which slices out just the first page's worth of options (page 0) and
     // renders the numbered list + navigation hints.
-    await this.sendSelectionPage(jid);
+    await this.sendSelectionPage(userId);
   }
 
   // Renders and sends ONE page of a pending selection list -- called both
@@ -976,13 +1028,13 @@ export class WhatsappService implements OnModuleInit {
   // navigates with 'devam'/'geri' (see handleSelectionReply). Doesn't touch
   // pendingSelections itself; just reads the current state and formats a
   // message from it.
-  private async sendSelectionPage(jid: string): Promise<void> {
-    // If there's no pending selection for this jid (e.g. it was already
+  private async sendSelectionPage(userId: string): Promise<void> {
+    // If there's no pending selection for this user (e.g. it was already
     // resolved/cancelled elsewhere), there's nothing to render.
-    const pending = this.pendingSelections.get(jid);
+    const pending = this.pendingSelections.get(userId);
     if (!pending) return;
 
-    const { options, page, message } = pending;
+    const { jid, options, page, message } = pending;
     const pageSize = WhatsappService.SELECTION_PAGE_SIZE;
 
     // Compute this page's slice of the full options array. E.g. page 0 with
@@ -997,7 +1049,10 @@ export class WhatsappService implements OnModuleInit {
     // page. This matters because the user can type a number referring to
     // any option regardless of which page is currently displayed (see
     // handleSelectionReply, which indexes into the full `options` array).
-    const lines = pageOptions.map((option, i) => `${start + i + 1}) ${option.label}`);
+    const lines = pageOptions.map((option, i) => {
+      const label = option.title && option.title.trim() ? option.title : `Seçenek ${start + i + 1}`;
+      return `${start + i + 1}) ${label}`;
+    });
 
     // Whether there are more options beyond this page, and whether we're
     // past the first page -- determines which navigation hints to show.
@@ -1033,17 +1088,37 @@ export class WhatsappService implements OnModuleInit {
       .filter(Boolean)
       .join('\n\n');
 
-    await this.sendMessage(jid, text);
+    // جدید: اگه از قبل یه پیام لیست برای این کاربر فرستاده شده (مثلاً
+    // داره صفحه عوض می‌کنه)، همونو ادیت می‌کنیم -- نه یه پیام جدید. این
+    // هم چت رو تمیزتر نگه می‌داره، هم باعث می‌شه بعداً (وقتی انتخاب کرد)
+    // بشه همین پیام رو به یه خلاصه‌ی کوتاه تبدیل کرد.
+    const existingKey = this.selectionMessageKeys.get(userId);
+
+    if (existingKey && this.sock) {
+      try {
+        await this.sock.sendMessage(jid, { text, edit: existingKey });
+        return;
+      } catch (error) {
+        this.logger.warn(`Seçim mesajı düzenlenemedi, yeni mesaj gönderiliyor: ${jid}`, error as Error);
+        // devam et -- aşağıda yeni bir mesaj gönderilecek
+      }
+    }
+
+    const sent = await this.sock?.sendMessage(jid, { text });
+    if (sent?.key) {
+      this.selectionMessageKeys.set(userId, sent.key);
+    }
   }
 
 
   // Handles a text reply from a jid that currently has an entry in
   // pendingSelections -- i.e. a numbered/paginated list of options was just
   // shown and we're waiting for the user to navigate, cancel, or pick one.
-  private async handleSelectionReply(jid: string, text: string): Promise<void> {
-    const pending = this.pendingSelections.get(jid);
+  private async handleSelectionReply(userId: string, text: string): Promise<void> {
+    const pending = this.pendingSelections.get(userId);
     if (!pending) return;
 
+    const { jid } = pending;
     const normalized = text.trim().toLowerCase();
     const pageSize = WhatsappService.SELECTION_PAGE_SIZE;
 
@@ -1051,12 +1126,13 @@ export class WhatsappService implements OnModuleInit {
     // out, don't bother checking if "iptal" might also coincidentally look
     // like a page-navigation keyword or a number.
     if (this.isCancelReply(text)) {
-      this.pendingSelections.delete(jid);
+      this.pendingSelections.delete(userId);
+      await this.finalizeSelectionMessage(userId, jid, '❌ İşlem iptal edildi.');
       // Resumes the underlying generator (in FunctionCallService) with
       // cancelled=true, so it can clean itself up properly (e.g. release any
       // resources, run a finally block) rather than just being abandoned in
       // memory.
-      void this.functionCallService.handleGeneratorResponse(pending.userId, null, true);
+      void this.functionCallService.handleGeneratorResponse(userId, null, true);
       return;
     }
 
@@ -1072,7 +1148,7 @@ export class WhatsappService implements OnModuleInit {
       // not a copy) -- no need to call pendingSelections.set() again after
       // this.
       pending.page += 1;
-      await this.sendSelectionPage(jid);
+      await this.sendSelectionPage(userId);
       return;
     }
 
@@ -1083,7 +1159,7 @@ export class WhatsappService implements OnModuleInit {
         return;
       }
       pending.page -= 1;
-      await this.sendSelectionPage(jid);
+      await this.sendSelectionPage(userId);
       return;
     }
 
@@ -1119,9 +1195,32 @@ export class WhatsappService implements OnModuleInit {
     // full options array in the first place: the generator has no concept
     // of "option 3", only whatever actual value (an id, a name, etc.) that
     // option represents.
-    this.pendingSelections.delete(jid);
-    void this.functionCallService.handleGeneratorResponse(pending.userId, selectedOption.value, false);
+    this.pendingSelections.delete(userId);
+    await this.finalizeSelectionMessage(userId, jid, `✅ Seçildi: ${selectedOption.title}`);
+    void this.functionCallService.handleGeneratorResponse(userId, selectedOption.id, false);
   }
+
+  /**
+   * لیست بلند گزینه‌ها رو (اگه پیامش ردیابی شده باشه) به یه خلاصه‌ی کوتاه
+   * ادیت می‌کنه -- تا بعد از انتخاب/لغو، دیگه لیست روی صفحه نمونه و نوار
+   * پیشرفت/نتیجه‌ی نهایی رو به بالا هل نده (که کاربر مجبور بشه اسکرول
+   * کنه تا ببینتش).
+   */
+  private async finalizeSelectionMessage(userId: string, jid: string, summary: string): Promise<void> {
+    const existingKey = this.selectionMessageKeys.get(userId);
+    this.selectionMessageKeys.delete(userId);
+
+    if (!existingKey || !this.sock) {
+      return;
+    }
+
+    try {
+      await this.sock.sendMessage(jid, { text: summary, edit: existingKey });
+    } catch (error) {
+      this.logger.warn(`Seçim mesajı düzenlenemedi: ${jid}`, error as Error);
+    }
+  }
+
   // Central helper for sending a plain text message to a jid. Every other
   // method in this file that needs to reply to the user goes through this
   // one function, rather than calling this.sock.sendMessage directly -- so
@@ -1133,6 +1232,17 @@ export class WhatsappService implements OnModuleInit {
     if (!this.sock) {
       this.logger.error('WhatsApp soketi hazır değil.');
       return;
+    }
+
+    // NEW: an empty/undefined text usually means an upstream caller (e.g.
+    // a generator handler that yielded without a .message field) forgot to
+    // set it. Rather than sending nothing or crashing, fall back to a
+    // default and log a warning so the real source can be traced.
+    if (!text || !text.trim()) {
+      this.logger.warn(
+        `sendMessage boş/undefined metinle çağrıldı (jid=${jid}) -- çağıran tarafta bir yerde .message eksik olabilir.`,
+      );
+      text = 'İşlem tamamlandı.';
     }
 
     // Safety timeout: certain situations (e.g. a jid in the newer @lid
@@ -1170,29 +1280,23 @@ export class WhatsappService implements OnModuleInit {
   // editMessageText behavior by editing the SAME message in place instead of
   // spamming a new message for every step. First call for a given jid sends
   // a fresh message; subsequent calls edit that same message.
-  async sendOrUpdateProgress(
-    jid: string,
-    text: string,
-    // Both optional -- when provided together, a visual progress bar is
-    // prepended; when omitted (e.g. a one-off status update with no
-    // meaningful "step X of Y"), just the plain text is shown.
-    currentSegment?: number,
-    totalSegments?: number,
-  ): Promise<void> {
+  //
+  // Shows a FILLING bar (grows a bit with each call, capped below 100%)
+  // rather than a real percentage -- reliably counting "step X of Y" across
+  // generator pause/resume and multiple segments turned out not to be
+  // trustworthy (whatever the counting scheme), so instead of a fragile
+  // percentage we just show incremental visual movement, capped so it can
+  // never falsely claim completion before finalizeProgress actually runs.
+  async sendOrUpdateProgress(jid: string, text: string): Promise<void> {
     if (!this.sock) {
       this.logger.error('WhatsApp soketi hazır değil.');
       return;
     }
 
-    // Only build the progress bar when BOTH numbers are given -- note this
-    // also treats currentSegment === 0 as "falsy" and skips the bar in that
-    // case, which is a minor edge case worth being aware of (0 is a valid
-    // "haven't started yet" segment number, but would render as plain text
-    // here instead of a 0%-filled bar).
-    const displayText =
-      currentSegment && totalSegments
-        ? `${this.buildProgressBar(currentSegment, totalSegments)}\n${text}`
-        : text;
+    const frame = (this.animationFrames.get(jid) ?? 0) + 1;
+    this.animationFrames.set(jid, frame);
+
+    const displayText = `${this.buildFillingBar(frame)}\n${text}`;
 
     // Do we already have an in-flight "processing" message for this jid from
     // an earlier call? If so, we'll try to edit it instead of sending a new
@@ -1229,48 +1333,70 @@ export class WhatsappService implements OnModuleInit {
       this.activeProgressMessages.set(jid, sent.key);
     }
   }
-  // Called when an operation is fully complete (the final result, not an
-  // intermediate step) -- updates the progress message one last time with
-  // the final text, then stops treating it as "active" so the NEXT operation
-  // starts its own fresh message instead of continuing to edit this one.
-  async finalizeProgress(jid: string, text: string): Promise<void> {
-    // Reuses the same edit-if-exists logic as any other progress update --
-    // no currentSegment/totalSegments passed here, so this renders as plain
-    // text with no progress bar (this is the final message, there's no
-    // "step X of Y" left to show).
-    await this.sendOrUpdateProgress(jid, text);
 
-    // Remove the tracked message key AFTER sending, not before -- so the
-    // call above still has a chance to edit the existing message rather than
-    // sending a redundant new one for this final update. Once removed, any
-    // future sendOrUpdateProgress call for this jid will start a brand-new
-    // message, correctly treating it as belonging to a new operation.
+  // Called when this is truly the LAST segment of a multi-part command --
+  // sends the final result as a brand-new, distinct message (not editing
+  // the shared "in progress" bubble, which previously caused earlier
+  // segments' results to get silently overwritten by later ones), then
+  // clears the tracked progress message so the NEXT command starts its own
+  // fresh "in progress" indicator instead of continuing to edit this one.
+  async finalizeProgress(jid: string, text: string): Promise<void> {
+    if (!this.sock) {
+      this.logger.error('WhatsApp soketi hazır değil.');
+      return;
+    }
+
+    const displayText = `${this.buildFullBar()}\n${text}`;
+    const existingKey = this.activeProgressMessages.get(jid);
+
+    // جدید: کاربر یک نوار پیشرفت واحد برای کل دستور می‌خواد -- پس اگه
+    // پیام "در حال پردازش" مشترک از قبل هست، همونو ادیت می‌کنیم به ۱۰۰٪
+    // (نه پیام جدید). این یعنی برای یک دستور (چه تک‌بخشی چه چندبخشی)،
+    // فقط یک حباب می‌بینه که از ابتدا تا ۱۰۰٪ ادامه پیدا می‌کنه.
+    if (existingKey) {
+      try {
+        await this.sock.sendMessage(jid, { text: displayText, edit: existingKey });
+        this.activeProgressMessages.delete(jid);
+        this.animationFrames.delete(jid);
+        return;
+      } catch (error) {
+        this.logger.warn(`Mesaj düzenlenemedi, yeni mesaj gönderiliyor: ${jid}`, error as Error);
+        // devam et -- aşağıda yeni bir mesaj gönderilecek
+      }
+    }
+
+    await this.sendMessage(jid, displayText);
     this.activeProgressMessages.delete(jid);
+    this.animationFrames.delete(jid);
   }
 
-  // Renders a simple ASCII/Unicode progress bar as a single-line string,
-  // e.g. "[████████░░] 80%". Used inside sendOrUpdateProgress whenever both
-  // currentSegment and totalSegments are known. Identical approach to
-  // TelegramService's own buildProgressBar, kept separate here rather than
-  // shared, so each channel's formatting can diverge independently later if
-  // needed.
-  private buildProgressBar(current: number, total: number, barLength: number = 10): string {
-    // Guard against division by zero (total === 0) by falling back to 0%
-    // rather than producing NaN.
-    const percent = total > 0 ? Math.round((current / total) * 100) : 0;
+  // NEW: result of a segment that is NOT the last one (more segments still
+  // to come). Also sent as its own distinct message (not edited into the
+  // shared bar), but unlike finalizeProgress, does NOT clear the shared
+  // "in progress" tracking -- the next segment still needs to continue
+  // updating that same bar.
+  async sendSegmentResult(jid: string, text: string): Promise<void> {
+    await this.sendMessage(jid, text);
+  }
 
-    // How many of the `barLength` character slots should be "filled" --
-    // proportional to progress, rounded to the nearest whole character since
-    // you can't render a fractional block character.
-    const filledCount = total > 0 ? Math.round((current / total) * barLength) : 0;
-
-    // Build the bar as filled blocks ('█') followed by empty ones ('░'),
-    // always totaling exactly `barLength` characters regardless of the
-    // current/total values (repeat() with a negative count would throw, but
-    // filledCount can never exceed barLength here since it's derived from
-    // current/total which are expected to stay within [0, total]).
+  /**
+   * Builds a bar that grows with each call, capped at barLength-1 filled
+   * blocks (never fully filled) -- gives a satisfying sense of progress
+   * without ever falsely claiming 100% before finalizeProgress actually
+   * runs. Math.min caps growth, so `step` can be arbitrarily large or
+   * called any number of times without ever going out of bounds.
+   */
+  private buildFillingBar(step: number, barLength: number = 10): string {
+    const filledCount = Math.min(barLength - 1, Math.max(1, step));
+    const percent = Math.min(95, Math.round((filledCount / barLength) * 100));
     const bar = '█'.repeat(filledCount) + '░'.repeat(barLength - filledCount);
-
     return `[${bar}] ${percent}%`;
+  }
+
+  /**
+   * A real, fully-filled bar -- only used for the genuine final result.
+   */
+  private buildFullBar(barLength: number = 10): string {
+    return `[${'█'.repeat(barLength)}] 100%`;
   }
 }
