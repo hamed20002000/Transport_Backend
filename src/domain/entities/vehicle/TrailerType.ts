@@ -11,30 +11,30 @@ import { Trailer } from './Trailer';
 export class TrailerType {
 
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({
     type: 'varchar',
     length: 100,
   })
-  title: string;
+  title!: string;
 
   @Column({
     type: 'varchar',
     length: 50,
     unique: true,
   })
-  code: string;
+  code!: string;
 
   @Column({
     type: 'smallint',
     default: 0,
   })
-  recordStatus: number;
+  recordStatus!: number;
 
   @OneToMany(
     () => Trailer,
     trailer => trailer.trailerType,
   )
-  trailers: Trailer[];
+  trailers!: Trailer[];
 }

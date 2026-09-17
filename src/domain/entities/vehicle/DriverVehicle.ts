@@ -7,20 +7,20 @@ import {
   CreateDateColumn,
 } from 'typeorm';
 
-import { Driver } from './driver.entity';
 import { Vehicle } from './Vehicle';
+import { Driver } from '../driver/Driver';
 
 @Entity('DriverVehicle')
 export class DriverVehicle {
 
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ type: 'uuid' })
-  driverId: string;
+  driverId!: string;
 
   @Column({ type: 'uuid' })
-  vehicleId: string;
+  vehicleId!: string;
 
   @ManyToOne(
     () => Driver,
@@ -28,7 +28,7 @@ export class DriverVehicle {
     { onDelete: 'CASCADE' },
   )
   @JoinColumn({ name: 'driverId' })
-  driver: Driver;
+  driver!: Driver;
 
   @ManyToOne(
     () => Vehicle,
@@ -36,10 +36,10 @@ export class DriverVehicle {
     { onDelete: 'CASCADE' },
   )
   @JoinColumn({ name: 'vehicleId' })
-  vehicle: Vehicle;
+  vehicle!: Vehicle;
 
   @Column({ type: 'timestamp' })
-  fromDate: Date;
+  fromDate!: Date;
 
   @Column({
     type: 'timestamp',
@@ -51,8 +51,8 @@ export class DriverVehicle {
     type: 'boolean',
     default: true,
   })
-  isCurrent: boolean;
+  isCurrent!: boolean;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 }
