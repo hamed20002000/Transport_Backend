@@ -3,20 +3,29 @@ import { ConfigService } from '@nestjs/config';
 
 
 
-export const typeOrmConfig = (configService: ConfigService): TypeOrmModuleOptions => ({
+export const typeOrmConfig = (
+  configService: ConfigService,
+): TypeOrmModuleOptions => ({
   type: 'postgres',
+
   host: configService.get<string>('DB_HOST', 'localhost'),
   port: configService.get<number>('DB_PORT', 5432),
+
   username: configService.get<string>('DB_USERNAME', 'postgres'),
-  password: configService.get<string>('DB_PASSWORD', '123qwe$%'),
-  database: configService.get<string>('DB_DATABASE', 'SETASTAKIP'),
- /*  entities: ['src/domain/entities/*.ts'], */
-  entities: ['src/application/services/agent/entities/WhatsappUserMapping.ts'],
-  migrations: ['src/infrastructure/database/migrations/*.ts'],  
-  migrationsRun: false,   
-  synchronize: false, // Disable auto schema synchronization
-  logging:true// ['error'], // Log only errors
-  
+  password: configService.getOrThrow<string>('123qwe$%'),
+
+  database: configService.get<string>('DB_DATABASE', 'Transport'),
+  entities: [
+    'src/domain/**/*.ts',
+    'src/application/services/agent/entities/*.ts',
+  ],
+  migrations: [
+    'src/infrastructure/database/migrations/*.ts',
+  ],
+  migrationsRun: false,
+  synchronize: false,
+
+  logging: true,
 });
 
 

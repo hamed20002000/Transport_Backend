@@ -1,5 +1,5 @@
-import { Controller, Get, Post, Body, Param, UseGuards, HttpException, HttpStatus, Request, Put, Delete, Req, NotFoundException, Query, UseInterceptors, UploadedFile } from '@nestjs/common';
-import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Controller, Get, Post, Body, Param, UseGuards, HttpStatus, Request, Put, Req, NotFoundException, Query, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { AdminRolesGuard } from 'src/auth/guards/roles.guard';
 import { ConverToolsToembeddingDocumentEnum, CreateVectorBasedEnum } from './types';
@@ -8,16 +8,11 @@ import { FunctionCallService } from 'src/application/services/agent/services/fun
 import { ConversationSession } from 'src/application/services/agent/entities/ConversationSession';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
-import { PromptSubmission } from 'src/application/services/agent/entities/PromptSubmission';
-import { ToolExecution } from 'src/application/services/agent/entities/ToolExecution';
 import { EmbeddingDomainTool, EmbeddingToolType, PendingAction } from 'src/application/services/agent/types';
 import { PendingConfirmationService } from 'src/application/services/agent/services/PendingConfirmationService';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { SpeechToTextService } from 'src/application/services/agent/services/Speechtotext.service';
-
-
-
 
 @Controller('api/agent')
 export class AgentController {
@@ -28,8 +23,6 @@ export class AgentController {
     private readonly speechToTextService: SpeechToTextService,
     @InjectDataSource() private readonly dataSource: DataSource
   ) { }
-
-
 
   @Post("conver-tools-to-embedding-document")
   @ApiTags('converToolsToembeddingDocument')
@@ -80,15 +73,11 @@ export class AgentController {
   @Post('sessions/new')
   @UseGuards(JwtAuthGuard, AdminRolesGuard)
   @ApiBearerAuth()
-  // @UseGuards(AuthGuard) // اگه سایر endpoint هات از یک Guard استفاده می‌کنن، اینجا هم اضافه کن
   async createNewSession(@Request() req: any) {
     const result = await this.functionCallService.createNewSession(req.user.userid);
     return result; // { sessionId: "..." }
   }
 
-  /**
-   * لیست همه‌ی session های کاربر -- برای sidebar
-   */
   @Get('sessions')
   @UseGuards(JwtAuthGuard, AdminRolesGuard)
   @ApiBearerAuth()
