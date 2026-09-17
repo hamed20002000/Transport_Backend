@@ -20,7 +20,6 @@ export class ResponseInterceptor<T> implements NestInterceptor<T, ApiResponse<T>
     if (path === '/api/auth/apple/callback') {
       return next.handle();
     }
-
     return next.handle().pipe(
       map((data) => {
         const response = context.switchToHttp().getResponse();

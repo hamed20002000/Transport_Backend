@@ -1,6 +1,5 @@
 import { FindManyOptions, FindOptionsRelations, FindOptionsSelect } from "typeorm";
 
-import { Specification } from "../specifications/base.specification";
 
 export interface IRepository<T> {
   findById(id: number): Promise<T | null>;
@@ -14,11 +13,5 @@ export interface IRepository<T> {
   delete(id: number): Promise<void>;
 
 
-  findWithSpecification(
-    specification?: Specification<T> | null,
-    options?: FindManyOptions<T>,
-    select?: FindOptionsSelect<T>,
-    relations?: FindOptionsRelations<T>
-  ): Promise<T[]>;
 
 }
