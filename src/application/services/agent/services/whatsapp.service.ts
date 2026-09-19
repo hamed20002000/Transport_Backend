@@ -1,22 +1,20 @@
 import { Injectable, Logger, OnModuleInit, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import makeWASocket, {
-  DisconnectReason,
+import type {
   WASocket,
-  proto,
-  downloadMediaMessage,
   WAMessage,
-} from '@whiskeysockets/baileys';
+  proto,
+} from '@whiskeysockets/baileys' with { 'resolution-mode': 'import' };
 import { Boom } from '@hapi/boom';
 import * as qrcode from 'qrcode-terminal';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join } from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { WhatsappAuthCredential } from '../entities/WhatsappAuthCredential';
-import { WhatsappAuthKey } from '../entities/WhatsappAuthKey';
-import { WhatsappUserMapping } from '../entities/WhatsappUserMapping';
+import { WhatsappAuthCredential } from 'src/domain/entities/agent/WhatsappAuthCredential';
+import { WhatsappAuthKey } from 'src/domain/entities/agent/WhatsappAuthKey';
+import { WhatsappUserMapping } from 'src/domain/entities/agent/WhatsappUserMapping';
 import { useDbAuthState } from '../hooks/useDbAuthState';
 import { FunctionCallService } from './functioncall.service';
 import { AuthService } from 'src/auth/auth.service';
@@ -81,6 +79,10 @@ export class WhatsappService implements OnModuleInit {
   }
 
   private async connect(): Promise<void> {
+    const {
+      default: makeWASocket,
+      DisconnectReason,
+    } = await import('@whiskeysockets/baileys');
 
     //#region ---------- Database Authentication State
     const { state, saveCreds } = await useDbAuthState(
@@ -570,7 +572,7 @@ export class WhatsappService implements OnModuleInit {
     // need here (e.g. the whole user record) -- we only pass back the
     // `userid`, since that's the only piece the onboarding flow and the
     // WhatsappUserMapping row actually require.
-    return { userid: result.user.id };
+    return { userid: result.user?.id??"" };
   }
 
   // Deletes a previously-sent (or previously-received) message using its
@@ -686,6 +688,8 @@ export class WhatsappService implements OnModuleInit {
     }
 
     try {
+      const { downloadMediaMessage } = await import('@whiskeysockets/baileys');
+
       // Immediate feedback -- voice processing (download + ffmpeg +
       // transcription) can take a few seconds, so the user gets some
       // indication something is happening rather than silence.
@@ -800,6 +804,8 @@ export class WhatsappService implements OnModuleInit {
     }
 
     try {
+      const { downloadMediaMessage } = await import('@whiskeysockets/baileys');
+
       const downloadDir = join(process.cwd(), 'uploads', 'whatsapp-files');
       await mkdir(downloadDir, { recursive: true });
 

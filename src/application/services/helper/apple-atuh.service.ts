@@ -97,8 +97,12 @@ export class AppleAuthService {
       };
 
       return appleUser;
-    } catch (error) {
-      throw new Error(`Failed to validate id_token: ${error.message}`);
+    } catch (error:unknown) {
+      const message =
+    error instanceof Error
+      ? error.message
+      : String(error);
+      throw new Error(`Failed to validate id_token: ${message}`);
     }
   }
 
@@ -137,7 +141,13 @@ export class AppleAuthService {
         user, // Mapped user object
       };
     } catch (error) {
-      throw new Error(`Failed to get token from Apple: ${error.message}`);
+
+      const message =
+    error instanceof Error
+      ? error.message
+      : String(error);
+
+      throw new Error(`Failed to get token from Apple: ${message}`);
     }
   }
 }

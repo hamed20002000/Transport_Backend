@@ -6,20 +6,19 @@ import { JwtModule, JwtService } from '@nestjs/jwt';
 import { JwtStrategy } from './strategy/jwt.strategy';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { UserModule } from 'src/application/services/user/appModuls/user.module';
 import { GoogleStrategy } from './strategy/google.strategy';
-import { UserService } from 'src/application/services/user/user.service';
+import { UserService } from 'src/services/UserService';
 import { EmailService } from 'src/application/services/helper/email-service';
 import { AppleAuthService } from 'src/application/services/helper/apple-atuh.service';
 import { HttpModule, HttpService } from '@nestjs/axios';
 import { ImageService } from 'src/application/services/helper/image.service';
 
-
+import { UserModule } from 'src/application/module/UserModule';
 
 @Module({
   imports: [
     HttpModule,
-    forwardRef(() => UserModule),
+    UserModule,
     // Register ConfigModule to read environment variables
     ConfigModule.forRoot({
       isGlobal: true,  // Makes the config available globally in the app
@@ -36,7 +35,6 @@ import { ImageService } from 'src/application/services/helper/image.service';
       inject: [ConfigService],  // Inject ConfigService
     }),
 
-    forwardRef(() => UserModule),
     
   ],
   providers: [AuthService,ImageService, JwtStrategy,GoogleStrategy,UserService,EmailService,AppleAuthService],  // No need to manually inject UserRepository anymore

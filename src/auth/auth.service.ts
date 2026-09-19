@@ -1,258 +1,336 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  Inject,
+  Injectable,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { OAuth2Client } from 'google-auth-library';
-import { use } from 'passport';
-import { env } from 'process';
-import { PasswordService } from 'src/application/services/helper/password.service';
-import { UserSpecification } from 'src/application/specifications/user/user-specifications';
-import { Users } from 'src/domain/entities/Users';
-import { recordStatus } from 'src/domain/enums/recordstatus.enum';
-import { UserRepository } from 'src/infrastructure/repositories/user/user.repository';
-import { JwtPayload, userLoginResultDto } from 'src/presentation/dtos/auth/jwt-payload.dto';
-import { LoginDto } from 'src/presentation/dtos/auth/login-dto';
-import { FindOptionsRelations } from 'typeorm';
+
+import { PasswordService } from 'src/services/auth/password.service';
+
+import { User } from 'src/domain/entities/auth/User';
+import { RecordStatus } from 'src/domain/enums/RecordStatus';
+
+import { IUserRepository } from 'src/domain/repositories/IUserRepopsitory';
+
+import {
+  USER_REPOSITORY,
+} from 'src/domain/repositories/repository.tokens';
+
+import { JwtPayload,UserLoginResultDto } from 'src/domain/entities/auth/jwt-payload.dto';
+
+import { LoginDto } from 'src/dto/auth/login-dto';
 
 @Injectable()
 export class AuthService {
-  constructor(private jwtService: JwtService, private userRepository: UserRepository, private readonly passwordService: PasswordService,
-    private readonly configService: ConfigService
-  ) { }
+  constructor(
+    private readonly jwtService: JwtService,
 
-  async login(user: LoginDto) {
-    var check = await this.validateUser(user);
-    if (!check.isAuthenticate) {
-      return check;
-    }
-    const payload = new JwtPayload(check.user);
-    const plainObjectPayload = Object.assign({}, payload);
-       if (plainObjectPayload.role.length===0) {
-       throw new HttpException("User has no active roles", HttpStatus.UNAUTHORIZED);
-    }
-    check.access_token = this.jwtService.sign(plainObjectPayload);
-    check.user = null;
-    return check;
-  }
-  async loginWithGoogle(email: string) {
-    var check = await this.validateUserLogginByGoogle(email);
-    if (!check.isAuthenticate) {
-      return check;
-    }
-    const payload = new JwtPayload(check.user);
-    const plainObjectPayload = Object.assign({}, payload);
-    check.access_token = this.jwtService.sign(plainObjectPayload);
-    check.user = null;
-    return check;
-  }
-  async loginWithApple(email: string) {
-    var check = await this.validateUserLogginByApple(email);
-    if (!check.isAuthenticate) {
-      return check;
-    }
-    const payload = new JwtPayload(check.user);
-    const plainObjectPayload = Object.assign({}, payload);
-    check.access_token = this.jwtService.sign(plainObjectPayload);
-    check.user = null;
-    return check;
-  }
-  async loginForResetPassword(user: LoginDto) {
-    var check = await this.validateUserLogginForResetPassword(user.username);
-    if (!check.isAuthenticate) {
-      return check;
-    }
-    const payload = new JwtPayload(check.user);
-    const plainObjectPayload = Object.assign({}, payload);
-    check.access_token = this.jwtService.sign(plainObjectPayload);
-    check.user = null;
-    return check;
-  }
-  async generateTokenWithoutLogin(user: Users) {
+    @Inject(USER_REPOSITORY)
+    private readonly userRepository: IUserRepository,
 
+    private readonly passwordService: PasswordService,
+
+    private readonly configService: ConfigService,
+  ) {}
+
+  async login(
+    loginDto: LoginDto,
+  ): Promise<UserLoginResultDto> {
+    const check = await this.validateUser(loginDto);
+
+    if (!check.isAuthenticate || !check.user) {
+      return check;
+    }
+
+    const payload = new JwtPayload(check.user);
+
+    if (payload.roles.length === 0) {
+      throw new HttpException(
+        'User has no active roles',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+
+    check.accessToken = this.jwtService.sign({
+      ...payload,
+    });
+
+    check.user = null;
+
+    return check;
+  }
+
+  async loginWithGoogle(
+    email: string,
+  ): Promise<UserLoginResultDto> {
+    const check = await this.validateExternalLogin(email);
+
+    if (!check.isAuthenticate || !check.user) {
+      return check;
+    }
+
+    const payload = new JwtPayload(check.user);
+
+    if (payload.roles.length === 0) {
+      throw new HttpException(
+        'User has no active roles',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+
+    check.accessToken = this.jwtService.sign({
+      ...payload,
+    });
+
+    check.user = null;
+
+    return check;
+  }
+
+  async loginWithApple(
+    email: string,
+  ): Promise<UserLoginResultDto> {
+    const check = await this.validateExternalLogin(email);
+
+    if (!check.isAuthenticate || !check.user) {
+      return check;
+    }
+
+    const payload = new JwtPayload(check.user);
+
+    if (payload.roles.length === 0) {
+      throw new HttpException(
+        'User has no active roles',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+
+    check.accessToken = this.jwtService.sign({
+      ...payload,
+    });
+
+    check.user = null;
+
+    return check;
+  }
+
+  async loginForResetPassword(
+    loginDto: LoginDto,
+  ): Promise<UserLoginResultDto> {
+    const check = await this.validateExternalLogin(
+      loginDto.username,
+    );
+
+    if (!check.isAuthenticate || !check.user) {
+      return check;
+    }
+
+    const payload = new JwtPayload(check.user);
+
+    check.accessToken = this.jwtService.sign({
+      ...payload,
+    });
+
+    check.user = null;
+
+    return check;
+  }
+
+  async generateTokenWithoutLogin(
+    user: User,
+  ): Promise<string> {
     const payload = new JwtPayload(user);
-    const plainObjectPayload = Object.assign({}, payload);
- 
-    var access_token = this.jwtService.sign(plainObjectPayload);
 
-    return access_token;
+    return this.jwtService.sign({
+      ...payload,
+    });
   }
-  async validateUser(checkUser: LoginDto): Promise<userLoginResultDto> {
 
-    var result = new userLoginResultDto();
-    const specification = new UserSpecification(checkUser.username); // Create a UserSpecification with username and password
-    const findOptionsRelation: FindOptionsRelations<Users> = {
-      userRoles: {
-        role: true,  // This tells TypeORM to load the 'role' relation in userRoles
-      },
-    };
-    const user = await this.userRepository.findWithSpecification(specification, null, null,
-      findOptionsRelation,
-    );  // Query the user from the database using UserRepository
+  async validateUser(
+    loginDto: LoginDto,
+  ): Promise<UserLoginResultDto> {
+    const result = new UserLoginResultDto();
 
+    const user = await this.userRepository.findByUsernameWithRoles(
+      loginDto.username,
+    );
 
-    if (user && user[0]?.recordStatus == recordStatus.Active) {
-      var checkPass = await this.passwordService.comparePasswords(checkUser.password, user[0].password);
-      if (checkPass) {
-        result.isAuthenticate = true;
-        result.user = user[0];
-        
-        return result;  // Return user if password matches
-      }
-      else {
-        result.isAuthenticate = false;
-        result.user = null;
-        result.message = "Username or Password is not corrected!";
-        return result;  // Return user if password matches
-      }
+    if (
+      !user ||
+      user.recordStatus !== RecordStatus.Active
+    ) {
+      result.isAuthenticate = false;
+      result.user = null;
+      result.message =
+        'User does not exist or is inactive.';
+
+      return result;
     }
-    result.isAuthenticate = false;
-    result.user = null;
-    result.message = "User is not exist or is inactive!";
-    return result;  // Return null if user not found or password doesn't match
-  }
-  async validateUserLogginByGoogle(email: string): Promise<userLoginResultDto> {
 
-    var result = new userLoginResultDto();
-    const specification = new UserSpecification(email); // Create a UserSpecification with username and password
-    const findOptionsRelation: FindOptionsRelations<Users> = {
-      userRoles: {
-        role: true,  // This tells TypeORM to load the 'role' relation in userRoles
-      },
-    };
-    const user = await this.userRepository.findWithSpecification(specification, null, null,
-      findOptionsRelation,
-    );  // Query the user from the database using UserRepository
+    const passwordIsValid =
+      await this.passwordService.comparePasswords(
+        loginDto.password,
+        user.passwordHash,
+      );
 
+    if (!passwordIsValid) {
+      result.isAuthenticate = false;
+      result.user = null;
+      result.message =
+        'Username or password is incorrect.';
 
-    if (user && user[0]?.recordStatus == recordStatus.Active) {
-
-      result.isAuthenticate = true;
-      result.user = user[0];
-     
-      return result;  // Return user if password matches
-
+      return result;
     }
-    result.isAuthenticate = false;
-    result.user = null;
-    result.message = "User is not exist or is inactive!";
-    return result;  // Return null if user not found or password doesn't match
+
+    result.isAuthenticate = true;
+    result.user = user;
+
+    return result;
   }
-  async validateUserLogginByApple(email: string): Promise<userLoginResultDto> {
 
-    var result = new userLoginResultDto();
-    const specification = new UserSpecification(email); // Create a UserSpecification with username and password
-    const findOptionsRelation: FindOptionsRelations<Users> = {
-      userRoles: {
-        role: true,  // This tells TypeORM to load the 'role' relation in userRoles
-      },
-    };
-    const user = await this.userRepository.findWithSpecification(specification, null, null,
-      findOptionsRelation,
-    );  // Query the user from the database using UserRepository
+  private async validateExternalLogin(
+    usernameOrEmail: string,
+  ): Promise<UserLoginResultDto> {
+    const result = new UserLoginResultDto();
 
+    const user =
+      await this.userRepository.findByUsernameOrEmailWithRoles(
+        usernameOrEmail,
+      );
 
-    if (user && user[0]?.recordStatus == recordStatus.Active) {
+    if (
+      !user ||
+      user.recordStatus !== RecordStatus.Active
+    ) {
+      result.isAuthenticate = false;
+      result.user = null;
+      result.message =
+        'User does not exist or is inactive.';
 
-      result.isAuthenticate = true;
-      result.user = user[0];
-     
-      return result;  // Return user if password matches
-
+      return result;
     }
-    result.isAuthenticate = false;
-    result.user = null;
-    result.message = "User is not exist or is inactive!";
-    return result;  // Return null if user not found or password doesn't match
+
+    result.isAuthenticate = true;
+    result.user = user;
+
+    return result;
   }
 
-  async validateUserLogginForResetPassword(username: string): Promise<userLoginResultDto> {
-
-    var result = new userLoginResultDto();
-    const specification = new UserSpecification(username); // Create a UserSpecification with username and password
-    const findOptionsRelation: FindOptionsRelations<Users> = {
-      userRoles: {
-        role: true,  // This tells TypeORM to load the 'role' relation in userRoles
-      },
-    };
-    const user = await this.userRepository.findWithSpecification(specification, null, null,
-      findOptionsRelation,
-    );  // Query the user from the database using UserRepository
-
-
-    if (user && user[0]?.recordStatus == recordStatus.Active) {
-
-      result.isAuthenticate = true;
-      result.user = user[0];
-      return result;  // Return user if password matches
-
-    }
-    result.isAuthenticate = false;
-    result.user = null;
-    result.message = "User is not exist or is inactive!";
-    return result;  // Return null if user not found or password doesn't match
-  }
-  parseJwt(token: string): any {
+  parseJwt(token: string): unknown {
     try {
-      // Decode the JWT payload without verifying
-      const decoded = this.jwtService.decode(token);
-      return decoded;
-    } catch (error) {
+      return this.jwtService.decode(token);
+    } catch {
       throw new Error('Failed to parse JWT');
     }
   }
 
-  async verifyJwt(token: string): Promise<any> {
+  async verifyJwt(
+    token: string,
+  ): Promise<unknown> {
     try {
-      // Verify the JWT with a secret or public key
-      const verified = await this.jwtService.verifyAsync(token, {
-        secret: this.configService.get<string>('JWT_SECRET_KEY', 'ad;,pwqdpoqwkdopkwqopdqwpdkqwd65165dw1q5d1wqd;wq,dqwdASDwqd'), // Use your actual secret
-      });
-      return verified;
-    } catch (error) {
-      throw new Error('Invalid or expired JWT');
+      const secret =
+        this.configService.getOrThrow<string>(
+          'JWT_SECRET_KEY',
+        );
+
+      return await this.jwtService.verifyAsync(
+        token,
+        {
+          secret,
+        },
+      );
+    } catch {
+      throw new Error(
+        'Invalid or expired JWT',
+      );
     }
   }
 
-  generateGoogleAuthUrl(heardAboutUs: string): string {
-    const googleAuthUrl = `https://accounts.google.com/o/oauth2/auth?` +
-      `response_type=code&` +
-      `client_id=${process.env.GOOGLE_CLIENT_ID}&` +
-      `redirect_uri=${process.env.GOOGLE_REDIRECT_URI}&` + // Using the redirect URI from .env
-      `scope=email profile&` +  // Requested Google OAuth scopes
-      `state=${encodeURIComponent(heardAboutUs)}`;
+  generateGoogleAuthUrl(
+    heardAboutUs: string,
+  ): string {
+    const clientId =
+      this.configService.getOrThrow<string>(
+        'GOOGLE_CLIENT_ID',
+      );
 
-    return googleAuthUrl;
+    const redirectUri =
+      this.configService.getOrThrow<string>(
+        'GOOGLE_REDIRECT_URI',
+      );
+
+    const params = new URLSearchParams({
+      response_type: 'code',
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      scope: 'email profile',
+      state: heardAboutUs,
+    });
+
+    return (
+      'https://accounts.google.com/o/oauth2/auth?' +
+      params.toString()
+    );
   }
-  private readonly client = new OAuth2Client(this.configService.get<string>('GOOGLE_CLIENT_ID', process.env.GOOGLE_CLIENT_ID)); // Replace with your Client ID
 
   async verifyGoogleToken(token: string) {
     try {
-      const response = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-        headers: {
-          Authorization: `Bearer ${token}`,
+      const response = await fetch(
+        'https://www.googleapis.com/oauth2/v3/userinfo',
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
         },
-      });
+      );
 
-      const payload = await response.json();
-   
-
-      if (!payload) {
-        throw new Error('Invalid token payload');
+      if (!response.ok) {
+        throw new Error(
+          `Google API returned ${response.status}`,
+        );
       }
 
-      // Extract user info
-      const userInfo = {
+      const payload =
+        (await response.json()) as {
+          sub?: string;
+          email?: string;
+          email_verified?: boolean;
+          name?: string;
+          given_name?: string;
+          family_name?: string;
+          picture?: string;
+        };
+
+      if (
+        !payload.sub ||
+        !payload.email
+      ) {
+        throw new Error(
+          'Invalid token payload',
+        );
+      }
+
+      return {
         id: payload.sub,
         email: payload.email,
-        emailVerified: payload.email_verified,
+        emailVerified:
+          payload.email_verified ?? false,
         name: payload.name,
         givenName: payload.given_name,
         familyName: payload.family_name,
         picture: payload.picture,
       };
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Unknown error';
 
-      return userInfo;
-    } catch (error) {
-      throw new Error(`Error verifying Google token: ${error.message}`);
+      throw new Error(
+        `Error verifying Google token: ${message}`,
+      );
     }
   }
 }

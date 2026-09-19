@@ -93,10 +93,10 @@ export type GeneratorDataType={
 }
 export type FunctionCallResultType = {
     result: "error" | "success" | "cancelled"|"confirm_required",
-    message: string,
+    message?: string,
     prompt: string,
     continuePrompt: string | undefined,
-    toolName: string,
+    toolName?: string,
     lastsegment: boolean,
     isSpecial: boolean,
     isGenerator?:boolean,

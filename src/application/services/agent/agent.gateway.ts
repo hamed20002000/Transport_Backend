@@ -24,7 +24,7 @@ import { FunctionCallService } from './services/functioncall.service';
 })
 export class AgentGateway {
   @WebSocketServer()
-  server: Server;
+  server!: Server;
   constructor(
     private readonly cancellation: CancellationService,
     @Inject(forwardRef(() => TelegramService))
@@ -65,7 +65,7 @@ export class AgentGateway {
       // جدید: delete_* گونه تاییدهای ساده (بدون options) -- قبلاً به‌اشتباه
       // به شاخه‌ی success/error می‌رفت و با ❌ نمایش داده می‌شد
       if (data.result === "confirm_required") {
-        await this.telegramService.sendYesNoConfirmation(userId, data.message);
+        await this.telegramService.sendYesNoConfirmation(userId, data.message as any);
         return;
       }
 
@@ -105,7 +105,7 @@ export class AgentGateway {
       // جدید: delete_* گونه تاییدهای ساده (بدون options) -- قبلاً به‌اشتباه
       // به شاخه‌ی success/error می‌رفت و با ❌ نمایش داده می‌شد
       if (data.result === "confirm_required") {
-        await this.whatsappService.sendYesNoConfirmation(userId, data.message);
+        await this.whatsappService.sendYesNoConfirmation(userId, data.message as any);
         return;
       }
 

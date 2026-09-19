@@ -10,6 +10,8 @@ import {
 import { Customer } from './Customer';
 import { CompanyDriver } from './Company';
 import { TransportRequest } from '../transport/TransportRequest';
+import { RecordStatus } from 'src/domain/enums/RecordStatus';
+import { CompanyUser } from '../auth/CompanyUser';
 
 @Entity('TransportCompany')
 export class TransportCompany {
@@ -55,7 +57,7 @@ export class TransportCompany {
   longitude?: number;
 
   @Column({ type: 'smallint', default: 0 })
-  recordStatus!: number;
+  recordStatus!: RecordStatus;
 
   @OneToMany(() => Customer, customer => customer.transportCompany)
   customers!: Customer[];
@@ -77,4 +79,10 @@ export class TransportCompany {
 
   @UpdateDateColumn()
   updatedAt!: Date;
+
+  @OneToMany(
+    () => CompanyUser,
+    companyUser => companyUser.transportCompany,
+  )
+  companyUsers!: CompanyUser[];
 }

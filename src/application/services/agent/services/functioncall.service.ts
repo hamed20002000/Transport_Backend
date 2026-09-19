@@ -12,9 +12,9 @@ import { AgentToolsService } from './agentTools.service';
 import { ContextManager } from '../contextManager';
 import socketMapping from '../localFiles/socketMapping.json'
 import { CancellationService } from './cancellation.service';
-import { ConversationSession } from '../entities/ConversationSession';
-import { PromptSubmission } from '../entities/PromptSubmission';
-import { ToolExecution } from '../entities/ToolExecution';
+import { ConversationSession } from 'src/domain/entities/agent/ConversationSession';
+import { PromptSubmission } from 'src/domain/entities/agent/PromptSubmission';
+import { ToolExecution } from 'src/domain/entities/agent/ToolExecution';
 import { ContextInfo, PendingGeneratorType, PendingAction } from '../types';
 import { PendingConfirmationService } from './PendingConfirmationService';
 import { In } from 'typeorm';
@@ -107,7 +107,7 @@ export class FunctionCallService {
                 parameters: e.Parameters,
                 result: e.Result,
                 status: e.Status as "success" | "fault",
-            }));
+            })) as ContextInfo[];
 
             this.history.hydrate(username, sessionId, contextInfoList);
         }
@@ -175,7 +175,7 @@ export class FunctionCallService {
         userId: string,
         confirmed: boolean
     ): Promise<{ success: boolean }> {
-        const actionInfo: PendingAction = this.pendingConfirmationService.get(userId);
+        const actionInfo: PendingAction = this.pendingConfirmationService.get(userId)!;
         if (!actionInfo) {
             return { success: false };
         }
@@ -199,7 +199,7 @@ export class FunctionCallService {
         const result = await this.runFinalStep(
             actionInfo.subIntent,
             actionInfo.selectedToolName,
-            actionInfo.selectedTool,
+            actionInfo.selectedTool!,
             actionInfo.submission,
             actionInfo.req,
             actionInfo.files,
@@ -259,7 +259,7 @@ export class FunctionCallService {
             id: session.Id,
             // اگه Title دستی ست نشده بود، از اولین prompt همون session استفاده کن
             title: session.Title || session.Submissions?.[0]?.RawPrompt?.slice(0, 50) || "Yeni Sohbet",
-            createdAt: session.CreatedAt,
+            createdAt: session.CreatedAt ?? new Date(),
         };
     }
 
@@ -273,30 +273,40 @@ export class FunctionCallService {
 
         return sessions.map((session) => this.mapSessionToListItem(session));
     }
-
     async getSessionPrompts(
         sessionId: string,
-        userid: string
+        userid: string,
     ): Promise<{ id: string; text: string; submittedAt: Date }[]> {
-        // اول مالکیت رو چک کن -- دقیقاً همون منطق امنیتی که قبلاً توی
-        // RunFunctionCalling نوشتیم
-        const session = await this.dataSource.getRepository(ConversationSession).findOne({
-            where: { Id: sessionId },
-        });
+
+        const session = await this.dataSource
+            .getRepository(ConversationSession)
+            .findOne({
+                where: {
+                    Id: sessionId,
+                },
+            });
 
         if (!session || session.Userid !== userid) {
-            throw new Error("Bu oturuma erişim yetkiniz yok.");
+            throw new Error(
+                'Bu oturuma erişim yetkiniz yok.',
+            );
         }
 
-        const submissions = await this.dataSource.getRepository(PromptSubmission).find({
-            where: { SessionId: sessionId },
-            order: { SubmittedAt: "ASC" },
-        });
+        const submissions = await this.dataSource
+            .getRepository(PromptSubmission)
+            .find({
+                where: {
+                    SessionId: sessionId,
+                },
+                order: {
+                    SubmittedAt: 'ASC',
+                },
+            });
 
         return submissions.map((s) => ({
             id: s.Id,
-            text: s.RawPrompt,
-            submittedAt: s.SubmittedAt,
+            text: s.RawPrompt ?? '',
+            submittedAt: s.SubmittedAt ?? new Date(),
         }));
     }
 
@@ -304,6 +314,7 @@ export class FunctionCallService {
         sessionId: string,
         userid: string
     ): Promise<any[]> {
+
         const session = await this.dataSource.getRepository(ConversationSession).findOne({
             where: { Id: sessionId },
         });
@@ -327,13 +338,13 @@ export class FunctionCallService {
             result: e.Status === "success" ? "success" : "error",
             prompt: e.SubIntentText, // متن دقیق درخواستی که این نتیجه رو تولید کرده
             message: e.Status === "success"
-                ? socketMapping[`${e.Operation}_end`]
+                ? socketMapping[`${e.Operation}_end` as keyof typeof socketMapping]
                 : "İşlem gerçekleştirilirken hata oluştu.",
             continuePrompt: (e.Result as any)?.continuePrompt,
             toolName: undefined,
             //(e.Result as any)?.toolName,
             list: [],
-            time: `${new Date(e.ExecutedAt).getHours()}:${new Date(e.ExecutedAt).getMinutes().toString().padStart(2, "0")}`,
+            time: `${new Date(e.ExecutedAt??"").getHours()}:${new Date(e.ExecutedAt??"").getMinutes().toString().padStart(2, "0")}`,
         }));
     }
 
@@ -386,6 +397,8 @@ export class FunctionCallService {
         resumeValue?: any
     ): Promise<{ success: boolean; paused?: boolean }> {
         const userId = context.req.user.userid;
+        const socketKey =
+            `${context.toolName}_end` as keyof typeof socketMapping;
 
         let result;
         try {
@@ -439,7 +452,7 @@ export class FunctionCallService {
 
         this.agentGateway.sendToolResult(userId, {
             result: "success",
-            message: socketMapping[`${context.toolName}_end`],
+            message: socketMapping[socketKey],
             prompt: context.subIntent,
             continuePrompt: toolResult?.continuePrompt,
             toolName: toolResult?.toolName,
@@ -447,7 +460,7 @@ export class FunctionCallService {
             lastsegment: context.resumeIndex >= context.remainingSegments.length,
             list: []
         });
-        this.agentGateway.broadcastDomainChange(await this.condinate.getDomainOfPreviousTool(context.toolName), {})
+        this.agentGateway.broadcastDomainChange(await this.condinate.getDomainOfPreviousTool(context.toolName) ?? "", {})
 
         return { success: true };
     }
@@ -614,9 +627,9 @@ export class FunctionCallService {
                     selectedTool: selectedTool,
                     subIntent,
                     sessionId,
-                    remainingSegments: segmentsPrompts, 
-                    resumeIndex: i + 1,                 
-                    controller,                          
+                    remainingSegments: segmentsPrompts,
+                    resumeIndex: i + 1,
+                    controller,
                 });
 
                 this.agentGateway.sendToolResult(userId, {
@@ -670,10 +683,15 @@ export class FunctionCallService {
     ): Promise<{ success: boolean; paused?: boolean }> {
         const userId = req.user.userid;
         const username = req.user.username;
+        const socketKey =
+            `${selectedToolName}` as keyof typeof socketMapping;
+
+        const socketKey_end =
+            `${selectedToolName}_end` as keyof typeof socketMapping;
 
         try {
             this.agentGateway.sendCurrentTool(userId, {
-                currentOp: socketMapping[selectedToolName]
+                currentOp: socketMapping[socketKey]
             });
 
             const execResult = await this.agentToolsService.executeTool(
@@ -716,7 +734,7 @@ export class FunctionCallService {
 
             this.agentGateway.sendToolResult(userId, {
                 result: "success",
-                message: socketMapping[`${selectedToolName}_end`],
+                message: socketMapping[socketKey_end],
                 prompt: subIntent,
                 continuePrompt: toolResult.continuePrompt,
                 toolName: toolResult.toolName,
@@ -724,7 +742,7 @@ export class FunctionCallService {
                 isSpecial: this.isSpecial(toolResult.toolName),
                 list: []
             });
-            this.agentGateway.broadcastDomainChange(await this.condinate.getDomainOfPreviousTool(selectedToolName), {})
+            this.agentGateway.broadcastDomainChange(await this.condinate.getDomainOfPreviousTool(selectedToolName) ?? "", {})
 
             return { success: true };
         }

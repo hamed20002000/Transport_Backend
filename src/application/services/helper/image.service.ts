@@ -26,7 +26,11 @@ export class ImageService {
         writer.on('error', reject);
       });
     } catch (error) {
-      throw new Error(`Error downloading image: ${error.message}`);
+      const message =
+    error instanceof Error
+      ? error.message
+      : String(error);
+      throw new Error(`Error downloading image: ${message}`);
     }
   }
 }

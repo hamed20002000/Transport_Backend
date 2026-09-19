@@ -1,27 +1,25 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { UserModule } from './application/services/user/appModuls/user.module';
 import { AuthModule } from './auth/auth.module';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { MulterModule } from '@nestjs/platform-express';
 import { fileUploadOptions } from './interceptors/file-option';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import * as path from 'path';
-import { NotificationsModule } from './application/services/notificatin/notifications.module';
 import { OllamaAssistantService } from './agent/ollama-assistant.service';
-import { AgentAssistantController } from './presentation/controllers/admin/agent-assistant.controller';
 import { ToolRegisterModule } from './application/services/agent/appModule/toolregister.module';
 import { ContextManagerModule } from './application/services/agent/appModule/contextManager.module';
-import { ConversationSession } from './application/services/agent/entities/ConversationSession';
-import { PromptSubmission } from './application/services/agent/entities/PromptSubmission';
-import { ToolExecution } from './application/services/agent/entities/ToolExecution';
-import { TelegramLink } from './application/services/agent/entities/TelegramLink';
-import { TelegramLinkCode } from './application/services/agent/entities/TelegramLinkCode';
+import { ConversationSession } from './domain/entities/agent/ConversationSession';
+import { PromptSubmission } from './domain/entities/agent/PromptSubmission';
+import { ToolExecution } from './domain/entities/agent/ToolExecution';
+import { TelegramLink } from './domain/entities/agent/TelegramLink';
+import { TelegramLinkCode } from './domain/entities/agent/TelegramLinkCode';
 import { WhatsappModule } from './application/services/agent/appModule/whatsapp.module';
-import { WhatsappAuthCredential } from './application/services/agent/entities/WhatsappAuthCredential';
-import { WhatsappAuthKey } from './application/services/agent/entities/WhatsappAuthKey';
-import { WhatsappUserMapping } from './application/services/agent/entities/WhatsappUserMapping';
+import { WhatsappAuthCredential } from './domain/entities/agent/WhatsappAuthCredential';
+import { WhatsappAuthKey } from './domain/entities/agent/WhatsappAuthKey';
+import { WhatsappUserMapping } from './domain/entities/agent/WhatsappUserMapping';
+import { TransportCompanyModule } from './application/module/TransportCompanyModule';
 
 @Module({
   imports: [
@@ -71,13 +69,12 @@ import { WhatsappUserMapping } from './application/services/agent/entities/Whats
       isGlobal: true,  // Makes the config available globally
     }),
     AuthModule,
-    UserModule,
-    NotificationsModule,
     ToolRegisterModule,
     ContextManagerModule,
-    WhatsappModule
+    WhatsappModule,
+    TransportCompanyModule
   ],
-  controllers: [AgentAssistantController],
+  controllers: [],
   providers: [OllamaAssistantService],
 })
 export class AppModule {}

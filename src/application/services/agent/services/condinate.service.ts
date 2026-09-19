@@ -1,22 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { BaseService } from '../../base.service';
-import { Roles } from 'src/domain/entities/Roles';
-import { RoleRepository } from 'src/infrastructure/repositories/user/role.repository';
-import { RoleMenuOperations } from 'src/domain/entities/RoleMenuOperations';
-import { RoleMenuOperationRepository } from 'src/infrastructure/repositories/user/role-menu-operation.repository';
-import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { ChatRequest, Tool } from 'src/agent/types';
+import { ChatRequest } from 'src/agent/types';
 import axios from "axios";
 import { DataSource } from "typeorm";
 import { InjectDataSource } from '@nestjs/typeorm';
-import tables from 'src/agent/tables.json';
-import schema from 'src/application/services/agent/schema.json';
-import { extractRelations } from '../extractRelations';
-import tools from 'src/application/services/agent/localFiles/tools.json';
 import { CondinateToolsTyes, ExtracteToolsType } from '../types';
 import { ToolRegister } from '../toolRegister';
-import { RequestResult } from '../types';
 import { DenseDomainResult, DomainLexemeEntry, LexemeStat, LexicalDomainResult } from '../interfaces/Ihybridsearch';
 
 
@@ -103,7 +91,7 @@ export class CondinateService {
         return results.map((item) => item.ToolName);
     }
 
-    public async getDomainOfPreviousTool(previousToolName: string): Promise<string | null> {
+    public async getDomainOfPreviousTool(previousToolName?: string|null): Promise<string | null> {
         const result: { DomainName: string }[] = await this.dataSource.query(
             `SELECT "DomainName" FROM "EmbeddingTool" WHERE "ToolName" = $1 LIMIT 1;`,
             [previousToolName]

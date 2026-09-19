@@ -1,30 +1,15 @@
 import { Controller, Post, Body, HttpException, HttpStatus, Get, UseGuards, Req, Put, Query, Session, Res, Param, Redirect } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { LoginDto } from 'src/presentation/dtos/auth/login-dto';
-import { ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
-import { AuthGuard } from '@nestjs/passport';
-import { UsernameSpecification } from 'src/application/specifications/user/user-specifications';
-import { UserService } from 'src/application/services/user/user.service';
-import { Users } from 'src/domain/entities/Users';
-import { EmptyError } from 'rxjs';
+import { LoginDto } from 'src/dto/auth/login-dto';
+import {  ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { UserService } from 'src/services/UserService';
 
-import { GenericMapper } from 'src/presentation/helpers/mapper-classes';
-import { UserDto } from 'src/presentation/dtos/user/user.dto';
+import { PasswordService } from 'src/services/auth/password.service';
 
-import { AppleTokenDto, ConvertAppleUserDto, ConvertGoogleUserDto, GoogleTokenDto } from 'src/presentation/dtos/auth/conver-user.dto';
-import { log } from 'console';
-import { PasswordService } from 'src/application/services/helper/password.service';
-import { Response } from 'express';
-import { promises } from 'dns';
-
-import { JwtAuthGuard } from './guards/jwt-auth.guard';
-import * as fs from "fs";
-import * as path from "path";
-import * as jwt from "jsonwebtoken";
 import { ConfigService } from '@nestjs/config';
 import { AppleAuthService, AppleUser } from 'src/application/services/helper/apple-atuh.service';
 import { ImageService } from 'src/application/services/helper/image.service';
-import { recordStatus } from 'src/domain/enums/recordstatus.enum';
+import { RecordStatus } from 'src/domain/enums/RecordStatus';
 
 
 @Controller('api/auth')
@@ -51,23 +36,15 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Successfull login', type: String })
   async login(@Body() user: LoginDto) {
 
-    const specification = new UsernameSpecification(user.username);
 
-    var checkUser = await this.userService.getWithSpecification(specification, null, null);
-
-    if (checkUser.length > 1) {
-      throw new HttpException("The user is not found!", HttpStatus.NOT_FOUND);
-
-    }
-    if (checkUser[0].recordStatus != recordStatus.Active) {
-      throw new HttpException("The user is InActive!", HttpStatus.BAD_REQUEST);
-
-    }
     var result = await this.authService.login(user);
     if (!result.isAuthenticate) {
-      throw new HttpException(result.message, HttpStatus.UNAUTHORIZED);
+      throw new HttpException(
+        result.message ?? 'Authentication failed',
+        HttpStatus.UNAUTHORIZED,
+      );
     }
-    return result.access_token;
+    return result.accessToken;
   }
 
 

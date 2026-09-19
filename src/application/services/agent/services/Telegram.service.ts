@@ -2,8 +2,7 @@ import { Injectable, OnModuleInit, Logger, Inject, forwardRef } from '@nestjs/co
 import TelegramBot from 'node-telegram-bot-api';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { TelegramLink } from '../entities/TelegramLink';
-import { ConversationSession } from '../entities/ConversationSession';
+import { TelegramLink } from 'src/domain/entities/agent/TelegramLink';
 import { FunctionCallService } from './functioncall.service';
 import { SpeechToTextService } from './Speechtotext.service';
 import { exec } from 'node:child_process';
@@ -11,8 +10,8 @@ import { promisify } from 'node:util';
 import { join } from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
 import axios from 'axios';
-import { TelegramLinkCode } from '../entities/TelegramLinkCode';
-import { UserService } from '../../user/user.service';
+import { TelegramLinkCode } from 'src/domain/entities/agent/TelegramLinkCode';
+import { UserService } from 'src/services/UserService';
 import { UUID } from 'node:crypto';
 import { AuthService } from 'src/auth/auth.service';
 
@@ -21,7 +20,7 @@ const execAsync = promisify(exec);
 @Injectable()
 export class TelegramService implements OnModuleInit {
     private readonly logger = new Logger(TelegramService.name);
-    private bot: TelegramBot;
+    private bot!: TelegramBot;
 
     constructor(
         @InjectDataSource() private readonly dataSource: DataSource,
@@ -307,7 +306,7 @@ export class TelegramService implements OnModuleInit {
         // جلوی رشد بی‌نهایت حافظه رو بگیر -- فقط ۵۰۰ تای آخر رو نگه دار
         if (this.processedMessageIds.size > 500) {
             const first = this.processedMessageIds.values().next().value;
-            this.processedMessageIds.delete(first);
+            this.processedMessageIds.delete(first!);
         }
 
         const chatId = msg.chat.id.toString();
@@ -625,7 +624,7 @@ export class TelegramService implements OnModuleInit {
         }
 
         const REVERIFY_WINDOW_MS = 24 * 60 * 60 * 1000;
-        const sinceLastVerified = Date.now() - new Date(link.LastVerifiedAt).getTime();
+        const sinceLastVerified = Date.now() - new Date(link.LastVerifiedAt!).getTime();
 
         if (sinceLastVerified > REVERIFY_WINDOW_MS) {
             await this.safeSendMessage(
@@ -742,7 +741,7 @@ export class TelegramService implements OnModuleInit {
         const existing = await repo.findOne({ where: { ChatId: chatId } });
 
         if (existing) {
-            existing.Userid = isValid.user.id;
+            existing.Userid = isValid.user?.id??"";
             // ÖNEMLİ: yeniden doğrulama olduğunda LastVerifiedAt'i de
             // resetlemek gerekiyor -- yoksa 24 saat geçtikten sonra
             // kullanıcı ne kadar tekrar /link yaparsa yapsın hep "yeniden
@@ -751,7 +750,7 @@ export class TelegramService implements OnModuleInit {
             existing.LastVerifiedAt = new Date();
             await repo.save(existing);
         } else {
-            await repo.save({ Userid: isValid.user.id, ChatId: chatId, LastVerifiedAt: new Date() });
+            await repo.save({ Userid: isValid.user?.id, ChatId: chatId, LastVerifiedAt: new Date() });
         }
 
         await this.safeSendMessage(chatId, `Hesabınız "${username}" olarak doğrulandı.`);

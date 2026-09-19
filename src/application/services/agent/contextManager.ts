@@ -64,15 +64,25 @@ export class ContextManager {
         }
     }
 
-    public getParams(params: any): Record<string, string> {
-        const obj = {};
-        for (let prop in params) {
-            if (prop != "req" && prop != "files") {
-                obj[prop] = params[prop].toString()
-            }
-        }
-        return obj;
+    public getParams(
+  params: Record<string, unknown>,
+): Record<string, string> {
+  const obj: Record<string, string> = {};
+
+  for (const prop in params) {
+    if (prop === 'req' || prop === 'files') {
+      continue;
     }
+
+    const value = params[prop];
+
+    if (value !== null && value !== undefined) {
+      obj[prop] = String(value);
+    }
+  }
+
+  return obj;
+}
 
     public frequencyError(username: string, sessionId: string): boolean {
         const currentHistory = this.history.get(this.buildKey(username, sessionId)) ?? [];
@@ -90,7 +100,7 @@ export class ContextManager {
         return false
     }
 
-    public getPreviousTool(username: string, sessionId: string): string {
+    public getPreviousTool(username: string, sessionId: string): string|undefined {
         const currentHistory = this.history.get(this.buildKey(username, sessionId)) ?? [];
         if (currentHistory.length == 0) return undefined;
         return currentHistory[currentHistory.length - 1].operation

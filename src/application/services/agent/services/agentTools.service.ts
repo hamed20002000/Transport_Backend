@@ -1,20 +1,12 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { BaseService } from '../../base.service';
-import { Roles } from 'src/domain/entities/Roles';
-import { RoleRepository } from 'src/infrastructure/repositories/user/role.repository';
-import { RoleMenuOperations } from 'src/domain/entities/RoleMenuOperations';
-import { RoleMenuOperationRepository } from 'src/infrastructure/repositories/user/role-menu-operation.repository';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ChatRequest, Tool } from 'src/agent/types';
+import { ChatRequest } from 'src/agent/types';
 import axios from "axios";
 import { DataSource } from "typeorm";
 import { InjectDataSource } from '@nestjs/typeorm';
-import tables from 'src/agent/tables.json';
-import schema from 'src/application/services/agent/schema.json';
-import { extractRelations } from '../extractRelations';
 import tools from 'src/application/services/agent/localFiles/tools.json';
-import { CondinateToolsTyes, ExecuteToolResultType, ExtracteToolsType } from '../types';
+import { ExtracteToolsType } from '../types';
 import { ToolRegister } from '../toolRegister';
 import { RequestResult } from '../types';
 
@@ -192,35 +184,43 @@ Return JSON only.
 
     }
 
-    async extractTools(prompt: string, condinateTool: string, history: string): Promise<ExtracteToolsType> {
+   async extractTools(
+  prompt: string,
+  condinateTool: string,
+  history: string,
+): Promise<ExtracteToolsType> {
 
-        var selectedTool;
-        const systemRules = `
+  const selectedTool = tools.tools.find(
+    (item) => item.name === condinateTool,
+  );
+
+  if (!selectedTool) {
+    throw new HttpException(
+      `Tool not found: ${condinateTool}`,
+      HttpStatus.BAD_REQUEST,
+    );
+  }
+
+  const systemRules = `
 You are a tool selection and parameter extraction agent.
+
 Analyze the current user prompt together with the conversation history and
 the provided candidate tools.
 
 Your tasks:
 
-
 1. Select exactly one function from the provided tools.
 2. Extract the required parameters for that function.
 3. Return valid JSON only.
 
-
-
-
 Tool selection rules:
-
 
 - Choose the function that matches the user's intent.
 - Do not select multiple functions.
 
 Parameter extraction rules:
 
-
-
-  - Extract only the actual entity value required by the function.
+- Extract only the actual entity value required by the function.
 - Remove surrounding words from the user's sentence.
 - Return the value as it should exist in the database.
 - Keep the original language and writing system of the entity.
@@ -233,11 +233,13 @@ Parameter extraction rules:
 - Do not correct spelling.
 
 Important:
+
 - If the user adds language-specific grammar around an entity, remove only that grammar part.
 - Keep the original entity unchanged.
 - The output should represent the same entity mentioned by the user.
 
 Examples of behavior:
+
 - "user's entity" -> return only the entity
 - "entity with grammatical changes" -> return the original entity without those changes
 
@@ -282,7 +284,7 @@ History-based parameter extraction:
 - The current prompt and the conversation history must be interpreted
   together when extracting parameters.
 - A parameter does not have to be explicitly present in the current prompt.
-  If its value was established by a relevant previous operation, use that
+- If its value was established by a relevant previous operation, use that
   value from the history.
 - Use history only when it provides information necessary to understand or
   complete the current request.
@@ -300,7 +302,7 @@ History-based parameter extraction:
 - If the required parameter value cannot be determined from the current
   prompt or relevant history, do not invent or guess it.
 
-    History usage rules:
+History usage rules:
 
 The current user prompt is the primary source for determining the current
 operation and its explicitly provided parameters.
@@ -337,73 +339,79 @@ Ignore historical information that is not required for the current request.
 When history is used, use it to provide missing context or parameters, not to
 replace the intent expressed by the current prompt.
 
-
 Conversation history:
-${history.length == 0 ? "empty" : history}
+${history.length === 0 ? 'empty' : history}
 
-Available tools:
+Available tool:
 ${condinateTool}
 
-Tool schemas:
-${JSON.stringify(
-            tools.tools.filter((item) => {
-                if (item.name == condinateTool) {
-                    selectedTool = item;
-                    return item;
-                }
-            })
-        )}
+Tool schema:
+${JSON.stringify(selectedTool)}
 `;
 
-        const ollamareq: ChatRequest = {
-            model: "qwen3:8b",
-            messages: [
-                {
-                    role: 'system',
-                    content: systemRules
-                },
-                {
-                    role: "user",
-                    content: prompt
-                }],
-            stream: false,
-        }
-        const resp = await axios.post(
-            "http://localhost:11434/api/chat",
-            JSON.stringify({
-                ...ollamareq,
-                format: {
-                    type: "object",
-                    properties: {
-                        functionName: {
-                            type: "string"
-                        },
-                        confidence: {
-                            type: "number"
-                        },
-                        parameters: selectedTool.parameters
-                    },
-                    required: ["functionName", "parameters", "confidence"]
-                }
+  const ollamareq: ChatRequest = {
+    model: 'qwen3:8b',
 
-            }),
+    messages: [
+      {
+        role: 'system',
+        content: systemRules,
+      },
+      {
+        role: 'user',
+        content: prompt,
+      },
+    ],
 
-            {
-                headers: {
-                    "Content-Type": "application/json",
-                },
-            },
-        );
-        const result: ExtracteToolsType = {
-            functionName: JSON.parse(resp.data.message.content).functionName,
-            parameters: JSON.parse(resp.data.message.content).parameters,
-            confidence: JSON.parse(resp.data.message.content).confidence
-        }
-        return result
+    stream: false,
+  };
 
+  const resp = await axios.post(
+    'http://localhost:11434/api/chat',
+    JSON.stringify({
+      ...ollamareq,
 
+      format: {
+        type: 'object',
 
-    }
+        properties: {
+          functionName: {
+            type: 'string',
+          },
+
+          confidence: {
+            type: 'number',
+          },
+
+          parameters: selectedTool.parameters,
+        },
+
+        required: [
+          'functionName',
+          'parameters',
+          'confidence',
+        ],
+      },
+    }),
+    {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    },
+  );
+
+  const parsed = JSON.parse(
+    resp.data.message.content,
+  ) as ExtracteToolsType;
+
+  const result: ExtracteToolsType = {
+    functionName: parsed.functionName,
+    parameters: parsed.parameters,
+    confidence: parsed.confidence,
+  };
+
+  return result;
+}
 
 
 

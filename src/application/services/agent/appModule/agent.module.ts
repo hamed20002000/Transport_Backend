@@ -11,20 +11,19 @@ import { CondinateService } from '../services/condinate.service';
 import { PendingConfirmationService } from '../services/PendingConfirmationService';
 import { SpeechToTextService } from '../services/Speechtotext.service';
 import { TelegramService } from '../services/Telegram.service';
-import { UserService } from '../../user/user.service';
-import { UserModule } from '../../user/appModuls/user.module';
-import { AuthService } from 'src/auth/auth.service';
+import { UserService } from 'src/services/UserService';
 import { AuthModule } from 'src/auth/auth.module';
 import { WhatsappService } from '../services/whatsapp.service';
 import { JwtService } from '@nestjs/jwt';
 import { WhatsappModule } from './whatsapp.module';
+import { UserModule } from 'src/application/module/UserModule';
 
 @Module({
   imports: [
     ToolRegisterModule,
-    forwardRef(() => UserModule),
       forwardRef(() => AuthModule), 
       forwardRef(() => WhatsappModule), 
+      forwardRef(() => UserModule), 
   ],
 
   providers: [
@@ -38,7 +37,6 @@ import { WhatsappModule } from './whatsapp.module';
     PendingConfirmationService,
     SpeechToTextService,
     TelegramService,
-    UserService,
     JwtService,
     FunctionCallService
     
@@ -53,7 +51,6 @@ import { WhatsappModule } from './whatsapp.module';
     PendingConfirmationService,
     SpeechToTextService,
     TelegramService,
-    UserService,
      JwtService,
     FunctionCallService
    

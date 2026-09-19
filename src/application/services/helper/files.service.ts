@@ -7,7 +7,11 @@ export class FileService {
     try {
       await unlink(filePath);
     } catch (error) {
-      console.error(`Error deleting file: ${error.message}`);
+      const message =
+    error instanceof Error
+      ? error.message
+      : String(error);
+      console.error(`Error deleting file: ${message}`);
       
     }
   }

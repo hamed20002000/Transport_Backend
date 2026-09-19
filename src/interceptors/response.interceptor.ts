@@ -1,38 +1,75 @@
 import {
+  CallHandler,
+  ExecutionContext,
+  HttpStatus,
   Injectable,
   NestInterceptor,
-  ExecutionContext,
-  CallHandler,
-  HttpStatus,
 } from '@nestjs/common';
-import { Observable } from 'rxjs';
-import { map } from 'rxjs/operators';
-import { ApiResponse } from 'src/presentation/helpers/api-response';
-import { getHttpStatusName } from 'src/presentation/helpers/http-status-code';
+
+import type {
+  Request,
+  Response,
+} from 'express';
+
+import {
+  map,
+  Observable,
+} from 'rxjs';
+
+export interface ApiResponseResult<T> {
+  success: boolean;
+  statusCode: number;
+  statusCodeName: string;
+  message: string;
+  data: T;
+  count?: number;
+}
 
 @Injectable()
-export class ResponseInterceptor<T> implements NestInterceptor<T, ApiResponse<T>> {
-  intercept(context: ExecutionContext, next: CallHandler): Observable<ApiResponse<T>> {
-    const request = context.switchToHttp().getRequest();
-    const path = request.url; // گرفتن مسیر درخواست
+export class ResponseInterceptor<T>
+  implements NestInterceptor<T, T | ApiResponseResult<T>>
+{
+  intercept(
+    context: ExecutionContext,
+    next: CallHandler<T>,
+  ): Observable<T | ApiResponseResult<T>> {
+    const httpContext = context.switchToHttp();
 
-    // اگر مسیر درخواست برابر با "/api/auth/apple/callback" بود، مستقیماً داده را بدون تغییر بازگردان
-    if (path === '/api/auth/apple/callback') {
+    const request =
+      httpContext.getRequest<Request>();
+
+    const response =
+      httpContext.getResponse<Response>();
+
+    /*
+     * این callback نباید wrap شود.
+     */
+    if (
+      request.path ===
+      '/api/auth/apple/callback'
+    ) {
       return next.handle();
     }
+
     return next.handle().pipe(
-      map((data) => {
-        const response = context.switchToHttp().getResponse();
-        const statusCode = response.statusCode || HttpStatus.OK;
-        const statusCodeName = getHttpStatusName(response.statusCode || HttpStatus.OK);
-        return new ApiResponse<T>(
-          true,
+      map((data: T) => {
+        const statusCode =
+          response.statusCode ??
+          HttpStatus.OK;
+
+        return {
+          success: true,
           statusCode,
-          statusCodeName,
-          'Request processed successfully',
+          statusCodeName:
+            HttpStatus[statusCode] ??
+            String(statusCode),
+          message:
+            'Request processed successfully',
           data,
-          Array.isArray(data) ? data.length : undefined,
-        );
+          count: Array.isArray(data)
+            ? data.length
+            : undefined,
+        };
       }),
     );
   }

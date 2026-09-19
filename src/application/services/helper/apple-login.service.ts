@@ -98,7 +98,14 @@ const validateAppleIdToken = async (idToken: string) => {
 
     return payload;
   } catch (error) {
-    throw new Error(`Failed to validate id_token: ${error.message}`);
+
+     const message =
+    error instanceof Error
+      ? error.message
+      : String(error);
+
+
+    throw new Error(`Failed to validate id_token: ${message}`);
   }
 };
 

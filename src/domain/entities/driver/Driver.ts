@@ -3,6 +3,8 @@ import {
   PrimaryGeneratedColumn,
   Column,
   OneToMany,
+  JoinColumn,
+  OneToOne,
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
@@ -10,20 +12,30 @@ import {
 import { DriverAvailability } from './DriverAvailability';
 import { CompanyDriver } from '../company/Company';
 import { DriverVehicle } from '../vehicle/DriverVehicle';
+import { User } from '../auth/User';
 
 @Entity('Driver')
 export class Driver {
-
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({
+    type: 'uuid',
+    nullable: true,
+    unique: true,
+  })
   userId?: string;
 
-  @Column({ type: 'varchar', length: 100 })
+  @Column({
+    type: 'varchar',
+    length: 100,
+  })
   firstName!: string;
 
-  @Column({ type: 'varchar', length: 100 })
+  @Column({
+    type: 'varchar',
+    length: 100,
+  })
   lastName!: string;
 
   @Column({
@@ -40,7 +52,10 @@ export class Driver {
   })
   mobile!: string;
 
-  @Column({ type: 'date', nullable: true })
+  @Column({
+    type: 'date',
+    nullable: true,
+  })
   birthDate?: Date;
 
   @Column({
@@ -57,7 +72,10 @@ export class Driver {
   })
   licenseNumber?: string;
 
-  @Column({ type: 'date', nullable: true })
+  @Column({
+    type: 'date',
+    nullable: true,
+  })
   licenseExpireDate?: Date;
 
   @Column({
@@ -68,16 +86,28 @@ export class Driver {
   })
   rating!: number;
 
-  @Column({ type: 'int', default: 0 })
+  @Column({
+    type: 'int',
+    default: 0,
+  })
   completedTrips!: number;
 
-  @Column({ type: 'int', default: 0 })
+  @Column({
+    type: 'int',
+    default: 0,
+  })
   cancelledTrips!: number;
 
-  @Column({ type: 'smallint', default: 0 })
+  @Column({
+    type: 'smallint',
+    default: 0,
+  })
   verificationStatus!: number;
 
-  @Column({ type: 'smallint', default: 0 })
+  @Column({
+    type: 'smallint',
+    default: 0,
+  })
   availabilityStatus!: number;
 
   @Column({
@@ -102,7 +132,10 @@ export class Driver {
   })
   lastLocationAt?: Date;
 
-  @Column({ type: 'smallint', default: 0 })
+  @Column({
+    type: 'smallint',
+    default: 0,
+  })
   recordStatus!: number;
 
   @OneToMany(
@@ -117,15 +150,26 @@ export class Driver {
   )
   vehicles!: DriverVehicle[];
 
+  @OneToMany(
+    () => DriverAvailability,
+    availability => availability.driver,
+  )
+  availabilities!: DriverAvailability[];
+
+  @OneToOne(
+    () => User,
+    user => user.driver,
+    {
+      nullable: true,
+      onDelete: 'SET NULL',
+    },
+  )
+  @JoinColumn({ name: 'userId' })
+  user?: User;
+
   @CreateDateColumn()
   createdAt!: Date;
 
   @UpdateDateColumn()
   updatedAt!: Date;
-
-  @OneToMany(
-  () => DriverAvailability,
-  availability => availability.driver,
-)
-availabilities!: DriverAvailability[];
 }
