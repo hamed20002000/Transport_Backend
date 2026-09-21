@@ -1,4 +1,5 @@
 import { SubscriptionOrder } from '../../entities/subscription/SubscriptionOrder';
+import { CommunicationProvider } from '../../enums/subscription';
 
 export interface ISubscriptionOrderRepository {
   findById(
@@ -11,6 +12,11 @@ export interface ISubscriptionOrderRepository {
 
   findPendingByProviderUser(
     provider: string,
+    providerUserId: string,
+  ): Promise<SubscriptionOrder | null>;
+
+  findLatestByProviderUser(
+    provider: CommunicationProvider,
     providerUserId: string,
   ): Promise<SubscriptionOrder | null>;
 

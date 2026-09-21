@@ -14,6 +14,7 @@ import { TelegramSessionService } from './telegramSession.service';
 import { TelegramMessagesService } from './telegramMessages.service';
 
 import { AccountType } from 'src/domain/enums/subscription';
+import { TelegramSessionState } from 'src/domain/enums/telegram';
 
 import {
   TelegramCallback,
@@ -73,13 +74,16 @@ export class TelegramService implements OnModuleInit {
       },
     );
 
-      // اینجا اضافه کن
-  await this.bot.setMyCommands([
-    {
-      command: 'start',
-      description: '🚀 شروع',
-    },
-  ]);
+    await this.bot.setMyCommands([
+      {
+        command: 'start',
+        description: this.messages.get('commands.start'),
+      },
+      {
+        command: 'payment',
+        description: this.messages.get('commands.payment'),
+      },
+    ]);
 
     this.bot.on(
       'message',
@@ -182,20 +186,23 @@ export class TelegramService implements OnModuleInit {
      * =====================================================
      */
 
+    const command = message.text?.trim().split(/\s+/)[0].split('@')[0];
+
     if (
-      message.text?.trim() ===
-      '/start'
+      command === '/start' ||
+      message.text === this.messages.get('menu.common.mainMenu')
     ) {
-      this.telegramSessionService.reset(
+      await this.openMainMenu(chatId, telegramUserId);
+
+      return;
+    }
+
+    if (command === '/payment') {
+      await this.telegramAccountHandler.showPurchaseStatus(
+        this.bot,
+        chatId,
         telegramUserId,
       );
-
-      await this.telegramMenuService
-        .showMainMenu(
-          this.bot,
-          chatId,
-          telegramUserId,
-        );
 
       return;
     }
@@ -381,16 +388,17 @@ export class TelegramService implements OnModuleInit {
       data ===
       TelegramCallback.MainMenu
     ) {
-      this.telegramSessionService.reset(
+      await this.openMainMenu(chatId, telegramUserId);
+
+      return;
+    }
+
+    if (data === TelegramCallback.PaymentStatus) {
+      await this.telegramAccountHandler.showPurchaseStatus(
+        this.bot,
+        chatId,
         telegramUserId,
       );
-
-      await this.telegramMenuService
-        .showMainMenu(
-          this.bot,
-          chatId,
-          telegramUserId,
-        );
 
       return;
     }
@@ -851,6 +859,35 @@ export class TelegramService implements OnModuleInit {
    * Main Menu Keyboard
    * =====================================================
    */
+
+  private async openMainMenu(
+    chatId: string,
+    telegramUserId: string,
+  ): Promise<void> {
+    if (!this.bot) return;
+
+    const state = this.telegramSessionService.get(telegramUserId)?.state;
+    switch (state) {
+      case TelegramSessionState.SelectingAccountType:
+      case TelegramSessionState.SelectingPlan:
+      case TelegramSessionState.WaitingForPhone:
+      case TelegramSessionState.WaitingForReceipt:
+      case TelegramSessionState.UnderReview:
+        break;
+      default:
+        this.telegramSessionService.reset(telegramUserId);
+    }
+
+    if (state === TelegramSessionState.WaitingForPhone) {
+      await this.bot.sendMessage(
+        chatId,
+        this.messages.get('account.continueFromMenu'),
+        { reply_markup: { remove_keyboard: true } },
+      );
+    }
+
+    await this.telegramMenuService.showMainMenu(this.bot, chatId, telegramUserId);
+  }
 
   private mainMenuKeyboard():
     TelegramBot.SendMessageOptions {

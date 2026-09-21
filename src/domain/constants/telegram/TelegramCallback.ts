@@ -2,6 +2,7 @@ export const TelegramCallback = {
   MainMenu: 'main_menu',
 
   BuyAccount: 'buy_account',
+  PaymentStatus: 'payment_status',
   RenewSubscription: 'renew_subscription',
   MySubscription: 'my_subscription',
   Support: 'support',

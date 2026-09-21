@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { SubscriptionOrder } from '../../../domain/entities/subscription/SubscriptionOrder';
+import { CommunicationProvider } from '../../../domain/enums/subscription';
 
 import { ISubscriptionOrderRepository } from '../../../domain/repositories/subscription/ISubscriptionOrderRepository';
 
@@ -65,6 +66,16 @@ export class SubscriptionOrderRepository
       )
       .orderBy('order.createdAt', 'DESC')
       .getOne();
+  }
+
+  async findLatestByProviderUser(
+    provider: CommunicationProvider,
+    providerUserId: string,
+  ): Promise<SubscriptionOrder | null> {
+    return this.repository.findOne({
+      where: { provider, providerUserId },
+      order: { createdAt: 'DESC', id: 'DESC' },
+    });
   }
 
   async save(

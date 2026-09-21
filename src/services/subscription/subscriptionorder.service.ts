@@ -41,6 +41,21 @@ export class SubscriptionOrderService {
       ISubscriptionOrderRepository,
   ) {}
 
+  async findOrderForTracking(
+    provider: CommunicationProvider,
+    providerUserId: string,
+  ): Promise<SubscriptionOrder | null> {
+    const pendingOrder = await this.orderRepository.findPendingByProviderUser(
+      provider,
+      providerUserId,
+    );
+
+    return pendingOrder ?? this.orderRepository.findLatestByProviderUser(
+      provider,
+      providerUserId,
+    );
+  }
+
   async createOrder(
     params: CreateSubscriptionOrderParams,
   ): Promise<SubscriptionOrder> {
