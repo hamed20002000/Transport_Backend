@@ -10,7 +10,7 @@ import { FunctionCallService } from '../services/functioncall.service';
 import { CondinateService } from '../services/condinate.service';
 import { PendingConfirmationService } from '../services/PendingConfirmationService';
 import { SpeechToTextService } from '../services/Speechtotext.service';
-import { TelegramService } from '../services/Telegram.service';
+import { TelegramModule } from 'src/application/module/TelegramModule';
 import { UserService } from 'src/services/UserService';
 import { AuthModule } from 'src/auth/auth.module';
 import { WhatsappService } from '../services/whatsapp.service';
@@ -21,6 +21,7 @@ import { UserModule } from 'src/application/module/UserModule';
 @Module({
   imports: [
     ToolRegisterModule,
+    TelegramModule,
       forwardRef(() => AuthModule), 
       forwardRef(() => WhatsappModule), 
       forwardRef(() => UserModule), 
@@ -36,7 +37,6 @@ import { UserModule } from 'src/application/module/UserModule';
     CondinateService,
     PendingConfirmationService,
     SpeechToTextService,
-    TelegramService,
     JwtService,
     FunctionCallService
     
@@ -50,7 +50,7 @@ import { UserModule } from 'src/application/module/UserModule';
     CondinateService,
     PendingConfirmationService,
     SpeechToTextService,
-    TelegramService,
+    TelegramModule,
      JwtService,
     FunctionCallService
    

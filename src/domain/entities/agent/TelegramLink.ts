@@ -1,23 +1,93 @@
-import { UUID } from "node:crypto";
-import { Column, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  Index,
+  JoinColumn,
+  OneToOne,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 
-@Entity("TelegramLink", { schema: "public" })
+import { User } from '../auth/User';
+
+@Entity('TelegramLink')
+@Index(
+  'UQ_TelegramLink_TelegramUserId',
+  ['telegramUserId'],
+  { unique: true },
+)
+@Index(
+  'UQ_TelegramLink_UserId',
+  ['userId'],
+  { unique: true },
+)
 export class TelegramLink {
-    @PrimaryGeneratedColumn("uuid")
-    Id!: string;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
-    @Column("varchar", { name: "Userid" })
-    Userid!: string;
+  @Column({
+    type: 'varchar',
+    length: 100,
+    unique: true,
+  })
+  telegramUserId!: string;
 
-    @Column("bigint", { name: "ChatId" })
-    ChatId!: string;
+  @Column({
+    type: 'varchar',
+    length: 100,
+  })
+  chatId!: string;
 
-    @UpdateDateColumn({ name: "LastVerifiedAt" })
-    LastVerifiedAt?: Date;
+  @Column({
+    type: 'uuid',
+    nullable: true,
+    unique: true,
+  })
+  userId?: string;
 
-    // جدید: session جاری این چت -- تا وقتی خالی نشه (یا کاربر /yeni بزنه)،
-    // همه‌ی پیام‌های این چت به همین session وصل می‌مونن (معادل رفتار
-    // فرانت‌اند وب که یک sessionId رو تا "چت جدید" نگه می‌داره).
-    @Column("varchar", { name: "CurrentSessionId", nullable: true })
-    CurrentSessionId?: string | null;
+  @OneToOne(
+    () => User,
+    {
+      nullable: true,
+      onDelete: 'CASCADE',
+    },
+  )
+  @JoinColumn({
+    name: 'userId',
+  })
+  user?: User;
+
+  @Column({
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
+  telegramUsername?: string;
+
+  @Column({
+    type: 'varchar',
+    length: 150,
+    nullable: true,
+  })
+  firstName?: string;
+
+  @Column({
+    type: 'varchar',
+    length: 150,
+    nullable: true,
+  })
+  lastName?: string;
+
+  @Column({
+    type: 'timestamp',
+    nullable: true,
+  })
+  lastInteractionAt?: Date;
+
+  @CreateDateColumn()
+  createdAt!: Date;
+
+  @UpdateDateColumn()
+  updatedAt!: Date;
 }

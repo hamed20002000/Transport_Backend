@@ -1,0 +1,71 @@
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+
+import { TelegramLink } from '../../domain/entities/agent/TelegramLink';
+
+import { TelegramLinkRepository } from '../../infrastructure/repositories/telegram/TelegramLinkRepository';
+
+import { TELEGRAM_LINK_REPOSITORY } from '../../domain/repositories/repository.tokens';
+
+import { TelegramSessionService } from 'src/services/telegram/telegramSession.service';
+
+import { TelegramIdentityService } from 'src/services/telegram/telegramIdentity.service';
+
+import { TelegramMenuService } from 'src/services/telegram/telegramMenu.service';
+
+import { TelegramAccountHandler } from 'src/services/telegram/telegramAccountHandler.service';
+
+import { TelegramMessagesService } from 'src/services/telegram/telegramMessages.service';
+
+import { TelegramService } from 'src/services/telegram/telegram.service';
+
+import { SubscriptionModule } from './SubscriptionModule';
+
+@Module({
+  imports: [
+    TypeOrmModule.forFeature([
+      TelegramLink,
+    ]),
+
+    SubscriptionModule,
+  ],
+
+  providers: [
+    TelegramLinkRepository,
+
+    {
+      provide:
+        TELEGRAM_LINK_REPOSITORY,
+
+      useExisting:
+        TelegramLinkRepository,
+    },
+
+    TelegramSessionService,
+
+    TelegramIdentityService,
+
+    TelegramMessagesService,
+
+    TelegramMenuService,
+
+    TelegramAccountHandler,
+
+    TelegramService,
+  ],
+
+  exports: [
+    TelegramIdentityService,
+
+    TelegramMenuService,
+
+    TelegramSessionService,
+
+    TelegramAccountHandler,
+
+    TelegramMessagesService,
+
+    TelegramService,
+  ],
+})
+export class TelegramModule {}

@@ -10,7 +10,7 @@ import { Server } from 'socket.io';
 import { FunctionCallResultType } from './types';
 import { CancellationService } from './services/cancellation.service';
 import { Socket } from 'socket.io';
-import { TelegramService } from './services/Telegram.service';
+//import { TelegramService } from './services/Telegram.service';
 // جدید: WhatsappService رو هم import کنید (مسیر واقعی پروژه‌تون)
 import { WhatsappService } from './services/whatsapp.service';
 import { forwardRef, Inject } from '@nestjs/common';
@@ -27,8 +27,8 @@ export class AgentGateway {
   server!: Server;
   constructor(
     private readonly cancellation: CancellationService,
-    @Inject(forwardRef(() => TelegramService))
-    private readonly telegramService: TelegramService,
+    // @Inject(forwardRef(() => TelegramService))
+    // private readonly telegramService: TelegramService,
     // جدید: WhatsappService رو هم inject کنید (همون الگوی forwardRef تلگرام)
     @Inject(forwardRef(() => WhatsappService))
     private readonly whatsappService: WhatsappService,
@@ -51,44 +51,44 @@ export class AgentGateway {
       .to(`user:${userId}`)
       .emit('agent-tool-result', data);
 
-    if (this.functionCallService.source == "telegram") {
-      // جدید: حالت انتخاب از لیست/تایید -- باید قبل از شاخه‌ی success/error چک بشه
-      if (data.result === "confirm_required" && (data as any).data?.data) {
-        await this.telegramService.sendSelectionRequest(
-          userId,
-          (data as any).data.message || data.message,
-          (data as any).data.data,
-        );
-        return;
-      }
+    // if (this.functionCallService.source == "telegram") {
+    //   // جدید: حالت انتخاب از لیست/تایید -- باید قبل از شاخه‌ی success/error چک بشه
+    //   if (data.result === "confirm_required" && (data as any).data?.data) {
+    //     await this.telegramService.sendSelectionRequest(
+    //       userId,
+    //       (data as any).data.message || data.message,
+    //       (data as any).data.data,
+    //     );
+    //     return;
+    //   }
 
-      // جدید: delete_* گونه تاییدهای ساده (بدون options) -- قبلاً به‌اشتباه
-      // به شاخه‌ی success/error می‌رفت و با ❌ نمایش داده می‌شد
-      if (data.result === "confirm_required") {
-        await this.telegramService.sendYesNoConfirmation(userId, data.message as any);
-        return;
-      }
+    //   // جدید: delete_* گونه تاییدهای ساده (بدون options) -- قبلاً به‌اشتباه
+    //   // به شاخه‌ی success/error می‌رفت و با ❌ نمایش داده می‌شد
+    //   if (data.result === "confirm_required") {
+    //     await this.telegramService.sendYesNoConfirmation(userId, data.message as any);
+    //     return;
+    //   }
 
-      const chatId = await this.telegramService.getChatIdForUsername(userId);
-      if (chatId) {
-        const text = data.result === "success"
-          ? `✅ ${data.message}`
-          : `❌ ${data.message}`;
+    //   const chatId = await this.telegramService.getChatIdForUsername(userId);
+    //   if (chatId) {
+    //     const text = data.result === "success"
+    //       ? `✅ ${data.message}`
+    //       : `❌ ${data.message}`;
 
-        // جدید: فقط وقتی این واقعاً آخرین segment این دستوره (نه یک قدم
-        // میانی توی یک دستور چندبخشی)، finalizeProgress صدا زده می‌شه --
-        // که هم پیام رو نهایی می‌کنه (با نوار ۱۰۰٪ واقعی) هم
-        // activeProgressMessages رو پاک می‌کنه. قدم‌های میانی فقط متن +
-        // نوار متحرک (بدون درصد واقعی) می‌گیرن.
-        if ((data as any).lastsegment) {
-          await this.telegramService.finalizeProgress(chatId, `⏳ ${text}`);
-        } else {
-          await this.telegramService.sendOrUpdateProgress(chatId, `⏳ ${text}`);
-        }
+    //     // جدید: فقط وقتی این واقعاً آخرین segment این دستوره (نه یک قدم
+    //     // میانی توی یک دستور چندبخشی)، finalizeProgress صدا زده می‌شه --
+    //     // که هم پیام رو نهایی می‌کنه (با نوار ۱۰۰٪ واقعی) هم
+    //     // activeProgressMessages رو پاک می‌کنه. قدم‌های میانی فقط متن +
+    //     // نوار متحرک (بدون درصد واقعی) می‌گیرن.
+    //     if ((data as any).lastsegment) {
+    //       await this.telegramService.finalizeProgress(chatId, `⏳ ${text}`);
+    //     } else {
+    //       await this.telegramService.sendOrUpdateProgress(chatId, `⏳ ${text}`);
+    //     }
 
-        //await this.telegramService.sendMessageToChat(chatId, text);
-      }
-    }
+    //     //await this.telegramService.sendMessageToChat(chatId, text);
+    //   }
+    // }
 
     // جدید: همون منطق تلگرام، برای واتساپ
     if (this.functionCallService.source == "whatsapp") {
@@ -132,14 +132,14 @@ export class AgentGateway {
     this.server
       .to(`user:${userId}`)
       .emit('agent-current-tool', data);
-    if (this.functionCallService.source == "telegram") {
-      const chatId = await this.telegramService.getChatIdForUsername(userId);
-      if (chatId) {
-        // این یک مرحله‌ی میانیه -- همون پیام رو ویرایش کن (نوار متحرک،
-        // نه درصد واقعی)، نه یک پیام جدید بفرست
-        await this.telegramService.sendOrUpdateProgress(chatId, `⏳ ${data.currentOp}`);
-      }
-    }
+    // if (this.functionCallService.source == "telegram") {
+    //   const chatId = await this.telegramService.getChatIdForUsername(userId);
+    //   if (chatId) {
+    //     // این یک مرحله‌ی میانیه -- همون پیام رو ویرایش کن (نوار متحرک،
+    //     // نه درصد واقعی)، نه یک پیام جدید بفرست
+    //     await this.telegramService.sendOrUpdateProgress(chatId, `⏳ ${data.currentOp}`);
+    //   }
+    // }
 
     // جدید: شاخه‌ی واتساپ
     if (this.functionCallService.source == "whatsapp") {
