@@ -2,10 +2,15 @@ import {
   Injectable,
   Logger,
   OnModuleInit,
+  OnModuleDestroy,
+  ServiceUnavailableException,
+  BadRequestException,
 } from '@nestjs/common';
 
 import { ConfigService } from '@nestjs/config';
 import TelegramBot from 'node-telegram-bot-api';
+import { sendTelegramMessage } from './telegramKeyboard';
+import { TelegramTransport } from './telegramTransport';
 
 import { TelegramAccountHandler } from './telegramAccountHandler.service';
 import { TelegramIdentityService } from './telegramIdentity.service';
@@ -21,11 +26,13 @@ import {
 } from '../../domain/constants/telegram/TelegramCallback';
 
 @Injectable()
-export class TelegramService implements OnModuleInit {
+export class TelegramService implements OnModuleInit, OnModuleDestroy {
   private readonly logger =
     new Logger(TelegramService.name);
 
   private bot?: TelegramBot;
+  private transport?: TelegramTransport;
+  private ready = false;
 
   constructor(
     private readonly configService:
@@ -67,10 +74,12 @@ export class TelegramService implements OnModuleInit {
       return;
     }
 
+    this.transport = new TelegramTransport(this.configService);
+
     this.bot = new TelegramBot(
       token,
       {
-        polling: true,
+        polling: false,
       },
     );
 
@@ -128,9 +137,27 @@ export class TelegramService implements OnModuleInit {
       },
     );
 
-    this.logger.log(
-      'Telegram bot started.',
-    );
+    await this.transport.start(this.bot);
+    this.ready = true;
+    this.logger.log(`Telegram bot started in ${this.transport.mode} mode.`);
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    this.ready = false;
+    if (this.bot?.isPolling()) await this.bot.stopPolling();
+    // Keep the remote webhook registered across deployments.
+  }
+
+  async receiveWebhook(update: TelegramBot.Update, secret?: string): Promise<void> {
+    if (!this.transport) throw new ServiceUnavailableException('Telegram bot is disabled.');
+    this.transport.authorize(secret);
+    if (!this.ready) throw new ServiceUnavailableException('Telegram bot is not ready.');
+    if (!update || !Number.isSafeInteger(update.update_id) || update.update_id < 0) {
+      throw new BadRequestException('Invalid Telegram update.');
+    }
+    // Await the existing handlers so failures reach Telegram as a non-2xx response.
+    if (update.message) await this.handleMessage(update.message);
+    else if (update.callback_query) await this.handleCallbackQuery(update.callback_query);
   }
 
   /*
@@ -879,7 +906,7 @@ export class TelegramService implements OnModuleInit {
     }
 
     if (state === TelegramSessionState.WaitingForPhone) {
-      await this.bot.sendMessage(
+      await sendTelegramMessage(this.bot,
         chatId,
         this.messages.get('account.continueFromMenu'),
         { reply_markup: { remove_keyboard: true } },
@@ -927,7 +954,7 @@ export class TelegramService implements OnModuleInit {
     }
 
     try {
-      return await this.bot.sendMessage(
+      return await sendTelegramMessage(this.bot,
         chatId,
         text,
         options,

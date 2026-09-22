@@ -8,6 +8,7 @@ import {
 } from '@nestjs/config';
 
 import TelegramBot from 'node-telegram-bot-api';
+import { sendTelegramMessage } from './telegramKeyboard';
 
 import {
   mkdir,
@@ -20,6 +21,8 @@ import {
 import { AccountType } from 'src/domain/enums/subscription';
 
 import { CommunicationProvider } from 'src/domain/enums/subscription';
+import { SubscriptionOrderStatus } from 'src/domain/enums/subscription';
+import { SubscriptionOrder } from 'src/domain/entities/subscription/SubscriptionOrder';
 
 import {
   TelegramSessionState,
@@ -83,6 +86,142 @@ export class TelegramAccountHandler {
     private readonly messages:
       TelegramMessagesService,
   ) {}
+
+  async showPurchaseStatus(
+    bot: TelegramBot,
+    chatId: string,
+    telegramUserId: string,
+  ): Promise<void> {
+    try {
+      const order = await this.subscriptionOrderService.findOrderForTracking(
+        CommunicationProvider.Telegram,
+        telegramUserId,
+      );
+
+      // A saved payment takes precedence over an outdated channel session.
+      if (order && [
+        SubscriptionOrderStatus.WaitingForReceipt,
+        SubscriptionOrderStatus.ReceiptSubmitted,
+        SubscriptionOrderStatus.UnderReview,
+      ].includes(order.status)) {
+        await this.showOrderStatus(bot, chatId, telegramUserId, order);
+        return;
+      }
+
+      const session = this.telegramSessionService.get(telegramUserId);
+      switch (session?.state) {
+        case TelegramSessionState.SelectingAccountType:
+          await this.telegramMenuService.showAccountTypes(bot, chatId);
+          return;
+        case TelegramSessionState.SelectingPlan:
+          if (session.accountType) {
+            await this.showPlans(bot, chatId, session.accountType);
+            return;
+          }
+          break;
+        case TelegramSessionState.WaitingForPhone:
+          if (session.accountType && session.subscriptionPlanId) {
+            await this.selectPlan(bot, chatId, telegramUserId, session.subscriptionPlanId);
+            return;
+          }
+          break;
+      }
+
+      if (order) {
+        await this.showOrderStatus(bot, chatId, telegramUserId, order);
+        return;
+      }
+
+      await sendTelegramMessage(bot,chatId, this.messages.get('payment.noPurchase'), {
+        reply_markup: {
+          inline_keyboard: [
+            [{
+              text: this.messages.get('menu.main.buyAccount'),
+              callback_data: TelegramCallback.BuyAccount,
+            }],
+            ...this.paymentStatusKeyboard().inline_keyboard,
+          ],
+        },
+      });
+    } catch (error: unknown) {
+      this.logger.error(`Could not track purchase: ${this.getErrorMessage(error)}`);
+      await sendTelegramMessage(bot,chatId, this.messages.get('errors.loadPaymentStatusFailed'), {
+        reply_markup: this.paymentStatusKeyboard(),
+      });
+    }
+  }
+
+  private async showOrderStatus(
+    bot: TelegramBot,
+    chatId: string,
+    telegramUserId: string,
+    order: SubscriptionOrder,
+  ): Promise<void> {
+    if (order.status === SubscriptionOrderStatus.WaitingForReceipt) {
+      this.telegramSessionService.set(telegramUserId, {
+        state: TelegramSessionState.WaitingForReceipt,
+        orderId: order.id,
+        accountType: order.accountType,
+        subscriptionPlanId: order.subscriptionPlanId,
+        phoneNumber: order.phoneNumber,
+      });
+      await sendTelegramMessage(bot,chatId, this.messages.get('payment.waitingForReceipt'), {
+        reply_markup: { remove_keyboard: true },
+      });
+      await this.sendPaymentInformation(bot, chatId, order.amount, order.currency);
+      return;
+    }
+
+    let messageKey: string;
+    switch (order.status) {
+      case SubscriptionOrderStatus.ReceiptSubmitted:
+      case SubscriptionOrderStatus.UnderReview:
+        this.telegramSessionService.set(telegramUserId, {
+          state: TelegramSessionState.UnderReview,
+          orderId: order.id,
+        });
+        messageKey = 'payment.reviewStatus';
+        break;
+      case SubscriptionOrderStatus.Approved:
+        messageKey = 'payment.approved';
+        break;
+      case SubscriptionOrderStatus.Rejected:
+        messageKey = 'payment.rejected';
+        break;
+      case SubscriptionOrderStatus.Cancelled:
+        messageKey = 'payment.cancelled';
+        break;
+      default:
+        throw new Error(`Unsupported subscription order status: ${order.status}`);
+    }
+
+    await sendTelegramMessage(bot,chatId, this.messages.get(messageKey), {
+      reply_markup: this.paymentStatusKeyboard(),
+    });
+
+    if ([
+      SubscriptionOrderStatus.Approved,
+      SubscriptionOrderStatus.Rejected,
+      SubscriptionOrderStatus.Cancelled,
+    ].includes(order.status)) {
+      this.telegramSessionService.reset(telegramUserId);
+    }
+  }
+
+  private paymentStatusKeyboard(): TelegramBot.InlineKeyboardMarkup {
+    return {
+      inline_keyboard: [
+        [{
+          text: this.messages.get('menu.common.paymentStatus'),
+          callback_data: TelegramCallback.PaymentStatus,
+        }],
+        [{
+          text: this.messages.get('menu.common.mainMenu'),
+          callback_data: TelegramCallback.MainMenu,
+        }],
+      ],
+    };
+  }
 
   /*
    * =====================================================
@@ -167,7 +306,7 @@ export class TelegramAccountHandler {
         !plans ||
         plans.length === 0
       ) {
-        await bot.sendMessage(
+        await sendTelegramMessage(bot,
           chatId,
           this.messages.get(
             'account.noActivePlan',
@@ -235,7 +374,7 @@ export class TelegramAccountHandler {
         },
       ]);
 
-      await bot.sendMessage(
+      await sendTelegramMessage(bot,
         chatId,
 
         this.messages.get(
@@ -254,7 +393,7 @@ export class TelegramAccountHandler {
         `Could not load subscription plans: ${this.getErrorMessage(error)}`,
       );
 
-      await bot.sendMessage(
+      await sendTelegramMessage(bot,
         chatId,
         this.messages.get(
           'errors.loadPlansFailed',
@@ -289,7 +428,7 @@ export class TelegramAccountHandler {
           telegramUserId,
         );
 
-        await bot.sendMessage(
+        await sendTelegramMessage(bot,
           chatId,
           this.messages.get(
             'account.invalidPurchaseSession',
@@ -313,7 +452,7 @@ export class TelegramAccountHandler {
           );
 
       if (!plan) {
-        await bot.sendMessage(
+        await sendTelegramMessage(bot,
           chatId,
           this.messages.get(
             'account.planNotFound',
@@ -327,7 +466,7 @@ export class TelegramAccountHandler {
         plan.accountType !==
         session.accountType
       ) {
-        await bot.sendMessage(
+        await sendTelegramMessage(bot,
           chatId,
           this.messages.get(
             'account.planNotValidForAccountType',
@@ -349,7 +488,7 @@ export class TelegramAccountHandler {
         },
       );
 
-      await bot.sendMessage(
+      await sendTelegramMessage(bot,
         chatId,
 
         this.messages.get(
@@ -380,6 +519,7 @@ export class TelegramAccountHandler {
                     true,
                 },
               ],
+              [{ text: this.messages.get('menu.common.mainMenu') }],
             ],
 
             resize_keyboard:
@@ -395,7 +535,7 @@ export class TelegramAccountHandler {
         `Could not select subscription plan: ${this.getErrorMessage(error)}`,
       );
 
-      await bot.sendMessage(
+      await sendTelegramMessage(bot,
         chatId,
         this.messages.get(
           'errors.selectPlanFailed',
@@ -459,7 +599,7 @@ export class TelegramAccountHandler {
       contact.user_id !==
         from.id
     ) {
-      await bot.sendMessage(
+      await sendTelegramMessage(bot,
         chatId,
         this.messages.get(
           'account.invalidContactOwner',
@@ -491,7 +631,7 @@ export class TelegramAccountHandler {
         telegramUserId,
       );
 
-      await bot.sendMessage(
+      await sendTelegramMessage(bot,
         chatId,
         this.messages.get(
           'account.invalidPurchaseSession',
@@ -553,7 +693,7 @@ export class TelegramAccountHandler {
         },
       );
 
-      await bot.sendMessage(
+      await sendTelegramMessage(bot,
         chatId,
         this.messages.get(
           'account.phoneReceived',
@@ -579,7 +719,7 @@ export class TelegramAccountHandler {
         `Could not create subscription order: ${this.getErrorMessage(error)}`,
       );
 
-      await bot.sendMessage(
+      await sendTelegramMessage(bot,
         chatId,
         this.messages.get(
           'errors.createOrderFailed',
@@ -618,7 +758,7 @@ export class TelegramAccountHandler {
         'SUBSCRIPTION_CARD_OWNER',
       );
 
-    await bot.sendMessage(
+    await sendTelegramMessage(bot,
       chatId,
 
       this.messages.get(
@@ -637,32 +777,24 @@ export class TelegramAccountHandler {
           cardOwner,
         },
       ),
-
-      {
-        reply_markup: {
-          inline_keyboard: [
-            [
-              {
-                text:
-                  this.messages.get(
-                    'payment.cancel',
-                  ),
-
-                callback_data:
-                  TelegramCallback
-                    .CancelPurchase,
-              },
-            ],
-          ],
-        },
-      },
     );
 
-    await bot.sendMessage(
+    await sendTelegramMessage(bot,
       chatId,
       this.messages.get(
         'payment.receiptRequired',
       ),
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{
+              text: this.messages.get('payment.cancel'),
+              callback_data: TelegramCallback.CancelPurchase,
+            }],
+            ...this.paymentStatusKeyboard().inline_keyboard,
+          ],
+        },
+      },
     );
   }
 
@@ -713,7 +845,7 @@ export class TelegramAccountHandler {
       );
 
     if (!fileId) {
-      await bot.sendMessage(
+      await sendTelegramMessage(bot,
         chatId,
         this.messages.get(
           'payment.receiptInvalid',
@@ -728,7 +860,7 @@ export class TelegramAccountHandler {
         telegramUserId,
       );
 
-      await bot.sendMessage(
+      await sendTelegramMessage(bot,
         chatId,
         this.messages.get(
           'account.invalidPurchaseSession',
@@ -746,7 +878,7 @@ export class TelegramAccountHandler {
     }
 
     try {
-      await bot.sendMessage(
+      await sendTelegramMessage(bot,
         chatId,
         this.messages.get(
           'payment.receiptReceived',
@@ -802,7 +934,7 @@ export class TelegramAccountHandler {
         },
       );
 
-      await bot.sendMessage(
+      await sendTelegramMessage(bot,
         chatId,
         this.messages.get(
           'payment.underReview',
@@ -833,7 +965,7 @@ export class TelegramAccountHandler {
         `Could not submit payment receipt: ${this.getErrorMessage(error)}`,
       );
 
-      await bot.sendMessage(
+      await sendTelegramMessage(bot,
         chatId,
         this.messages.get(
           'errors.submitReceiptFailed',
@@ -868,7 +1000,7 @@ export class TelegramAccountHandler {
       telegramUserId,
     );
 
-    await bot.sendMessage(
+    await sendTelegramMessage(bot,
       chatId,
       this.messages.get(
         'account.buyCancelled',

@@ -1,3 +1,4 @@
+import { TelegramWebhookController } from '../../services/telegram/telegramWebhook.controller';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
@@ -29,6 +30,8 @@ import { SubscriptionModule } from './SubscriptionModule';
 
     SubscriptionModule,
   ],
+
+  controllers: [TelegramWebhookController],
 
   providers: [
     TelegramLinkRepository,

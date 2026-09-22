@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import TelegramBot from 'node-telegram-bot-api';
+import { sendTelegramMessage, sendTelegramMainMenu } from './telegramKeyboard';
 
 import { TelegramIdentityService } from './telegramIdentity.service';
 import { TelegramMessagesService } from './telegramMessages.service';
@@ -134,7 +135,7 @@ export class TelegramMenuService {
     bot: TelegramBot,
     chatId: string,
   ): Promise<void> {
-    await bot.sendMessage(
+    await sendTelegramMainMenu(bot,
       chatId,
 
       this.messages.get(
@@ -200,7 +201,7 @@ export class TelegramMenuService {
     bot: TelegramBot,
     chatId: string,
   ): Promise<void> {
-    await bot.sendMessage(
+    await sendTelegramMessage(bot,
       chatId,
 
       this.messages.get(
@@ -279,7 +280,7 @@ export class TelegramMenuService {
     bot: TelegramBot,
     chatId: string,
   ): Promise<void> {
-    await bot.sendMessage(
+    await sendTelegramMainMenu(bot,
       chatId,
 
       this.messages.get(
@@ -376,7 +377,7 @@ export class TelegramMenuService {
     bot: TelegramBot,
     chatId: string,
   ): Promise<void> {
-    await bot.sendMessage(
+    await sendTelegramMainMenu(bot,
       chatId,
 
       this.messages.get(
@@ -473,7 +474,7 @@ export class TelegramMenuService {
     bot: TelegramBot,
     chatId: string,
   ): Promise<void> {
-    await bot.sendMessage(
+    await sendTelegramMainMenu(bot,
       chatId,
 
       this.messages.get(
@@ -558,7 +559,7 @@ export class TelegramMenuService {
     bot: TelegramBot,
     chatId: string,
   ): Promise<void> {
-    await bot.sendMessage(
+    await sendTelegramMainMenu(bot,
       chatId,
 
       this.messages.get(
