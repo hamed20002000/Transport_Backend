@@ -1,93 +1,60 @@
 import { Injectable } from '@nestjs/common';
-
-import { TelegramSessionState } from 'src/domain/enums/telegram';
-import { TelegramSession } from 'src/domain/interfaces/telegram.interface';
+import { ConfigService } from '@nestjs/config';
+import { TelegramSessionState } from '../../domain/enums/telegram';
+import { TelegramSession } from '../../domain/interfaces/telegram.interface';
+import { RedisService } from '../redis/redis.service';
 
 @Injectable()
 export class TelegramSessionService {
-  private readonly sessions =
-    new Map<string, TelegramSession>();
+  private readonly ttlSeconds: number;
+  private readonly botId: string;
 
-  get(
-    telegramUserId: string,
-  ): TelegramSession | null {
-    return (
-      this.sessions.get(telegramUserId) ??
-      null
-    );
-  }
-
-  getOrCreate(
-    telegramUserId: string,
-  ): TelegramSession {
-    let session =
-      this.sessions.get(
-        telegramUserId,
-      );
-
-    if (!session) {
-      session = {
-        state:
-          TelegramSessionState.Idle,
-      };
-
-      this.sessions.set(
-        telegramUserId,
-        session,
-      );
+  constructor(private readonly redis: RedisService, config: ConfigService) {
+    this.ttlSeconds = Number(config.get('TELEGRAM_SESSION_TTL_SECONDS', 86400));
+    if (!Number.isSafeInteger(this.ttlSeconds) || this.ttlSeconds <= 0) {
+      throw new Error('TELEGRAM_SESSION_TTL_SECONDS must be a positive integer.');
     }
-
-    return session;
+    this.botId = config.get<string>('TELEGRAM_BOT_TOKEN', '').split(':')[0];
   }
 
-  set(
-    telegramUserId: string,
-    session: TelegramSession,
-  ): void {
-    this.sessions.set(
-      telegramUserId,
-      session,
-    );
+  async get(telegramUserId: string): Promise<TelegramSession | null> {
+    const key = this.key(telegramUserId);
+    const session = await this.redis.getJson<TelegramSession>(key);
+    if (session === null) return null;
+    // Refresh expiry without overwriting a newer session value.
+    return await this.redis.expire(key, this.ttlSeconds) ? session : null;
   }
 
-  update(
+  async getOrCreate(telegramUserId: string): Promise<TelegramSession> {
+    return await this.get(telegramUserId) ?? await this.reset(telegramUserId);
+  }
+
+  async set(telegramUserId: string, session: TelegramSession): Promise<void> {
+    await this.redis.setJson(this.key(telegramUserId), session, this.ttlSeconds);
+  }
+
+  async update(
     telegramUserId: string,
     values: Partial<TelegramSession>,
-  ): TelegramSession {
-    const session =
-      this.getOrCreate(
-        telegramUserId,
-      );
-
-    Object.assign(
-      session,
-      values,
-    );
-
+  ): Promise<TelegramSession> {
+    const session = await this.get(telegramUserId) ?? { state: TelegramSessionState.Idle };
+    Object.assign(session, values);
+    await this.set(telegramUserId, session);
     return session;
   }
 
-  reset(
-    telegramUserId: string,
-  ): TelegramSession {
-    const session: TelegramSession = {
-      state:
-        TelegramSessionState.Idle,
-    };
-
-    this.sessions.set(
-      telegramUserId,
-      session,
-    );
-
+  async reset(telegramUserId: string): Promise<TelegramSession> {
+    const session: TelegramSession = { state: TelegramSessionState.Idle };
+    await this.set(telegramUserId, session);
     return session;
   }
 
-  delete(
-    telegramUserId: string,
-  ): void {
-    this.sessions.delete(
-      telegramUserId,
-    );
+  async delete(telegramUserId: string): Promise<void> {
+    await this.redis.delete(this.key(telegramUserId));
+  }
+
+  private key(telegramUserId: string): string {
+    if (!this.botId) throw new Error('TELEGRAM_BOT_TOKEN is required for session state.');
+    return `telegram:session:v1:${this.botId}:${telegramUserId}`;
   }
 }

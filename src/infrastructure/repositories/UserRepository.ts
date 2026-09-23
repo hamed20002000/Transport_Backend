@@ -1,4 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Role } from 'src/domain/entities/auth/Role';
+import { UserRole } from 'src/domain/entities/auth/UserRole';
+import { RecordStatus } from 'src/domain/enums/RecordStatus';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -66,10 +69,36 @@ export class UserRepository
       .getOne();
   }
 
+  findByMobile(mobile: string): Promise<User | null> {
+    const national = mobile.substring(1);
+    return this.repository.findOne({ where: [
+      { mobile }, { mobile: `+98${national}` }, { mobile: `98${national}` },
+      { mobile: `0098${national}` },
+    ] });
+  }
+
   create(
     user: User,
   ): Promise<User> {
     return this.repository.save(user);
+  }
+
+  async createWithRole(user: User, roleName: string): Promise<User> {
+    return this.repository.manager.transaction(async manager => {
+      const role = await manager.findOne(Role, {
+        where: { name: roleName, recordStatus: RecordStatus.Active },
+      });
+      if (!role) {
+        throw new NotFoundException(`Active role "${roleName}" not found`);
+      }
+      const savedUser = await manager.save(User, user);
+      await manager.save(UserRole, manager.create(UserRole, {
+        userId: savedUser.id,
+        roleId: role.id,
+      }));
+      savedUser.userRoles = [Object.assign(new UserRole(), { userId: savedUser.id, roleId: role.id, role })];
+      return savedUser;
+    });
   }
 
   update(

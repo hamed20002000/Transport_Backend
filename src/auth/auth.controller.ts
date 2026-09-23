@@ -1,24 +1,19 @@
-import { Controller, Post, Body, HttpException, HttpStatus, Get, UseGuards, Req, Put, Query, Session, Res, Param, Redirect } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpException, HttpStatus, Post, Query } from '@nestjs/common';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { LoginDto } from 'src/dto/auth/login-dto';
-import {  ApiOperation, ApiResponse } from '@nestjs/swagger';
-import { UserService } from 'src/services/UserService';
-
-import { PasswordService } from 'src/services/auth/password.service';
-
-import { ConfigService } from '@nestjs/config';
-import { AppleAuthService, AppleUser } from 'src/application/services/helper/apple-atuh.service';
+import { RegisterDto } from 'src/dto/auth/register-dto';
+import { RegistrationService } from 'src/services/auth/registration.service';
+import { VerifyRegistrationDto, RefreshTokenDto } from 'src/dto/auth/verify-registration-dto';
 import { ImageService } from 'src/application/services/helper/image.service';
-import { RecordStatus } from 'src/domain/enums/RecordStatus';
-
 
 @Controller('api/auth')
 export class AuthController {
-  constructor(private authService: AuthService, private userService: UserService, private passwordService: PasswordService,
-    private readonly configService: ConfigService,
-    private appleService: AppleAuthService,
-    private readonly imageService: ImageService
-  ) { }
+  constructor(
+    private readonly authService: AuthService,
+    private readonly imageService: ImageService,
+    private readonly registration: RegistrationService,
+  ) {}
   @Get('download')
   async downloadImage(@Query('url') imageUrl: string) {
     if (!imageUrl) {
@@ -30,28 +25,41 @@ export class AuthController {
 
     return { message: 'Image saved successfully', path: savedPath };
   }
+  @Post('register/request-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiTags('Auth')
+  @ApiOperation({ summary: 'Send a registration verification code by SMS' })
+  async requestOtp(@Body() dto: RegisterDto) {
+    return this.registration.requestOtp(dto);
+  }
+
+  @Post('register/verify-otp')
+  @ApiTags('Auth')
+  @ApiOperation({ summary: 'Verify phone number, create account and issue tokens' })
+  async verifyOtp(@Body() dto: VerifyRegistrationDto) {
+    return this.registration.verifyOtp(dto.phoneNumber, dto.code);
+  }
+
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  @ApiTags('Auth')
+  @ApiOperation({ summary: 'Exchange a refresh token for a new token pair' })
+  async refresh(@Body() dto: RefreshTokenDto) {
+    return this.registration.refresh(dto.refreshToken);
+  }
+
   @Post('login')
-  @ApiOperation({ summary: 'get token' })  // Operation description
-  @ApiResponse({ status: 400, description: 'Bad request' })  // Error response
+  @HttpCode(HttpStatus.OK)
+  @ApiTags('Auth')
+  @ApiOperation({ summary: 'Login with username and password' }) // Operation description
+  @ApiResponse({ status: 400, description: 'Bad request' }) // Error response
   @ApiResponse({ status: 200, description: 'Successfull login', type: String })
+  @ApiResponse({ status: 401, description: 'Invalid credentials or no active roles' })
   async login(@Body() user: LoginDto) {
-
-
-    var result = await this.authService.login(user);
-    if (!result.isAuthenticate) {
-      throw new HttpException(
-        result.message ?? 'Authentication failed',
-        HttpStatus.UNAUTHORIZED,
-      );
+    const result = await this.authService.login(user);
+    if (!result.isAuthenticate || !result.accessToken) {
+      throw new HttpException(result.message ?? 'Authentication failed', HttpStatus.UNAUTHORIZED);
     }
     return result.accessToken;
   }
-
-
-
-
-
-
-
-
 }

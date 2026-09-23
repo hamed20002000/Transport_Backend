@@ -9,7 +9,7 @@ import {
 
 import { ConfigService } from '@nestjs/config';
 import TelegramBot from 'node-telegram-bot-api';
-import { sendTelegramMessage } from './telegramKeyboard';
+import { TelegramKeyboardService } from './telegramKeyboard';
 import { TelegramTransport } from './telegramTransport';
 
 import { TelegramAccountHandler } from './telegramAccountHandler.service';
@@ -52,6 +52,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
     private readonly messages:
       TelegramMessagesService,
+    private readonly keyboard: TelegramKeyboardService,
   ) {}
 
   /*
@@ -845,7 +846,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       ),
     );
 
-    this.telegramSessionService.delete(
+    await this.telegramSessionService.delete(
       providerUserId,
     );
   }
@@ -893,7 +894,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     if (!this.bot) return;
 
-    const state = this.telegramSessionService.get(telegramUserId)?.state;
+    const state = (await this.telegramSessionService.get(telegramUserId))?.state;
     switch (state) {
       case TelegramSessionState.SelectingAccountType:
       case TelegramSessionState.SelectingPlan:
@@ -902,11 +903,11 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       case TelegramSessionState.UnderReview:
         break;
       default:
-        this.telegramSessionService.reset(telegramUserId);
+        await this.telegramSessionService.reset(telegramUserId);
     }
 
     if (state === TelegramSessionState.WaitingForPhone) {
-      await sendTelegramMessage(this.bot,
+      await this.keyboard.sendMessage(this.bot,
         chatId,
         this.messages.get('account.continueFromMenu'),
         { reply_markup: { remove_keyboard: true } },
@@ -954,7 +955,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     }
 
     try {
-      return await sendTelegramMessage(this.bot,
+      return await this.keyboard.sendMessage(this.bot,
         chatId,
         text,
         options,

@@ -1,3 +1,5 @@
+import { RedisModule } from './RedisModule';
+import { TelegramKeyboardService } from '../../services/telegram/telegramKeyboard';
 import { TelegramWebhookController } from '../../services/telegram/telegramWebhook.controller';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -29,11 +31,13 @@ import { SubscriptionModule } from './SubscriptionModule';
     ]),
 
     SubscriptionModule,
+    RedisModule,
   ],
 
   controllers: [TelegramWebhookController],
 
   providers: [
+    TelegramKeyboardService,
     TelegramLinkRepository,
 
     {

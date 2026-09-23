@@ -1,3 +1,5 @@
+import { AccountType } from 'src/domain/enums/subscription';
+import { QueryFailedError } from 'typeorm';
 import {
   ConflictException,
   Inject,
@@ -75,6 +77,7 @@ export class UserService {
     password: string,
     email?: string,
     mobile?: string,
+    accountType?: AccountType,
   ): Promise<User> {
     const normalizedUsername = username.trim();
 
@@ -120,7 +123,16 @@ export class UserService {
     user.recordStatus =
       RecordStatus.Active;
 
-    return this.userRepository.create(user);
+    try {
+      return accountType
+        ? await this.userRepository.createWithRole(user, accountType)
+        : await this.userRepository.create(user);
+    } catch (error: unknown) {
+      if (error instanceof QueryFailedError && error.driverError?.code === '23505') {
+        throw new ConflictException('Username, email or mobile already exists.');
+      }
+      throw error;
+    }
   }
 
   async changePassword(

@@ -32,6 +32,7 @@ import { WhatsappModule } from './application/services/agent/appModule/whatsapp.
 import { TransportCompanyModule } from './application/module/TransportCompanyModule';
 
 import { TelegramModule } from './application/module/TelegramModule';
+import { RedisModule } from './application/module/RedisModule';
 
 @Module({
   imports: [
@@ -45,6 +46,8 @@ import { TelegramModule } from './application/module/TelegramModule';
       isGlobal: true,
       envFilePath: '.env',
     }),
+
+    RedisModule,
 
     /*
      * =====================================================

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import TelegramBot from 'node-telegram-bot-api';
-import { sendTelegramMessage, sendTelegramMainMenu } from './telegramKeyboard';
+import { TelegramKeyboardService } from './telegramKeyboard';
 
 import { TelegramIdentityService } from './telegramIdentity.service';
 import { TelegramMessagesService } from './telegramMessages.service';
@@ -20,6 +20,7 @@ export class TelegramMenuService {
 
     private readonly messages:
       TelegramMessagesService,
+    private readonly keyboard: TelegramKeyboardService,
   ) {}
 
   /*
@@ -135,7 +136,7 @@ export class TelegramMenuService {
     bot: TelegramBot,
     chatId: string,
   ): Promise<void> {
-    await sendTelegramMainMenu(bot,
+    await this.keyboard.sendMainMenu(bot,
       chatId,
 
       this.messages.get(
@@ -201,7 +202,7 @@ export class TelegramMenuService {
     bot: TelegramBot,
     chatId: string,
   ): Promise<void> {
-    await sendTelegramMessage(bot,
+    await this.keyboard.sendMessage(bot,
       chatId,
 
       this.messages.get(
@@ -280,7 +281,7 @@ export class TelegramMenuService {
     bot: TelegramBot,
     chatId: string,
   ): Promise<void> {
-    await sendTelegramMainMenu(bot,
+    await this.keyboard.sendMainMenu(bot,
       chatId,
 
       this.messages.get(
@@ -377,7 +378,7 @@ export class TelegramMenuService {
     bot: TelegramBot,
     chatId: string,
   ): Promise<void> {
-    await sendTelegramMainMenu(bot,
+    await this.keyboard.sendMainMenu(bot,
       chatId,
 
       this.messages.get(
@@ -474,7 +475,7 @@ export class TelegramMenuService {
     bot: TelegramBot,
     chatId: string,
   ): Promise<void> {
-    await sendTelegramMainMenu(bot,
+    await this.keyboard.sendMainMenu(bot,
       chatId,
 
       this.messages.get(
@@ -559,7 +560,7 @@ export class TelegramMenuService {
     bot: TelegramBot,
     chatId: string,
   ): Promise<void> {
-    await sendTelegramMainMenu(bot,
+    await this.keyboard.sendMainMenu(bot,
       chatId,
 
       this.messages.get(

@@ -1,3 +1,6 @@
+import { RedisModule } from 'src/application/module/RedisModule';
+import { RegistrationService } from 'src/services/auth/registration.service';
+import { SmsService } from 'src/services/auth/sms.service';
 // src/auth/auth.module.ts
 import { forwardRef, Module } from '@nestjs/common';
 import { AuthService } from './auth.service';
@@ -6,7 +9,6 @@ import { JwtModule, JwtService } from '@nestjs/jwt';
 import { JwtStrategy } from './strategy/jwt.strategy';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { GoogleStrategy } from './strategy/google.strategy';
 import { UserService } from 'src/services/UserService';
 import { EmailService } from 'src/application/services/helper/email-service';
 import { AppleAuthService } from 'src/application/services/helper/apple-atuh.service';
@@ -17,6 +19,7 @@ import { UserModule } from 'src/application/module/UserModule';
 
 @Module({
   imports: [
+    RedisModule,
     HttpModule,
     UserModule,
     // Register ConfigModule to read environment variables
@@ -29,7 +32,7 @@ import { UserModule } from 'src/application/module/UserModule';
     JwtModule.registerAsync({
       imports: [ConfigModule],  // Import ConfigModule to access environment variables
       useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET_KEY','ad;,pwqdpoqwkdopkwqopdqwpdkqwd65165dw1q5d1wqd;wq,dqwdASDwqd'),  // Retrieve the secret from environment variables
+        secret: configService.getOrThrow<string>('JWT_SECRET_KEY'),  // Retrieve the secret from environment variables
         signOptions: { expiresIn: configService.get<string>('JWT_EXPIRATION_TIME','64800s') },  // Retrieve expiration time from environment variables
       }),
       inject: [ConfigService],  // Inject ConfigService
@@ -37,7 +40,7 @@ import { UserModule } from 'src/application/module/UserModule';
 
     
   ],
-  providers: [AuthService,ImageService, JwtStrategy,GoogleStrategy,UserService,EmailService,AppleAuthService],  // No need to manually inject UserRepository anymore
+  providers: [RegistrationService, SmsService, AuthService,ImageService, JwtStrategy,UserService,EmailService,AppleAuthService],  // No need to manually inject UserRepository anymore
   controllers: [AuthController],
   exports: [AuthService,AppleAuthService],
 })
