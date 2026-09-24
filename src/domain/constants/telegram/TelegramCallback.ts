@@ -22,6 +22,7 @@ export const TelegramCallback = {
   BrokerLoads: 'broker_loads',
   BrokerDrivers: 'broker_drivers',
 
+  RegisterAccountTypePrefix: 'register_account_type:',
   AccountTypePrefix: 'account_type:',
   PlanPrefix: 'plan:',
   RequestLoadPrefix: 'request_load:',

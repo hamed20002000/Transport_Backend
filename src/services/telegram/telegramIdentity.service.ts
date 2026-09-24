@@ -1,7 +1,9 @@
+import { ConfigService } from '@nestjs/config';
+import { RedisService } from '../redis/redis.service';
 import {
   Inject,
   Injectable,
-  NotFoundException,
+  ConflictException,
 } from '@nestjs/common';
 
 import { TelegramLink } from '../../domain/entities/agent/TelegramLink';
@@ -17,7 +19,28 @@ export class TelegramIdentityService {
   constructor(
     @Inject(TELEGRAM_LINK_REPOSITORY)
     private readonly repository: ITelegramLinkRepository,
+    private readonly redis: RedisService,
+    private readonly config: ConfigService,
   ) {}
+
+  async cacheUserId(telegramUserId: string, userId: string): Promise<void> {
+    const botId = this.config.getOrThrow<string>('TELEGRAM_BOT_TOKEN').split(':')[0];
+    await this.redis.delete(RedisService.key('telegramIdentityRoles', botId, telegramUserId));
+    await this.redis.set(RedisService.key('telegramIdentity', botId, telegramUserId), userId, 86400);
+  }
+
+  /** Menu presentation only; business authorization must still check current permissions. */
+  async getMenuRoles(telegramUserId: string): Promise<string[] | null> {
+    const botId = this.config.getOrThrow<string>('TELEGRAM_BOT_TOKEN').split(':')[0];
+    const key = RedisService.key('telegramIdentityRoles', botId, telegramUserId);
+    const roles = await this.redis.getJson<string[]>(key);
+    if (roles !== null) return roles;
+    const link = await this.repository.findByTelegramUserId(telegramUserId);
+    if (!link?.userId || !link.user) return null;
+    const names = link.user.userRoles?.filter(item => item.role != null).map(item => item.role.name) ?? [];
+    await this.redis.setJson(key, names, 86400);
+    return names;
+  }
 
   /*
    * =====================================================
@@ -56,11 +79,17 @@ export class TelegramIdentityService {
   async getUserId(
     telegramUserId: string,
   ): Promise<string | null> {
-    const link =
-      await this.repository.findByTelegramUserId(
-        telegramUserId,
-      );
-
+    const botId = this.config.getOrThrow<string>('TELEGRAM_BOT_TOKEN').split(':')[0];
+    const cached = await this.redis.get(RedisService.key('telegramIdentity', botId, telegramUserId));
+    if (cached) return cached;
+    const link = await this.repository.findByTelegramUserId(telegramUserId);
+    if (link?.userId) {
+      await this.cacheUserId(telegramUserId, link.userId);
+      if (link.user) {
+        const roles = link.user.userRoles?.filter(item => item.role != null).map(item => item.role.name) ?? [];
+        await this.redis.setJson(RedisService.key('telegramIdentityRoles', botId, telegramUserId), roles, 86400);
+      }
+    }
     return link?.userId ?? null;
   }
 
@@ -73,14 +102,7 @@ export class TelegramIdentityService {
   async isRegistered(
     telegramUserId: string,
   ): Promise<boolean> {
-    const link =
-      await this.repository.findByTelegramUserId(
-        telegramUserId,
-      );
-
-    return Boolean(
-      link?.userId,
-    );
+    return Boolean(await this.getUserId(telegramUserId));
   }
 
   /*
@@ -178,6 +200,14 @@ export class TelegramIdentityService {
         params.telegramUserId,
       );
 
+    if (link?.userId && link.userId !== params.userId) {
+      throw new ConflictException('Telegram account is already linked.');
+    }
+    const existing = await this.repository.findByUserId(params.userId);
+    if (existing && existing.telegramUserId !== params.telegramUserId) {
+      throw new ConflictException('User is already linked to another Telegram account.');
+    }
+
     /*
      * TelegramLink does not exist yet.
      *
@@ -210,8 +240,8 @@ export class TelegramIdentityService {
     link.lastInteractionAt =
       new Date();
 
-    return this.repository.save(
-      link,
-    );
+    const saved = await this.repository.save(link);
+    await this.cacheUserId(params.telegramUserId, params.userId);
+    return saved;
   }
 }

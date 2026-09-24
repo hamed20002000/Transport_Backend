@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { QueryFailedError } from 'typeorm';
 import { IUserRepository } from 'src/domain/repositories/IUserRepopsitory';
 import { USER_REPOSITORY } from 'src/domain/repositories/repository.tokens';
@@ -41,10 +41,6 @@ export class RegistrationService {
     private readonly config: ConfigService,
   ) {}
 
-  private key(phone: string): string {
-    return `auth:registration:${phone}`;
-  }
-
   private digest(phone: string, code: string): string {
     return createHmac('sha256', this.config.getOrThrow<string>('JWT_SECRET_KEY'))
       .update(`registration:${phone}:${code}`)
@@ -52,7 +48,7 @@ export class RegistrationService {
   }
 
   private async withLock<T>(phone: string, operation: () => Promise<T>): Promise<T> {
-    const key = `auth:registration-lock:${phone}`;
+    const key = RedisService.key('registrationLock', phone);
     const owner = randomBytes(16).toString('hex');
     if (!(await this.redis.setIfAbsent(key, owner, 120))) {
       throw new ConflictException('Another registration request is in progress.');
@@ -76,11 +72,11 @@ export class RegistrationService {
   async requestOtp(dto: RegisterDto) {
     return this.withLock(dto.phoneNumber, async () => {
       await this.ensureAvailable(dto.username, dto.phoneNumber);
-      const cooldown = `auth:registration-cooldown:${dto.phoneNumber}`;
+      const cooldown = RedisService.key('registrationCooldown', dto.phoneNumber);
       if (!(await this.redis.setIfAbsent(cooldown, '1', 60))) {
         throw new HttpException('Wait 60 seconds before requesting another code.', 429);
       }
-      const key = this.key(dto.phoneNumber);
+      const key = RedisService.key('registration', dto.phoneNumber);
       try {
         const code = randomInt(100000, 1000000).toString();
         const pending: PendingRegistration = {
@@ -103,7 +99,7 @@ export class RegistrationService {
 
   async verifyOtp(phone: string, code: string) {
     return this.withLock(phone, async () => {
-      const key = this.key(phone);
+      const key = RedisService.key('registration', phone);
       const pending = await this.redis.getJson<PendingRegistration>(key);
       if (!pending || pending.expiresAt <= Date.now()) {
         throw new BadRequestException('Registration code has expired or does not exist.');
@@ -140,21 +136,17 @@ export class RegistrationService {
     });
   }
 
-  private refreshKey(token: string): string {
-    return `auth:refresh:${createHash('sha256').update(token).digest('hex')}`;
-  }
-
   private async issueTokens(user: User) {
     const payload = new JwtPayload(user);
     if (!payload.isActive || payload.roles.length === 0) throw new UnauthorizedException();
     const accessToken = this.jwt.sign({ ...payload });
     const refreshToken = randomBytes(48).toString('hex');
-    await this.redis.set(this.refreshKey(refreshToken), user.id, 30 * 24 * 3600);
+    await this.redis.set(RedisService.key('refreshToken', refreshToken), user.id, 30 * 24 * 3600);
     return { accessToken, refreshToken, tokenType: 'Bearer' };
   }
 
   async refresh(token: string) {
-    const userId = await this.redis.take(this.refreshKey(token));
+    const userId = await this.redis.take(RedisService.key('refreshToken', token));
     if (!userId) throw new UnauthorizedException('Invalid or expired refresh token.');
     const user = await this.users.findById(userId);
     if (!user) throw new UnauthorizedException();

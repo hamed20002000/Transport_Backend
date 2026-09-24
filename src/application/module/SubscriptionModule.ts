@@ -1,3 +1,6 @@
+import { SubscriptionPlanController } from 'src/presentation/controllers/admin/subscription-plan.controller';
+import { Subscription } from '../../domain/entities/subscription/Subscription';
+import { SubscriptionRepository } from '../../infrastructure/repositories/subscription/subscription.repository';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
@@ -15,6 +18,7 @@ import { PaymentReceiptService } from 'src/services/subscription/paymentreceipt.
 import { ReceiptAnalyzerService } from '../../services/subscription/receiptAnalyzer.service';
 
 import {
+  SUBSCRIPTION_REPOSITORY,
   SUBSCRIPTION_PLAN_REPOSITORY,
   SUBSCRIPTION_ORDER_REPOSITORY,
   PAYMENT_RECEIPT_REPOSITORY,
@@ -22,8 +26,10 @@ import {
 } from '../../domain/repositories/repository.tokens';
 
 @Module({
+  controllers: [SubscriptionPlanController],
   imports: [
     TypeOrmModule.forFeature([
+      Subscription,
       SubscriptionPlan,
       SubscriptionOrder,
       PaymentReceipt,
@@ -31,6 +37,8 @@ import {
   ],
 
   providers: [
+    SubscriptionRepository,
+    { provide: SUBSCRIPTION_REPOSITORY, useExisting: SubscriptionRepository },
     SubscriptionPlanService,
     SubscriptionOrderService,
     PaymentReceiptService,
@@ -63,6 +71,7 @@ import {
   ],
 
   exports: [
+    SUBSCRIPTION_REPOSITORY,
     SubscriptionPlanService,
     SubscriptionOrderService,
     PaymentReceiptService,

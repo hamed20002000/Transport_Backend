@@ -1,3 +1,4 @@
+import { User } from '../../entities/auth/User';
 import { TelegramLink } from '../../entities/agent/TelegramLink';
 
 export interface ITelegramLinkRepository {
@@ -8,6 +9,10 @@ export interface ITelegramLinkRepository {
   findByUserId(
     userId: string,
   ): Promise<TelegramLink | null>;
+
+  createUserWithLink(user: User, link: TelegramLink): Promise<TelegramLink>;
+
+  assignInitialRole(telegramUserId: string, roleName: string): Promise<string>;
 
   save(
     entity: TelegramLink,

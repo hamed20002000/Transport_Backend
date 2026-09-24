@@ -1,3 +1,4 @@
+import { TelegramSubscriptionService } from './telegramSubscription.service';
 import { Injectable } from '@nestjs/common';
 import TelegramBot from 'node-telegram-bot-api';
 import { TelegramKeyboardService } from './telegramKeyboard';
@@ -21,6 +22,7 @@ export class TelegramMenuService {
     private readonly messages:
       TelegramMessagesService,
     private readonly keyboard: TelegramKeyboardService,
+    private readonly telegramSubscriptionService: TelegramSubscriptionService,
   ) {}
 
   /*
@@ -29,43 +31,18 @@ export class TelegramMenuService {
    * =====================================================
    */
 
-  async showMainMenu(
+  async showMenuForUser(
     bot: TelegramBot,
     chatId: string,
     telegramUserId: string,
   ): Promise<void> {
-    const link =
-      await this.telegramIdentityService.findByTelegramUserId(
-        telegramUserId,
-      );
-
-    /*
-     * Guest
-     */
-
-    if (!link?.user) {
-      await this.showGuestMenu(
-        bot,
-        chatId,
-      );
-
+    const roles = await this.telegramIdentityService.getMenuRoles(telegramUserId);
+    if (roles === null) {
+      await this.showGuestMenu(bot, chatId);
       return;
     }
 
-    /*
-     * Roles
-     */
-
-    const roles =
-      link.user.userRoles
-        ?.filter(
-          userRole =>
-            userRole.role != null,
-        )
-        .map(
-          userRole =>
-            userRole.role.name,
-        ) ?? [];
+    if (!(await this.ensureActiveSubscription(bot, chatId, telegramUserId))) return;
 
     /*
      * Driver
@@ -124,6 +101,10 @@ export class TelegramMenuService {
       bot,
       chatId,
     );
+  }
+
+  ensureActiveSubscription(bot: TelegramBot, chatId: string, telegramUserId: string): Promise<boolean> {
+    return this.telegramSubscriptionService.ensureActiveSubscription(bot, chatId, telegramUserId);
   }
 
   /*

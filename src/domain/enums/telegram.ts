@@ -1,5 +1,6 @@
 export enum TelegramSessionState {
   Idle = 'IDLE',
+  RegisteringAccountType = 'REGISTERING_ACCOUNT_TYPE',
 
   SelectingAccountType = 'SELECTING_ACCOUNT_TYPE',
 

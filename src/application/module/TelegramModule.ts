@@ -1,3 +1,6 @@
+import { TelegramSubscriptionService } from '../../services/telegram/telegramSubscription.service';
+import { UserModule } from './UserModule';
+import { TelegramAccessService } from '../../services/telegram/telegramAccess.service';
 import { RedisModule } from './RedisModule';
 import { TelegramKeyboardService } from '../../services/telegram/telegramKeyboard';
 import { TelegramWebhookController } from '../../services/telegram/telegramWebhook.controller';
@@ -32,11 +35,14 @@ import { SubscriptionModule } from './SubscriptionModule';
 
     SubscriptionModule,
     RedisModule,
+    UserModule,
   ],
 
   controllers: [TelegramWebhookController],
 
   providers: [
+    TelegramSubscriptionService,
+    TelegramAccessService,
     TelegramKeyboardService,
     TelegramLinkRepository,
 

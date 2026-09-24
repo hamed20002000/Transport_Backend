@@ -1,3 +1,4 @@
+import { TelegramAccessService } from './telegramAccess.service';
 import {
   Injectable,
   Logger,
@@ -53,6 +54,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     private readonly messages:
       TelegramMessagesService,
     private readonly keyboard: TelegramKeyboardService,
+    private readonly telegramAccessService: TelegramAccessService,
   ) {}
 
   /*
@@ -187,26 +189,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     const chatId =
       message.chat.id.toString();
 
-    /*
-     * هر کسی که با Bot کار می‌کند
-     * TelegramLink خواهد داشت.
-     *
-     * userId می‌تواند null باشد.
-     */
-
-    await this.telegramIdentityService.touch({
-      telegramUserId,
-      chatId,
-
-      username:
-        from.username,
-
-      firstName:
-        from.first_name,
-
-      lastName:
-        from.last_name,
-    });
+    if (await this.telegramAccessService.handle(this.bot, message, from)) return;
 
     /*
      * =====================================================
@@ -285,6 +268,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
      *
      * Agent هنوز اضافه نشده.
      */
+
+    if (!(await this.telegramMenuService.ensureActiveSubscription(this.bot, chatId, telegramUserId))) return;
 
     if (message.voice) {
       await this.sendMessage(
@@ -381,23 +366,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    /*
-     * Telegram Identity
-     */
-
-    await this.telegramIdentityService.touch({
-      telegramUserId,
-      chatId,
-
-      username:
-        from.username,
-
-      firstName:
-        from.first_name,
-
-      lastName:
-        from.last_name,
-    });
+    if (query.message && await this.telegramAccessService.handle(this.bot, query.message, from, query.data ?? '')) return;
 
     const data =
       query.data;
@@ -633,6 +602,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
      * Driver
      * =====================================================
      */
+
+    if (!(await this.telegramMenuService.ensureActiveSubscription(this.bot, chatId, telegramUserId))) return;
 
     if (
       data ===
@@ -914,7 +885,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    await this.telegramMenuService.showMainMenu(this.bot, chatId, telegramUserId);
+    await this.telegramMenuService.showMenuForUser(this.bot, chatId, telegramUserId);
   }
 
   private mainMenuKeyboard():

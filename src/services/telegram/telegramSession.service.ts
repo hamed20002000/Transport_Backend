@@ -18,7 +18,7 @@ export class TelegramSessionService {
   }
 
   async get(telegramUserId: string): Promise<TelegramSession | null> {
-    const key = this.key(telegramUserId);
+    const key = RedisService.key('telegramSession', this.botId, telegramUserId);
     const session = await this.redis.getJson<TelegramSession>(key);
     if (session === null) return null;
     // Refresh expiry without overwriting a newer session value.
@@ -30,7 +30,7 @@ export class TelegramSessionService {
   }
 
   async set(telegramUserId: string, session: TelegramSession): Promise<void> {
-    await this.redis.setJson(this.key(telegramUserId), session, this.ttlSeconds);
+    await this.redis.setJson(RedisService.key('telegramSession', this.botId, telegramUserId), session, this.ttlSeconds);
   }
 
   async update(
@@ -50,11 +50,7 @@ export class TelegramSessionService {
   }
 
   async delete(telegramUserId: string): Promise<void> {
-    await this.redis.delete(this.key(telegramUserId));
+    await this.redis.delete(RedisService.key('telegramSession', this.botId, telegramUserId));
   }
 
-  private key(telegramUserId: string): string {
-    if (!this.botId) throw new Error('TELEGRAM_BOT_TOKEN is required for session state.');
-    return `telegram:session:v1:${this.botId}:${telegramUserId}`;
-  }
 }

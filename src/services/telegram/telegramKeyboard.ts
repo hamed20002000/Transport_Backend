@@ -47,7 +47,7 @@ export class TelegramKeyboardService {
 
     if (!this.botId) throw new Error('TELEGRAM_BOT_TOKEN is required for keyboard state.');
 
-    const key = `telegram:keyboard:v1:${this.botId}:${chatId}`;
+    const key = RedisService.key('telegramKeyboard', this.botId, chatId);
     // Serialize transitions within this process. Multiple bot workers still need
     // distributed coordination for concurrent operations on the same chat.
     const operation = (this.pending.get(key) ?? Promise.resolve()).then(async () => {

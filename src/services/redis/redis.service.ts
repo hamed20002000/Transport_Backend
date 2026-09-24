@@ -1,9 +1,23 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
+import { createHash } from 'node:crypto';
+
+import { KEY_PREFIXES, RedisKeyParts } from './redis.keys';
 
 @Injectable()
 export class RedisService implements OnModuleDestroy {
+  /** Central key schema; preserve prefixes so existing Redis data remains usable. */
+  static key<K extends keyof RedisKeyParts>(kind: K, ...parts: RedisKeyParts[K]): string {
+    if (parts.some((part) => !part || part.includes(':'))) {
+      throw new Error('Redis key parts must be non-empty and cannot contain colons.');
+    }
+    const identifiers = kind === 'refreshToken'
+      ? [createHash('sha256').update(parts[0]).digest('hex')]
+      : parts;
+    return [KEY_PREFIXES[kind], ...identifiers].join(':');
+  }
+
   private readonly logger = new Logger(RedisService.name);
   private readonly client: Redis;
 

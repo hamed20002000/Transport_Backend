@@ -437,7 +437,7 @@ export class TelegramAccountHandler {
         );
 
         await this.telegramMenuService
-          .showMainMenu(
+          .showMenuForUser(
             bot,
             chatId,
             telegramUserId,
@@ -646,7 +646,7 @@ export class TelegramAccountHandler {
       );
 
       await this.telegramMenuService
-        .showMainMenu(
+        .showMenuForUser(
           bot,
           chatId,
           telegramUserId,
@@ -869,7 +869,7 @@ export class TelegramAccountHandler {
       );
 
       await this.telegramMenuService
-        .showMainMenu(
+        .showMenuForUser(
           bot,
           chatId,
           telegramUserId,
@@ -1015,7 +1015,7 @@ export class TelegramAccountHandler {
     );
 
     await this.telegramMenuService
-      .showMainMenu(
+      .showMenuForUser(
         bot,
         chatId,
         telegramUserId,
