@@ -80,14 +80,22 @@ export class TelegramIdentityService {
     telegramUserId: string,
   ): Promise<string | null> {
     const botId = this.config.getOrThrow<string>('TELEGRAM_BOT_TOKEN').split(':')[0];
-    const cached = await this.redis.get(RedisService.key('telegramIdentity', botId, telegramUserId));
-    if (cached) return cached;
+    try {
+      const cached = await this.redis.get(RedisService.key('telegramIdentity', botId, telegramUserId));
+      if (cached) return cached;
+    } catch {
+      // Redis unavailable: fall back to the database.
+    }
     const link = await this.repository.findByTelegramUserId(telegramUserId);
     if (link?.userId) {
-      await this.cacheUserId(telegramUserId, link.userId);
-      if (link.user) {
-        const roles = link.user.userRoles?.filter(item => item.role != null).map(item => item.role.name) ?? [];
-        await this.redis.setJson(RedisService.key('telegramIdentityRoles', botId, telegramUserId), roles, 86400);
+      try {
+        await this.cacheUserId(telegramUserId, link.userId);
+        if (link.user) {
+          const roles = link.user.userRoles?.filter(item => item.role != null).map(item => item.role.name) ?? [];
+          await this.redis.setJson(RedisService.key('telegramIdentityRoles', botId, telegramUserId), roles, 86400);
+        }
+      } catch {
+        // Caching is best-effort; the database result is still valid.
       }
     }
     return link?.userId ?? null;

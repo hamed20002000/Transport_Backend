@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { randomBytes } from 'node:crypto';
 import { TelegramSessionState } from '../../domain/enums/telegram';
 import { TelegramSession } from '../../domain/interfaces/telegram.interface';
 import { RedisService } from '../redis/redis.service';
@@ -21,6 +22,8 @@ export class TelegramSessionService {
     const key = RedisService.key('telegramSession', this.botId, telegramUserId);
     const session = await this.redis.getJson<TelegramSession>(key);
     if (session === null) return null;
+    // Fixed-deadline sessions (e.g. payment window) must not be extended by reads.
+    if (session.expiresAt) return session;
     // Refresh expiry without overwriting a newer session value.
     return await this.redis.expire(key, this.ttlSeconds) ? session : null;
   }
@@ -30,7 +33,14 @@ export class TelegramSessionService {
   }
 
   async set(telegramUserId: string, session: TelegramSession): Promise<void> {
-    await this.redis.setJson(RedisService.key('telegramSession', this.botId, telegramUserId), session, this.ttlSeconds);
+    const ttlSeconds = session.expiresAt
+      ? Math.ceil((session.expiresAt - Date.now()) / 1000)
+      : this.ttlSeconds;
+    if (ttlSeconds <= 0) {
+      await this.delete(telegramUserId);
+      return;
+    }
+    await this.redis.setJson(RedisService.key('telegramSession', this.botId, telegramUserId), session, ttlSeconds);
   }
 
   async update(
@@ -47,6 +57,25 @@ export class TelegramSessionService {
     const session: TelegramSession = { state: TelegramSessionState.Idle };
     await this.set(telegramUserId, session);
     return session;
+  }
+
+  /**
+   * Runs `task` only if no other receipt for this user is being processed.
+   * Returns `locked: true` without running it otherwise.
+   */
+  async withReceiptLock<T>(
+    telegramUserId: string,
+    task: () => Promise<T>,
+  ): Promise<{ locked: true } | { locked: false; result: T }> {
+    const key = RedisService.key('telegramReceiptLock', this.botId, telegramUserId);
+    const owner = randomBytes(16).toString('hex');
+    // Covers download and database write; analysis runs in the background.
+    if (!(await this.redis.setIfAbsent(key, owner, 300))) return { locked: true };
+    try {
+      return { locked: false, result: await task() };
+    } finally {
+      await this.redis.deleteIfValue(key, owner);
+    }
   }
 
   async delete(telegramUserId: string): Promise<void> {

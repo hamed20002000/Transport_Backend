@@ -11,6 +11,9 @@ export interface ReceiptAnalysisResult {
 
   destinationCard: string | null;
 
+  /** Destination card holder name as printed (به نام / نام گیرنده). */
+  destinationName: string | null;
+
   paymentStatus:
     | 'SUCCESS'
     | 'FAILED'

@@ -16,6 +16,7 @@ import { SubscriptionPlanService } from '../../services/subscription/subscriptio
 import { SubscriptionOrderService } from 'src/services/subscription/subscriptionorder.service';
 import { PaymentReceiptService } from 'src/services/subscription/paymentreceipt.service';
 import { ReceiptAnalyzerService } from '../../services/subscription/receiptAnalyzer.service';
+import { ReceiptAnalysisWorker } from '../../services/subscription/receiptAnalysisWorker.service';
 
 import {
   SUBSCRIPTION_REPOSITORY,
@@ -48,6 +49,7 @@ import {
     PaymentReceiptRepository,
 
     ReceiptAnalyzerService,
+    ReceiptAnalysisWorker,
 
     {
       provide: SUBSCRIPTION_PLAN_REPOSITORY,

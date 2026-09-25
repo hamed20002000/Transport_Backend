@@ -35,6 +35,9 @@ export enum SubscriptionOrderStatus {
 export enum PaymentReceiptStatus {
     PendingAnalysis = 'PENDING_ANALYSIS',
 
+    /** Claimed by a worker; returns to PendingAnalysis if the worker dies. */
+    Analyzing = 'ANALYZING',
+
     Analyzed = 'ANALYZED',
 
     NeedsReview = 'NEEDS_REVIEW',

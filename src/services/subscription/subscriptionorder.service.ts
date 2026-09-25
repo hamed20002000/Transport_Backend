@@ -59,6 +59,18 @@ export class SubscriptionOrderService {
   async createOrder(
     params: CreateSubscriptionOrderParams,
   ): Promise<SubscriptionOrder> {
+    return this.orderRepository.save(
+      await this.buildOrder(params),
+    );
+  }
+
+  /**
+   * Validates and prepares an order without saving it, so callers can
+   * persist it together with related rows in one transaction.
+   */
+  async buildOrder(
+    params: CreateSubscriptionOrderParams,
+  ): Promise<SubscriptionOrder> {
     const providerUserId =
       params.providerUserId.trim();
 
@@ -133,9 +145,7 @@ export class SubscriptionOrderService {
       SubscriptionOrderStatus
         .WaitingForReceipt;
 
-    return this.orderRepository.save(
-      order,
-    );
+    return order;
   }
 
   private normalizePhone(

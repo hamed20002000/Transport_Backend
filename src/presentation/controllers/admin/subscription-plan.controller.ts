@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, NotFoundException, Param, ParseUUIDPipe, Post, Req, UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Transform } from 'class-transformer';
@@ -6,6 +6,7 @@ import { IsEnum, IsIn, IsInt, IsString, Matches, Max, MaxLength, Min, MinLength 
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { SubscriptionPlan } from 'src/domain/entities/subscription/SubscriptionPlan';
 import { AccountType } from 'src/domain/enums/subscription';
+import { RecordStatus } from 'src/domain/enums/RecordStatus';
 
 export class CreateSubscriptionPlanDto {
   @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
@@ -46,12 +47,21 @@ export class SubscriptionPlanController {
   @Get()
   list(@Req() request: { user?: { roles?: string[]; isActive?: boolean } }) {
     this.requireAdmin(request);
-    return this.plans.find({ order: { sortOrder: 'ASC', createdAt: 'DESC' } });
+    return this.plans.find({ where: { recordStatus: RecordStatus.Active }, order: { sortOrder: 'ASC', createdAt: 'DESC' } });
   }
 
   @Post()
   create(@Req() request: { user?: { roles?: string[]; isActive?: boolean } }, @Body() dto: CreateSubscriptionPlanDto) {
     this.requireAdmin(request);
     return this.plans.save(this.plans.create(dto));
+  }
+
+  // Deleting only deactivates the plan so existing subscriptions and orders keep their reference.
+  @Delete(':id')
+  async remove(@Req() request: { user?: { roles?: string[]; isActive?: boolean } }, @Param('id', ParseUUIDPipe) id: string) {
+    this.requireAdmin(request);
+    const result = await this.plans.update({ id, recordStatus: RecordStatus.Active }, { recordStatus: RecordStatus.Inactive });
+    if (!result.affected) throw new NotFoundException('Subscription plan not found.');
+    return { id };
   }
 }

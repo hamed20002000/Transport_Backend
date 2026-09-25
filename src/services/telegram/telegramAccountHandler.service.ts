@@ -57,6 +57,10 @@ import {
   TelegramMessagesService,
 } from './telegramMessages.service';
 
+import {
+  TelegramIdentityService,
+} from './telegramIdentity.service';
+
 @Injectable()
 export class TelegramAccountHandler {
   private readonly logger =
@@ -86,7 +90,14 @@ export class TelegramAccountHandler {
     private readonly messages:
       TelegramMessagesService,
     private readonly keyboard: TelegramKeyboardService,
+    private readonly telegramIdentityService: TelegramIdentityService,
   ) {}
+
+  /** How long the user has to pay and upload the receipt after choosing a plan. */
+  private get paymentTimeoutSeconds(): number {
+    const value = Number(this.configService.get('PAYMENT_TIMEOUT_SECONDS', 600));
+    return Number.isSafeInteger(value) && value > 0 ? value : 600;
+  }
 
   async showPurchaseStatus(
     bot: TelegramBot,
@@ -124,6 +135,20 @@ export class TelegramAccountHandler {
           if (session.accountType && session.subscriptionPlanId) {
             await this.selectPlan(bot, chatId, telegramUserId, session.subscriptionPlanId);
             return;
+          }
+          break;
+        case TelegramSessionState.WaitingForReceipt:
+          // Payment window still open but no order persisted yet.
+          if (!session.orderId && session.subscriptionPlanId) {
+            const plan = await this.subscriptionPlanService.findById(session.subscriptionPlanId);
+            if (plan) {
+              await this.keyboard.sendMessage(bot, chatId, this.messages.get('payment.waitingForReceipt'));
+              await this.sendPaymentInformation(
+                bot, chatId, plan.price, plan.currency,
+                session.expiresAt ? (session.expiresAt - Date.now()) / 1000 : undefined,
+              );
+              return;
+            }
           }
           break;
       }
@@ -477,59 +502,68 @@ export class TelegramAccountHandler {
         return;
       }
 
-      await this.telegramSessionService.update(
+      /*
+       * The user is already registered with a verified
+       * mobile, so it is reused for the order.
+       */
+      const link =
+        await this.telegramIdentityService
+          .findByTelegramUserId(
+            telegramUserId,
+          );
+
+      const phoneNumber =
+        link?.user?.mobile;
+
+      if (!phoneNumber) {
+        await this.telegramSessionService.reset(
+          telegramUserId,
+        );
+
+        await this.keyboard.sendMessage(bot,
+          chatId,
+          this.messages.get(
+            'account.invalidPurchaseSession',
+          ),
+        );
+
+        return;
+      }
+
+      /*
+       * The order is created only when the receipt
+       * arrives; until then the purchase lives in
+       * Redis and expires after the payment window.
+       */
+      const timeoutSeconds =
+        this.paymentTimeoutSeconds;
+
+      await this.telegramSessionService.set(
         telegramUserId,
         {
           state:
             TelegramSessionState
-              .WaitingForPhone,
+              .WaitingForReceipt,
+
+          accountType:
+            session.accountType,
 
           subscriptionPlanId:
             plan.id,
+
+          phoneNumber,
+
+          expiresAt:
+            Date.now() + timeoutSeconds * 1000,
         },
       );
 
-      await this.keyboard.sendMessage(bot,
+      await this.sendPaymentInformation(
+        bot,
         chatId,
-
-        this.messages.get(
-          'account.planSelected',
-          'fa',
-          {
-            title:
-              plan.title,
-
-            price:
-              this.formatPrice(
-                plan.price,
-              ),
-          },
-        ),
-
-        {
-          reply_markup: {
-            keyboard: [
-              [
-                {
-                  text:
-                    this.messages.get(
-                      'account.sendPhoneNumber',
-                    ),
-
-                  request_contact:
-                    true,
-                },
-              ],
-              [{ text: this.messages.get('menu.common.mainMenu') }],
-            ],
-
-            resize_keyboard:
-              true,
-
-            one_time_keyboard:
-              true,
-          },
-        },
+        plan.price,
+        plan.currency,
+        timeoutSeconds,
       );
     } catch (error: unknown) {
       this.logger.error(
@@ -748,15 +782,31 @@ export class TelegramAccountHandler {
     chatId: string,
     amount: string,
     currency: string,
+    /** Remaining payment window; omitted for orders already saved in the database. */
+    remainingSeconds?: number,
   ): Promise<void> {
+    const deadline =
+      remainingSeconds
+        ? `\n\n${this.messages.get(
+          'payment.deadline',
+          'fa',
+          {
+            minutes:
+              this.formatPrice(
+                Math.ceil(remainingSeconds / 60),
+              ),
+          },
+        )}`
+        : '';
+
     const cardNumber =
       this.configService.getOrThrow<string>(
-        'SUBSCRIPTION_CARD_NUMBER',
+        'CARD_NO',
       );
 
     const cardOwner =
       this.configService.getOrThrow<string>(
-        'SUBSCRIPTION_CARD_OWNER',
+        'CARD_OWNER',
       );
 
     await this.keyboard.sendMessage(bot,
@@ -777,7 +827,7 @@ export class TelegramAccountHandler {
 
           cardOwner,
         },
-      ),
+      ) + deadline,
     );
 
     await this.keyboard.sendMessage(bot,
@@ -856,29 +906,134 @@ export class TelegramAccountHandler {
       return true;
     }
 
-    if (!session.orderId) {
-      await this.telegramSessionService.reset(
-        telegramUserId,
-      );
+    const outcome =
+      await this.telegramSessionService
+        .withReceiptLock(
+          telegramUserId,
+          () =>
+            this.processReceipt(
+              bot,
+              chatId,
+              telegramUserId,
+              fileId,
+            ),
+        );
 
+    if (outcome.locked) {
       await this.keyboard.sendMessage(bot,
         chatId,
         this.messages.get(
-          'account.invalidPurchaseSession',
+          'payment.receiptProcessing',
         ),
       );
+    }
 
-      await this.telegramMenuService
-        .showMenuForUser(
-          bot,
-          chatId,
-          telegramUserId,
-        );
+    return true;
+  }
 
-      return true;
+  /*
+   * Runs under the per-user receipt lock, so two photos sent
+   * back to back cannot create two orders.
+   */
+  private async processReceipt(
+    bot: TelegramBot,
+    chatId: string,
+    telegramUserId: string,
+    fileId: string,
+  ): Promise<void> {
+    // Re-read: another photo may have completed while we waited.
+    const session =
+      await this.telegramSessionService.get(
+        telegramUserId,
+      );
+
+    if (
+      !session ||
+      session.state !==
+        TelegramSessionState
+          .WaitingForReceipt
+    ) {
+      await this.showPurchaseStatus(
+        bot,
+        chatId,
+        telegramUserId,
+      );
+
+      return;
     }
 
     try {
+      let orderId =
+        session.orderId;
+
+      /*
+       * The database is the source of truth: if a previous
+       * submission committed but the session was not updated
+       * (e.g. Redis failed), never create a second order.
+       */
+      if (!orderId) {
+        const pending =
+          await this.subscriptionOrderService
+            .findOrderForTracking(
+              CommunicationProvider.Telegram,
+              telegramUserId,
+            );
+
+        if (
+          pending &&
+          [
+            SubscriptionOrderStatus.ReceiptSubmitted,
+            SubscriptionOrderStatus.UnderReview,
+          ].includes(pending.status)
+        ) {
+          await this.showOrderStatus(
+            bot,
+            chatId,
+            telegramUserId,
+            pending,
+          );
+
+          return;
+        }
+
+        if (
+          pending?.status ===
+            SubscriptionOrderStatus.WaitingForReceipt
+        ) {
+          orderId =
+            pending.id;
+        }
+      }
+
+      if (
+        !orderId &&
+        !(
+          session.accountType &&
+          session.subscriptionPlanId &&
+          session.phoneNumber
+        )
+      ) {
+        await this.telegramSessionService.reset(
+          telegramUserId,
+        );
+
+        await this.keyboard.sendMessage(bot,
+          chatId,
+          this.messages.get(
+            'account.invalidPurchaseSession',
+          ),
+        );
+
+        await this.telegramMenuService
+          .showMenuForUser(
+            bot,
+            chatId,
+            telegramUserId,
+          );
+
+        return;
+      }
+
       await this.keyboard.sendMessage(bot,
         chatId,
         this.messages.get(
@@ -914,17 +1069,43 @@ export class TelegramAccountHandler {
           uploadDirectory,
         );
 
-      await this.paymentReceiptService
-        .submitReceipt({
-          orderId:
-            session.orderId,
+      /*
+       * A new order (plan chosen within the payment window)
+       * is created in the same transaction as the receipt.
+       */
+      const receipt =
+        await this.paymentReceiptService
+          .submitReceipt({
+            ...(
+              orderId
+                ? { orderId }
+                : {
+                  newOrder: {
+                    provider:
+                      CommunicationProvider
+                        .Telegram,
 
-          imageUrl:
-            downloadedFilePath,
+                    providerUserId:
+                      telegramUserId,
 
-          providerFileId:
-            fileId,
-        });
+                    phoneNumber:
+                      session.phoneNumber!,
+
+                    accountType:
+                      session.accountType!,
+
+                    subscriptionPlanId:
+                      session.subscriptionPlanId!,
+                  },
+                }
+            ),
+
+            imageUrl:
+              downloadedFilePath,
+
+            providerFileId:
+              fileId,
+          });
 
       await this.telegramSessionService.update(
         telegramUserId,
@@ -932,6 +1113,13 @@ export class TelegramAccountHandler {
           state:
             TelegramSessionState
               .UnderReview,
+
+          orderId:
+            receipt.orderId,
+
+          // Back to a normal sliding session once the payment window is done.
+          expiresAt:
+            undefined,
         },
       );
 
@@ -959,8 +1147,6 @@ export class TelegramAccountHandler {
           },
         },
       );
-
-      return true;
     } catch (error: unknown) {
       this.logger.error(
         `Could not submit payment receipt: ${this.getErrorMessage(error)}`,
@@ -972,8 +1158,6 @@ export class TelegramAccountHandler {
           'errors.submitReceiptFailed',
         ),
       );
-
-      return true;
     }
   }
 

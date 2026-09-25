@@ -60,6 +60,18 @@ export class PaymentReceipt {
   })
   status!: PaymentReceiptStatus;
 
+  @Column({
+    type: 'int',
+    default: 0,
+  })
+  analysisAttempts!: number;
+
+  @Column({
+    type: 'timestamp',
+    nullable: true,
+  })
+  analysisStartedAt?: Date;
+
   // --------------------------
   // AI extracted data
   // --------------------------
@@ -108,6 +120,13 @@ export class PaymentReceipt {
 
   @Column({
     type: 'varchar',
+    length: 150,
+    nullable: true,
+  })
+  destinationName?: string;
+
+  @Column({
+    type: 'varchar',
     length: 30,
     nullable: true,
   })
@@ -132,6 +151,12 @@ export class PaymentReceipt {
     nullable: true,
   })
   destinationCardMatched?: boolean;
+
+  @Column({
+    type: 'boolean',
+    nullable: true,
+  })
+  destinationNameMatched?: boolean;
 
   @Column({
     type: 'boolean',

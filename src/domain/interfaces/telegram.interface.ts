@@ -16,6 +16,9 @@ export interface TelegramSession {
   pendingOperationId?: string;
 
   pendingOptions?: TelegramPendingOption[];
+
+  /** Epoch ms; when set, the session expires at this fixed time instead of sliding. */
+  expiresAt?: number;
 }
 
 export interface TelegramPendingOption {
