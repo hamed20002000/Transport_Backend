@@ -12,7 +12,7 @@ export class VerifyRegistrationDto {
 
   @ApiProperty({ example: '123456' })
   @IsString()
-  @Matches(/^[0-9]{6}$/)
+  @Matches(/^[0-9]{4,10}$/)
   code!: string;
 }
 

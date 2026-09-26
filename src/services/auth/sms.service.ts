@@ -1,38 +1,46 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class SmsService {
+  private readonly logger = new Logger(SmsService.name);
+
   constructor(
     private readonly config: ConfigService,
     private readonly http: HttpService,
   ) {}
 
-  async sendOtp(phoneNumber: string, code: string): Promise<void> {
-    const apiKey = this.config.get<string>('KAVENEGAR_API_KEY')?.trim();
-    const template = this.config.get<string>('KAVENEGAR_OTP_TEMPLATE')?.trim();
-    if (!apiKey || !template) {
+  /** Melipayamak generates and sends the one-time code itself; the sent code is returned for verification. */
+  async sendOtp(phoneNumber: string): Promise<string> {
+    const token = this.config.get<string>('MELIPAYAMAK_OTP_TOKEN')?.trim();
+    if (!token) {
       throw new ServiceUnavailableException('Registration SMS provider has not been configured.');
     }
     try {
       const response = await firstValueFrom(
-        this.http.post<{ return?: { status?: number } }>(
-          `https://api.kavenegar.com/v1/${encodeURIComponent(apiKey)}/verify/lookup.json`,
-          new URLSearchParams({ receptor: phoneNumber, token: code, template, type: 'sms' }).toString(),
+        this.http.post<{ code?: string | number; status?: string }>(
+          `https://console.melipayamak.com/api/send/otp/${encodeURIComponent(token)}`,
+          { to: phoneNumber },
           {
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            headers: { 'Content-Type': 'application/json' },
             timeout: 10000,
             maxRedirects: 0,
           },
         ),
       );
-      if (response.status !== 200 || response.data?.return?.status !== 200) {
+      const code = response.data?.code?.toString().trim();
+      if (response.status !== 200 || response.data?.status?.trim() || !code || !/^\d{4,10}$/.test(code)) {
         throw new Error('SMS request rejected');
       }
-    } catch {
-      // Provider errors include the API key and OTP: do not log or expose them.
+      return code;
+    } catch (error: unknown) {
+      // Provider errors include the token and OTP: log only the provider's status text.
+      const status = (error as { response?: { status?: number; data?: { status?: unknown } } })?.response;
+      this.logger.error(
+        `Melipayamak OTP request failed (HTTP ${status?.status ?? 'n/a'}): ${String(status?.data?.status ?? 'no status')}`,
+      );
       throw new ServiceUnavailableException('Unable to send verification SMS. Please try again later.');
     }
   }

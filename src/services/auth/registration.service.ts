@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { QueryFailedError } from 'typeorm';
 import { IUserRepository } from 'src/domain/repositories/IUserRepopsitory';
 import { USER_REPOSITORY } from 'src/domain/repositories/repository.tokens';
@@ -78,17 +78,18 @@ export class RegistrationService {
       }
       const key = RedisService.key('registration', dto.phoneNumber);
       try {
-        const code = randomInt(100000, 1000000).toString();
+        const passwordHash = await this.passwords.hashPassword(dto.password);
+        // The SMS provider generates the code; only its digest is kept.
+        const code = await this.sms.sendOtp(dto.phoneNumber);
         const pending: PendingRegistration = {
           username: dto.username,
-          passwordHash: await this.passwords.hashPassword(dto.password),
+          passwordHash,
           accountType: dto.accountType,
           codeHash: this.digest(dto.phoneNumber, code),
           expiresAt: Date.now() + 300000,
           attempts: 0,
         };
         await this.redis.setJson(key, pending, 300);
-        await this.sms.sendOtp(dto.phoneNumber, code);
         return { phoneNumber: dto.phoneNumber, expiresIn: 300, retryAfter: 60 };
       } catch (error) {
         await this.redis.delete(key, cooldown);

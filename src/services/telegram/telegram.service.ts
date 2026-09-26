@@ -86,6 +86,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       },
     );
 
+    // Telegram being unreachable must not crash the whole application.
     await this.bot.setMyCommands([
       {
         command: 'start',
@@ -95,7 +96,11 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         command: 'payment',
         description: this.messages.get('commands.payment'),
       },
-    ]);
+    ]).catch((error: unknown) => {
+      this.logger.warn(
+        `Failed to set Telegram bot commands: ${this.getErrorMessage(error)}`,
+      );
+    });
 
     this.bot.on(
       'message',
@@ -140,7 +145,16 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       },
     );
 
-    await this.transport.start(this.bot);
+    try {
+      await this.transport.start(this.bot);
+    } catch (error: unknown) {
+      this.logger.error(
+        `Failed to start Telegram bot: ${this.getErrorMessage(error)}`,
+      );
+
+      return;
+    }
+
     this.ready = true;
     this.logger.log(`Telegram bot started in ${this.transport.mode} mode.`);
   }
