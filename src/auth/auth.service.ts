@@ -230,17 +230,8 @@ export class AuthService {
     token: string,
   ): Promise<unknown> {
     try {
-      const secret =
-        this.configService.getOrThrow<string>(
-          'JWT_SECRET_KEY',
-        );
-
-      return await this.jwtService.verifyAsync(
-        token,
-        {
-          secret,
-        },
-      );
+      // کلید عمومی و الگوریتم RS256 از تنظیمات JwtModule (auth/jwtKeys.ts) میاد.
+      return await this.jwtService.verifyAsync(token);
     } catch {
       throw new Error(
         'Invalid or expired JWT',

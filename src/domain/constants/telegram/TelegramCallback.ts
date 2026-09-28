@@ -17,6 +17,7 @@ export const TelegramCallback = {
   CompanyLoads: 'company_loads',
   CompanyDriverRequests: 'company_driver_requests',
   CompanyActiveTrips: 'company_active_trips',
+  CompanyChannels: 'company_channels',
 
   BrokerSearchLoads: 'broker_search_loads',
   BrokerLoads: 'broker_loads',

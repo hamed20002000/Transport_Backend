@@ -26,6 +26,7 @@ import { TelegramMessagesService } from 'src/services/telegram/telegramMessages.
 import { TelegramService } from 'src/services/telegram/telegram.service';
 
 import { SubscriptionModule } from './SubscriptionModule';
+import { ChannelModule } from './ChannelModule';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { SubscriptionModule } from './SubscriptionModule';
     SubscriptionModule,
     RedisModule,
     UserModule,
+    ChannelModule,
   ],
 
   controllers: [TelegramWebhookController],
@@ -68,6 +70,8 @@ import { SubscriptionModule } from './SubscriptionModule';
   ],
 
   exports: [
+    TELEGRAM_LINK_REPOSITORY,
+
     TelegramIdentityService,
 
     TelegramMenuService,

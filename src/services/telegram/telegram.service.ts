@@ -20,6 +20,8 @@ import { TelegramSessionService } from './telegramSession.service';
 import { TelegramMessagesService } from './telegramMessages.service';
 
 import { AccountType } from 'src/domain/enums/subscription';
+import { MessengerPlatform } from 'src/domain/enums/messenger';
+import { BotReply, ChannelBotFlowService } from '../channel/channelBotFlow.service';
 import { TelegramSessionState } from 'src/domain/enums/telegram';
 
 import {
@@ -55,6 +57,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       TelegramMessagesService,
     private readonly keyboard: TelegramKeyboardService,
     private readonly telegramAccessService: TelegramAccessService,
+    private readonly channelFlow: ChannelBotFlowService,
   ) {}
 
   /*
@@ -284,6 +287,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
      */
 
     if (!(await this.telegramMenuService.ensureActiveSubscription(this.bot, chatId, telegramUserId))) return;
+
+    // لینک گروه/کانال بعد از «افزودن لینک» در بخش گروه‌ها و کانال‌ها
+    if (message.text && await this.handleChannelText(chatId, telegramUserId, message.text)) return;
 
     if (message.voice) {
       await this.sendMessage(
@@ -674,6 +680,15 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
      */
 
     if (
+      data === TelegramCallback.CompanyChannels ||
+      this.channelFlow.isAction(data)
+    ) {
+      await this.handleChannelAction(chatId, telegramUserId, data);
+
+      return;
+    }
+
+    if (
       data ===
       TelegramCallback.CompanyCreateLoad
     ) {
@@ -838,6 +853,55 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
   /*
    * =====================================================
+   * System Notification
+   * =====================================================
+   *
+   * برخلاف sendMessage خطا را پنهان نمی‌کند تا
+   * فرستنده بتواند وضعیت ارسال را ثبت کند.
+   */
+
+  async sendNotification(
+    chatId: string,
+    text: string,
+  ): Promise<number> {
+    const message = await this.requireBot()
+      .sendMessage(chatId, text);
+
+    return message.message_id;
+  }
+
+  async editNotification(
+    chatId: string,
+    messageId: number,
+    text: string,
+  ): Promise<void> {
+    try {
+      await this.requireBot().editMessageText(text, {
+        chat_id: chatId,
+        message_id: messageId,
+      });
+    } catch (error: unknown) {
+      // متن از قبل همین بوده -- خطا نیست.
+      if (this.getErrorMessage(error).includes('message is not modified')) {
+        return;
+      }
+
+      throw error;
+    }
+  }
+
+  private requireBot(): TelegramBot {
+    if (!this.bot) {
+      throw new ServiceUnavailableException(
+        'Telegram bot is disabled.',
+      );
+    }
+
+    return this.bot;
+  }
+
+  /*
+   * =====================================================
    * Feature Pending
    * =====================================================
    */
@@ -872,6 +936,56 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
    * Main Menu Keyboard
    * =====================================================
    */
+
+  /*
+   * =====================================================
+   * Channels (shared flow with WhatsApp)
+   * =====================================================
+   */
+
+  private async handleChannelAction(chatId: string, telegramUserId: string, data: string): Promise<void> {
+    const userId = await this.telegramIdentityService.getUserId(telegramUserId);
+    if (!userId) {
+      await this.openMainMenu(chatId, telegramUserId);
+      return;
+    }
+    const ctx = { platform: MessengerPlatform.Telegram, externalUserId: telegramUserId, userId };
+    const reply = data === TelegramCallback.CompanyChannels
+      ? await this.channelFlow.open(ctx)
+      : await this.channelFlow.handleAction(ctx, data);
+    if (reply) await this.sendChannelReply(chatId, telegramUserId, reply);
+  }
+
+  /** true اگر پیام مربوط به بخش گروه‌ها و کانال‌ها بود و پاسخ داده شد. */
+  private async handleChannelText(chatId: string, telegramUserId: string, text: string): Promise<boolean> {
+    if (!(await this.channelFlow.hasSession({ platform: MessengerPlatform.Telegram, externalUserId: telegramUserId }))) {
+      return false;
+    }
+    const userId = await this.telegramIdentityService.getUserId(telegramUserId);
+    if (!userId) return false;
+    const reply = await this.channelFlow.handleText(
+      { platform: MessengerPlatform.Telegram, externalUserId: telegramUserId, userId },
+      text,
+    );
+    if (!reply) return false;
+    await this.sendChannelReply(chatId, telegramUserId, reply);
+    return true;
+  }
+
+  private async sendChannelReply(chatId: string, telegramUserId: string, reply: BotReply): Promise<void> {
+    // بازگشت: منوی اصلی تلگرام جای پیام «خارج شدید» را می‌گیرد.
+    if (reply.closed === 'exit') {
+      await this.openMainMenu(chatId, telegramUserId);
+      return;
+    }
+    await this.sendMessage(chatId, reply.text, {
+      reply_markup: {
+        inline_keyboard: reply.actions.length
+          ? reply.actions.map((action) => [{ text: action.label, callback_data: action.id }])
+          : [[{ text: this.messages.get('menu.common.mainMenu'), callback_data: TelegramCallback.MainMenu }]],
+      },
+    });
+  }
 
   private async openMainMenu(
     chatId: string,

@@ -1,3 +1,4 @@
+import { jwtSigningOptions } from './jwtKeys';
 import { RedisModule } from 'src/application/module/RedisModule';
 import { RegistrationService } from 'src/services/auth/registration.service';
 import { SmsService } from 'src/services/auth/sms.service';
@@ -31,10 +32,8 @@ import { UserModule } from 'src/application/module/UserModule';
 
     JwtModule.registerAsync({
       imports: [ConfigModule],  // Import ConfigModule to access environment variables
-      useFactory: async (configService: ConfigService) => ({
-        secret: configService.getOrThrow<string>('JWT_SECRET_KEY'),  // Retrieve the secret from environment variables
-        signOptions: { expiresIn: configService.get<string>('JWT_EXPIRATION_TIME','64800s') },  // Retrieve expiration time from environment variables
-      }),
+      // RS256 -- امضا با کلید خصوصی، بررسی با کلید عمومی (auth/jwtKeys.ts)
+      useFactory: async (configService: ConfigService) => jwtSigningOptions(configService),
       inject: [ConfigService],  // Inject ConfigService
     }),
 

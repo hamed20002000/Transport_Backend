@@ -8,24 +8,22 @@ import {
 } from 'passport-jwt';
 
 import { JwtPayload } from 'src/domain/entities/auth/jwt-payload.dto';
+import { JWT_ALGORITHM, readJwtPublicKey } from '../jwtKeys';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     private readonly configService: ConfigService,
   ) {
-    const secret =
-      configService.getOrThrow<string>(
-        'JWT_SECRET_KEY',
-      );
-
     super({
       jwtFromRequest:
         ExtractJwt.fromAuthHeaderAsBearerToken(),
 
       ignoreExpiration: false,
 
-      secretOrKey: secret,
+      secretOrKey: readJwtPublicKey(configService),
+
+      algorithms: [JWT_ALGORITHM],
     });
   }
 

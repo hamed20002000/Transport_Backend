@@ -421,6 +421,18 @@ export class TelegramMenuService {
               {
                 text:
                   this.messages.get(
+                    'menu.company.channels',
+                  ),
+
+                callback_data:
+                  TelegramCallback.CompanyChannels,
+              },
+            ],
+
+            [
+              {
+                text:
+                  this.messages.get(
                     'menu.company.subscription',
                   ),
 

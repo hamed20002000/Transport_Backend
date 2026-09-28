@@ -33,6 +33,7 @@ import { TransportCompanyModule } from './application/module/TransportCompanyMod
 
 import { TelegramModule } from './application/module/TelegramModule';
 import { RedisModule } from './application/module/RedisModule';
+import { CargoNotificationModule } from './application/module/CargoNotificationModule';
 
 @Module({
   imports: [
@@ -224,6 +225,12 @@ import { RedisModule } from './application/module/RedisModule';
      * onModuleInit آن اجرا خواهد شد.
      */
     TelegramModule,
+
+    /*
+     * خواندن پیام‌های بار از RabbitMQ
+     * و اطلاع‌رسانی به کاربرها (وب، تلگرام، واتساپ).
+     */
+    CargoNotificationModule,
   ],
 
   controllers: [],

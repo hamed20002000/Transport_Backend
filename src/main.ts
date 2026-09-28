@@ -3,7 +3,7 @@ import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ResponseInterceptor } from './interceptors/response.interceptor';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { RequestLoggerMiddleware } from './middlewares/log-middlware';
@@ -22,6 +22,17 @@ function basicAuthMiddleware(req: Request, res: Response, next: NextFunction) {
   res.set('WWW-Authenticate', 'Basic realm="401"');
   res.status(401).send('Authentication required.');
 }
+
+// کتابخانه‌ی RabbitMQ وقتی اتصال وسط یک درخواست قطع شود، گاهی یک Promise
+// ردشده بدون catch رها می‌کند ("Channel ended, no reply will be forthcoming")
+// که پیش‌فرض Node کل پروسه را می‌کشد. قطع اتصال خودکار دوباره وصل می‌شود؛ API
+// نباید به‌خاطرش پایین بیاید.
+process.on('unhandledRejection', (reason: unknown) => {
+  new Logger('UnhandledRejection').error(
+    reason instanceof Error ? reason.message : String(reason),
+    reason instanceof Error ? reason.stack : undefined,
+  );
+});
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);

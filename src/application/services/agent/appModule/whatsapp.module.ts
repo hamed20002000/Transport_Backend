@@ -7,6 +7,7 @@ import { WhatsappUserMapping } from 'src/domain/entities/agent/WhatsappUserMappi
 // این importو با ماژولی که AgentGateway/FunctionCallService رو export می‌کنه جایگزین کنید
 import { AgentModule } from './agent.module';
 import { AuthModule } from 'src/auth/auth.module';
+import { ChannelModule } from 'src/application/module/ChannelModule';
 
 @Module({
   imports: [
@@ -17,7 +18,8 @@ import { AuthModule } from 'src/auth/auth.module';
     ]),
     // forwardRef چون AgentGateway هم برعکس به WhatsappService نیاز داره
     forwardRef(() => AgentModule),
-    AuthModule
+    AuthModule,
+    ChannelModule,
   ],
   providers: [WhatsappService],
   exports: [WhatsappService],

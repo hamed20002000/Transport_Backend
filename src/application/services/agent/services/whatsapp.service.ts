@@ -20,6 +20,8 @@ import { FunctionCallService } from './functioncall.service';
 import { AuthService } from 'src/auth/auth.service';
 import { SpeechToTextService } from './Speechtotext.service';
 import { PendingConfirmationService } from './PendingConfirmationService';
+import { MessengerPlatform } from 'src/domain/enums/messenger';
+import { ChannelBotFlowService } from 'src/services/channel/channelBotFlow.service';
 
 const execAsync = promisify(exec);
 
@@ -72,6 +74,7 @@ export class WhatsappService implements OnModuleInit {
     private readonly authService: AuthService,
     private readonly speechToTextService: SpeechToTextService,
     private readonly pendingConfirmationService: PendingConfirmationService,
+    private readonly channelFlow: ChannelBotFlowService,
   ) { }
 
   async onModuleInit() {
@@ -383,6 +386,10 @@ export class WhatsappService implements OnModuleInit {
       return;
     }
 
+    // گروه‌ها و کانال‌ها: همان جریان منوی تلگرام، با گزینه‌های شماره‌دار.
+    // با «کانال‌ها» باز می‌شود و تا وقتی باز است شماره/لینک/«لغو» را می‌گیرد.
+    if (await this.handleChannelMessage(jid, userid, text)) return;
+
     // NEW: 'yeni sohbet' -- exact WhatsApp equivalent of Telegram's /yeni
     // and the web's "new chat" button. Clears CurrentSessionId so the next
     // message starts a brand-new, empty session (no old context carried over).
@@ -393,6 +400,18 @@ export class WhatsappService implements OnModuleInit {
 
     // None of the pending states applied -- this is a genuinely new command.
     await this.runCommand(userid, username, text);
+  }
+
+  /** true اگر پیام مربوط به بخش گروه‌ها و کانال‌ها بود و پاسخ داده شد. */
+  private async handleChannelMessage(jid: string, userid: string, text: string): Promise<boolean> {
+    // userid (uuid) به‌جای jid، چون jid ممکن است ':' داشته باشد که در کلید Redis مجاز نیست.
+    const ctx = { platform: MessengerPlatform.Whatsapp, externalUserId: userid, userId: userid };
+    const reply = this.channelFlow.isTrigger(text)
+      ? await this.channelFlow.open(ctx)
+      : await this.channelFlow.handleText(ctx, text);
+    if (!reply) return false;
+    await this.sendMessage(jid, this.channelFlow.renderNumbered(reply));
+    return true;
   }
 
   // Sends a piece of text into the shared agent pipeline as a brand-new
@@ -1251,33 +1270,57 @@ export class WhatsappService implements OnModuleInit {
       text = 'İşlem tamamlandı.';
     }
 
-    // Safety timeout: certain situations (e.g. a jid in the newer @lid
-    // format with no resolvable remoteJidAlt) can make sock.sendMessage hang
-    // indefinitely -- a known Baileys limitation, not something we can fix
-    // from our side. Without this, the `await` below would never
-    // resolve/reject, and any caller awaiting sendMessage() would be stuck
-    // forever too.
-    const SEND_TIMEOUT_MS = 15000;
-
-    // A promise that does nothing but wait 15 seconds and then reject --
-    // used purely as a race partner below, never actually "wins" under
-    // normal conditions.
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error(`sendMessage zaman aşımı: ${jid}`)), SEND_TIMEOUT_MS);
-    });
-
     try {
-      // Whichever settles first wins: either the real send completes
-      // (success or Baileys throws its own error), or 15 seconds pass and
-      // the timeoutPromise rejects instead. Either way, this `await` is now
-      // guaranteed to eventually settle.
-      await Promise.race([this.sock.sendMessage(jid, { text }), timeoutPromise]);
+      await this.sendTextWithTimeout(jid, text);
     } catch (error) {
       // Catches both: a genuine send failure from Baileys, AND our own
       // timeout rejection. Logged and swallowed -- a single failed reply
       // shouldn't crash whatever pipeline logic triggered this send (e.g.
       // AgentGateway relaying a result).
       this.logger.error(`sendMessage başarısız: ${jid}`, error as Error);
+    }
+  }
+
+  // For system notifications (e.g. new cargo alerts). Unlike sendMessage,
+  // failures are thrown so the caller can record the delivery status.
+  // Returns the sent message's key so it can be edited/reacted to later.
+  async sendNotification(jid: string, text: string): Promise<proto.IMessageKey | null> {
+    if (!this.sock) throw new Error('WhatsApp socket is not connected.');
+    const sent = await this.sendTextWithTimeout(jid, text);
+    return sent?.key ?? null;
+  }
+
+  // WhatsApp only honours edits within ~15 minutes of sending; the caller
+  // decides between this and reactToNotification based on the send time.
+  async editNotification(key: proto.IMessageKey, text: string): Promise<void> {
+    if (!this.sock) throw new Error('WhatsApp socket is not connected.');
+    await this.sock.sendMessage(key.remoteJid!, { text, edit: key });
+  }
+
+  // An empty emoji removes a previous reaction.
+  async reactToNotification(key: proto.IMessageKey, emoji: string): Promise<void> {
+    if (!this.sock) throw new Error('WhatsApp socket is not connected.');
+    await this.sock.sendMessage(key.remoteJid!, { react: { text: emoji, key } });
+  }
+
+  private async sendTextWithTimeout(jid: string, text: string): Promise<WAMessage | undefined> {
+    // Safety timeout: certain situations (e.g. a jid in the newer @lid
+    // format with no resolvable remoteJidAlt) can make sock.sendMessage hang
+    // indefinitely -- a known Baileys limitation, not something we can fix
+    // from our side. Without this, the `await` below would never
+    // resolve/reject, and any caller awaiting it would be stuck forever too.
+    const SEND_TIMEOUT_MS = 15000;
+
+    let timer: NodeJS.Timeout | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`sendMessage zaman aşımı: ${jid}`)), SEND_TIMEOUT_MS);
+    });
+
+    try {
+      // Whichever settles first wins: the real send, or the timeout.
+      return await Promise.race([this.sock!.sendMessage(jid, { text }), timeoutPromise]);
+    } finally {
+      clearTimeout(timer);
     }
   }
 
