@@ -121,6 +121,9 @@ export class AgentChatController {
     try {
       dto = await this.validateVoiceForm(form);
       await this.assertOwnSession(req.user.userId, dto.sessionId);
+      // تبدیل صدا چند ثانیه طول می‌کشد و تا run() هیچ مرحله‌ای به socket نمی‌رود؛
+      // بدون این پیام کاربر در این فاصله چیزی نمی‌بیند.
+      void this.agentGateway.sendCurrentTool(req.user.userId, { currentOp: 'در حال تبدیل صدا به متن' });
       text = await this.transcribe(file.path);
     } finally {
       await removeVoiceFiles(file.path);
