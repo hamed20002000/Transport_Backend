@@ -8,6 +8,11 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import tools from 'src/application/services/agent/localFiles/tools.json';
 import { ToolRegister } from '../toolRegister';
 import { EmbeddingDomainTool, EmbeddingToolType } from '../types';
+import { DomainSeedResult, seedEmbeddingTools, seedToolDomains } from '../domainSeeding';
+import { EMBEDDING_MODEL, EMBEDDING_URL } from '../domainRanking';
+
+export const TOOL_DOCS_PATH = join(process.cwd(), 'src/application/services/agent/localFiles/tool_embedding_docs.json');
+export const DOMAIN_DOCS_PATH = join(process.cwd(), 'src/application/services/agent/localFiles/domain_embedding_docs.json');
 
 
 @Injectable()
@@ -93,107 +98,33 @@ export class EmbeddingService {
         );
     }
 
-    async createVectorBased(embeddings?: EmbeddingToolType[]): Promise<void> {
+    /**
+     * بدون ورودی: tool_embedding_docs.json منبع کامل است و جدول با آن جایگزین
+     * می‌شود. با ورودی: فقط همان ابزارها دوباره نوشته می‌شوند.
+     */
+    async createVectorBased(embeddings?: EmbeddingToolType[]): Promise<{ written: string[] }> {
+        const docs = embeddings ?? (JSON.parse(readFileSync(TOOL_DOCS_PATH, 'utf8')) as EmbeddingToolType[]);
 
-        let toolEmbeddingDocs = null
-
-        if (!embeddings) {
-                toolEmbeddingDocs = JSON.parse(readFileSync(
-                join(process.cwd(), 'src/application/services/agent/localFiles/tool_embedding_docs.json'),
-                'utf8'
-            )) as unknown as {
-                tool_name: string;
-                embedding_text: string;
-                domain_name: string
-            }[];
-
-
-        }
-        else {
-            toolEmbeddingDocs = embeddings
-
-        }
-
-
-
-        for (const doc of toolEmbeddingDocs) {
-
-            const document = `
-                ${doc.embedding_text}
-                `;
-            ;
-            const resp = await axios.post(
-                "http://localhost:11434/api/embed", {
-                model: "bge-m3:latest",
-                input: document
-            }
-            )
-
-            await this.dataSource.query(
-                `
-                INSERT INTO "EmbeddingTool"
-                    ("ToolName", "Document", "Embedding","DomainName")
-                VALUES
-                    ($1, $2, $3,$4)
-                `,
-                [
-                    doc.tool_name,
-                    doc.embedding_text,
-                    `[${resp.data.embeddings[0].join(",")}]`,
-                    doc.domain_name
-                ]
-            );
-        }
-
+        return seedEmbeddingTools(
+            this.dataSource,
+            docs.map((doc) => ({ tool_name: doc.tool_name, embedding_text: doc.embedding_text, domain_name: doc.domain_name })),
+            async (text) => (await axios.post(EMBEDDING_URL, { model: EMBEDDING_MODEL, input: text })).data.embeddings[0],
+            { replaceAll: !embeddings },
+        );
     }
 
-    async createVectorBasedForDomainTool(embeddings?: EmbeddingDomainTool[]): Promise<void> {
-        let toolEmbeddingDocs =null;
+    /**
+     * بدون ورودی: domain_embedding_docs.json منبع کامل است و domainهایی که در آن
+     * نیستند پاک می‌شوند. با ورودی: فقط همان domainها اضافه یا به‌روز می‌شوند.
+     */
+    async createVectorBasedForDomainTool(embeddings?: EmbeddingDomainTool[]): Promise<DomainSeedResult> {
+        const docs = embeddings ?? (JSON.parse(readFileSync(DOMAIN_DOCS_PATH, 'utf8')) as EmbeddingDomainTool[]);
 
-        if (!embeddings) {
-            toolEmbeddingDocs = JSON.parse(readFileSync(
-                join(process.cwd(), 'src/application/services/agent/localFiles/domain_embedding_docs.json'),
-                'utf8'
-            )) as unknown as {
-                domain_name: string;
-                embedding_text: string
-            }[]
-        }
-        else{
-            toolEmbeddingDocs=embeddings
-        }
-
-
-
-        for (const doc of toolEmbeddingDocs) {
-
-            const document = `
-                ${doc.embedding_text}
-                `;
-            ;
-            const resp = await axios.post(
-                "http://localhost:11434/api/embed", {
-                model: "bge-m3:latest",
-                input: document
-            }
-            )
-
-            await this.dataSource.query(
-                `
-                INSERT INTO "ToolDomain"
-                    ("DomainName", "DisplayText", "Embedding")
-                VALUES
-                    ($1, $2, $3)
-                `,
-                [
-                    doc.domain_name,
-                    doc.embedding_text,
-                    `[${resp.data.embeddings[0].join(",")}]`
-                ]
-            );
-        }
-
+        return seedToolDomains(
+            this.dataSource,
+            docs,
+            async (text) => (await axios.post(EMBEDDING_URL, { model: EMBEDDING_MODEL, input: text })).data.embeddings[0],
+            { removeMissing: !embeddings },
+        );
     }
-
-
 }

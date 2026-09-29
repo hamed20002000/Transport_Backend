@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CargoAlertFilter } from '../../domain/entities/notification/CargoAlertFilter';
 import { normalizePersianText } from '../../domain/helper/persianText';
+import { parsePriceToman } from '../../domain/helper/price';
 import { CargoAlertFilterRepository } from '../../infrastructure/repositories/notification/cargoAlertFilter.repository';
 
 /** فیلدهایی از بار که فیلترها روی آن‌ها match می‌شوند. */
@@ -9,6 +10,7 @@ export interface CargoRouteFields {
   destination?: string | null;
   cargoType?: string | null;
   vehicleType?: string | null;
+  price?: string | null;
 }
 
 export interface CargoAlertFilterInput {
@@ -17,6 +19,8 @@ export interface CargoAlertFilterInput {
   destinations?: string[];
   cargoTypes?: string[];
   vehicleTypes?: string[];
+  minPrice?: number | null;
+  maxPrice?: number | null;
   isActive?: boolean;
 }
 
@@ -37,10 +41,16 @@ export class CargoAlertFilterService {
       byUser.set(filter.userId, [...(byUser.get(filter.userId) ?? []), filter]);
     }
 
-    return userIds.filter((userId) => {
-      const userFilters = byUser.get(userId);
-      return !userFilters || userFilters.some((filter) => this.isMatch(filter, cargo));
-    });
+    return userIds.filter((userId) => this.matchesAny(byUser.get(userId) ?? [], cargo));
+  }
+
+  /** فیلترهای فعال یک کاربر؛ خالی یعنی همه‌ی بارها را می‌خواهد. */
+  activeFor(userId: string): Promise<CargoAlertFilter[]> {
+    return this.filters.findActiveByUserIds([userId]);
+  }
+
+  matchesAny(filters: CargoAlertFilter[], cargo: CargoRouteFields): boolean {
+    return filters.length === 0 || filters.some((filter) => this.isMatch(filter, cargo));
   }
 
   isMatch(filter: CargoAlertFilter, cargo: CargoRouteFields): boolean {
@@ -48,8 +58,18 @@ export class CargoAlertFilterService {
       this.fieldMatches(filter.origins, cargo.origin) &&
       this.fieldMatches(filter.destinations, cargo.destination) &&
       this.fieldMatches(filter.cargoTypes, cargo.cargoType) &&
-      this.fieldMatches(filter.vehicleTypes, cargo.vehicleType)
+      this.fieldMatches(filter.vehicleTypes, cargo.vehicleType) &&
+      this.priceMatches(filter.minPrice, filter.maxPrice, cargo.price)
     );
+  }
+
+  // بدون حد = همه. مثل بقیه‌ی فیلدها، باری که کرایه‌اش استخراج یا خوانده نشده
+  // با فیلتری که بازه دارد match نمی‌شود.
+  private priceMatches(min: number | null | undefined, max: number | null | undefined, price: string | null | undefined): boolean {
+    if (min == null && max == null) return true;
+    const amount = parsePriceToman(price);
+    if (amount === null) return false;
+    return (min == null || amount >= min) && (max == null || amount <= max);
   }
 
   // فیلتر خالی = همه. اگر کاربر فیلتر گذاشته ولی مدل آن فیلد را استخراج نکرده،
@@ -69,12 +89,22 @@ export class CargoAlertFilterService {
   }
 
   create(userId: string, input: CargoAlertFilterInput): Promise<CargoAlertFilter> {
-    return this.filters.save(this.filters.create({ ...this.clean(input), userId }));
+    const cleaned = this.clean(input);
+    this.checkPriceRange(cleaned);
+    return this.filters.save(this.filters.create({ ...cleaned, userId }));
+  }
+
+  private checkPriceRange({ minPrice, maxPrice }: Pick<CargoAlertFilterInput, 'minPrice' | 'maxPrice'>) {
+    if (minPrice != null && maxPrice != null && minPrice > maxPrice) {
+      throw new BadRequestException('minPrice must not be greater than maxPrice.');
+    }
   }
 
   async update(userId: string, id: string, input: CargoAlertFilterInput): Promise<CargoAlertFilter> {
     const filter = await this.getOwned(userId, id);
-    return this.filters.save(Object.assign(filter, this.clean(input)));
+    const next = Object.assign(filter, this.clean(input));
+    this.checkPriceRange(next);
+    return this.filters.save(next);
   }
 
   async remove(userId: string, id: string): Promise<void> {
@@ -97,6 +127,8 @@ export class CargoAlertFilterService {
       destinations: list(input.destinations),
       cargoTypes: list(input.cargoTypes),
       vehicleTypes: list(input.vehicleTypes),
+      minPrice: input.minPrice,
+      maxPrice: input.maxPrice,
       isActive: input.isActive,
     };
 

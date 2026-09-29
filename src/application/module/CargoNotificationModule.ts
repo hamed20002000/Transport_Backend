@@ -28,6 +28,8 @@ import { WhatsappModule } from '../services/agent/appModule/whatsapp.module';
 import { RabbitMqModule } from './RabbitMqModule';
 import { SubscriptionModule } from './SubscriptionModule';
 import { TelegramModule } from './TelegramModule';
+import { CompanyCargoTools } from '../../services/notification/companyCargoTools';
+import { CompanyFilterTools } from '../../services/notification/companyFilterTools';
 
 /**
  * پیام‌های «بار جدید» را از RabbitMQ می‌خواند و به شرکت‌هایی که کانال را ثبت
@@ -62,6 +64,9 @@ import { TelegramModule } from './TelegramModule';
     CargoDeliveryRetryWorker,
     ChannelMembershipNotifier,
     ChannelMembershipConsumer,
+    // ابزارهای agent برای بارها و فیلترهای شرکت
+    CompanyCargoTools,
+    CompanyFilterTools,
   ],
 })
 export class CargoNotificationModule {}

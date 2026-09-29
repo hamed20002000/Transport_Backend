@@ -14,10 +14,13 @@ import {
 import { ITelegramLinkRepository } from '../../domain/repositories/telegram/ITelegramLinkRepository';
 import { WhatsappService } from '../../application/services/agent/services/whatsapp.service';
 import { TelegramService } from '../telegram/telegram.service';
-import { CargoAlertFilterService } from './cargoAlertFilter.service';
+import { CargoAlertFilterService, CargoRouteFields } from './cargoAlertFilter.service';
 import { isPermanentTelegramError, nextDeliveryRetryAt } from './cargoDeliveryRetry';
 import { buildCargoNotificationText } from './cargoNotificationText';
 import { CARGO_NOTIFICATION_SOCKET_EVENT, NotificationsGateway } from './notifications.gateway';
+
+// سقف ردیف‌هایی که برای غربال با فیلترها خوانده می‌شوند (جدیدترین‌ها).
+const LIST_SCAN_LIMIT = 1000;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -209,12 +212,7 @@ export class CargoNotificationService {
     userId: string,
     options: { unreadOnly: boolean; kind?: CargoNotificationKind; page: number; pageSize: number },
   ) {
-    const [items, total] = await this.notifications.findPageForUser(userId, {
-      unreadOnly: options.unreadOnly,
-      kind: options.kind,
-      skip: (options.page - 1) * options.pageSize,
-      take: options.pageSize,
-    });
+    const [items, total] = await this.pageMatchingFilters(userId, options);
 
     // برای پیشنهادها: آیا همین کاربر این بار را قبلاً منتشر کرده است؟
     const suggestionSources = items.filter((row) => !row.listingId).map((row) => row.sourceMessageId);
@@ -228,6 +226,31 @@ export class CargoNotificationService {
       page: options.page,
       pageSize: options.pageSize,
     };
+  }
+
+  /**
+   * فیلترها موقع رسیدن بار اعمال می‌شوند، ولی کاربر ممکن است بعداً فیلتر را
+   * عوض کند؛ پس لیست هم با فیلترهای فعال فعلی از نو غربال می‌شود تا آنچه
+   * می‌بیند (و شمارنده‌ها) با تنظیماتش جور باشد. match روی متن آزاد در SQL
+   * ممکن نیست، پس جدیدترین LIST_SCAN_LIMIT ردیف در برنامه فیلتر می‌شوند.
+   */
+  private async pageMatchingFilters(
+    userId: string,
+    options: { unreadOnly: boolean; kind?: CargoNotificationKind; page: number; pageSize: number },
+  ): Promise<[CargoNotification[], number]> {
+    const skip = (options.page - 1) * options.pageSize;
+    const filters = await this.filters.activeFor(userId);
+    if (filters.length === 0) {
+      return this.notifications.findPageForUser(userId, { unreadOnly: options.unreadOnly, kind: options.kind, skip, take: options.pageSize });
+    }
+
+    const rows = await this.notifications.findRecentForUser(userId, {
+      unreadOnly: options.unreadOnly,
+      kind: options.kind,
+      take: LIST_SCAN_LIMIT,
+    });
+    const matching = rows.filter((row) => this.filters.matchesAny(filters, (row.payload ?? {}) as CargoRouteFields));
+    return [matching.slice(skip, skip + options.pageSize), matching.length];
   }
 
   async unreadCount(userId: string): Promise<{ count: number }> {

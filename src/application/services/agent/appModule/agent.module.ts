@@ -3,6 +3,7 @@ import { AgentSqlService } from '../services/agentSql.service';
 import { AgentToolsService } from '../services/agentTools.service';
 import { ToolRegisterModule } from './toolregister.module';
 import { AgentController } from 'src/presentation/controllers/agent/agent.controller';
+import { AgentChatController } from 'src/presentation/controllers/agent/agent-chat.controller';
 import { AgentGateway } from '../agent.gateway';
 import { EmbeddingService } from '../services/embedding.service';
 import { CancellationService } from '../services/cancellation.service';
@@ -14,17 +15,29 @@ import { TelegramModule } from 'src/application/module/TelegramModule';
 import { UserService } from 'src/services/UserService';
 import { AuthModule } from 'src/auth/auth.module';
 import { WhatsappService } from '../services/whatsapp.service';
-import { JwtService } from '@nestjs/jwt';
+import { JwtModule } from '@nestjs/jwt';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { jwtVerifyOnlyOptions } from 'src/auth/jwtKeys';
 import { WhatsappModule } from './whatsapp.module';
 import { UserModule } from 'src/application/module/UserModule';
+import { RedisModule } from 'src/application/module/RedisModule';
+import { AgentChannelRelays } from '../agentChannelRelays';
+import { TelegramAgentService } from '../services/telegramAgent.service';
 
 @Module({
   imports: [
     ToolRegisterModule,
     TelegramModule,
+    RedisModule,
       forwardRef(() => AuthModule), 
       forwardRef(() => WhatsappModule), 
       forwardRef(() => UserModule), 
+    JwtModule.registerAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      // فقط بررسی توکن socket -- کلید عمومی RS256
+      useFactory: (configService: ConfigService) => jwtVerifyOnlyOptions(configService),
+    }),
   ],
 
   providers: [
@@ -37,9 +50,8 @@ import { UserModule } from 'src/application/module/UserModule';
     CondinateService,
     PendingConfirmationService,
     SpeechToTextService,
-    JwtService,
-    FunctionCallService
-    
+    AgentChannelRelays,
+    TelegramAgentService,
   ],
   exports: [
     AgentSqlService,
@@ -51,11 +63,8 @@ import { UserModule } from 'src/application/module/UserModule';
     PendingConfirmationService,
     SpeechToTextService,
     TelegramModule,
-     JwtService,
-    FunctionCallService
-   
   ],
 
-  controllers: [AgentController],
+  controllers: [AgentController, AgentChatController],
 })
 export class AgentModule { }

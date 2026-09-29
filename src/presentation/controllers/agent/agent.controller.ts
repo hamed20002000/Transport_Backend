@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -27,7 +28,6 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
 
 import { DataSource, Repository } from 'typeorm';
-import { diskStorage } from 'multer';
 
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { AdminRolesGuard } from 'src/auth/guards/roles.guard';
@@ -50,17 +50,15 @@ import {
 
 import { PendingConfirmationService } from 'src/application/services/agent/services/PendingConfirmationService';
 
+import { JwtPayload } from 'src/domain/entities/auth/jwt-payload.dto';
+
+import { removeVoiceFiles, voiceUploadOptions } from './agent-uploads';
 import { SpeechToTextService } from 'src/application/services/agent/services/Speechtotext.service';
 
 
-interface AuthenticatedUser {
-  userid: string;
-  username?: string;
-  roles?: string[];
-}
-
+// همان چیزی که JwtStrategy.validate برمی‌گرداند
 interface AuthenticatedRequest extends Request {
-  user: AuthenticatedUser;
+  user: JwtPayload;
 }
 
 
@@ -115,6 +113,11 @@ export class AgentController {
     status: HttpStatus.OK,
     description: 'return success or failed.',
   })
+  @UseGuards(
+    JwtAuthGuard,
+    AdminRolesGuard,
+  )
+  @ApiBearerAuth()
   async createVectorBased(
     @Body() body: EmbeddingToolType[],
   ): Promise<CreateVectorBasedEnum> {
@@ -129,6 +132,11 @@ export class AgentController {
 
 
   @Post('domaintool')
+  @UseGuards(
+    JwtAuthGuard,
+    AdminRolesGuard,
+  )
+  @ApiBearerAuth()
   async createVectorBaseForDomain(
     @Body() body: EmbeddingDomainTool[],
   ): Promise<CreateVectorBasedEnum> {
@@ -154,7 +162,7 @@ export class AgentController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.functionCallService.createNewSession(
-      req.user.userid,
+      req.user.userId,
     );
   }
 
@@ -169,7 +177,7 @@ export class AgentController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.functionCallService.getUserSessions(
-      req.user.userid,
+      req.user.userId,
     );
   }
 
@@ -192,7 +200,7 @@ export class AgentController {
   ) {
     return this.functionCallService.getSessionPrompts(
       sessionId,
-      req.user.userid,
+      req.user.userId,
     );
   }
 
@@ -215,7 +223,7 @@ export class AgentController {
   ) {
     return this.functionCallService.getSessionExecutions(
       sessionId,
-      req.user.userid,
+      req.user.userId,
     );
   }
 
@@ -246,16 +254,16 @@ export class AgentController {
 
     if (!css) {
       throw new NotFoundException(
-        'Oturum bulunamadı.',
+        'گفتگو پیدا نشد.',
       );
     }
 
     /*
      * مالکیت session را هم بررسی می‌کنیم.
      */
-    if (css.Userid !== req.user.userid) {
+    if (css.Userid !== req.user.userId) {
       throw new NotFoundException(
-        'Oturum bulunamadı.',
+        'گفتگو پیدا نشد.',
       );
     }
 
@@ -285,8 +293,9 @@ export class AgentController {
   ) {
     return this.functionCallService
       .resumePendingConfirmation(
-        req.user.userid,
+        req.user.userId,
         body.confirmed,
+        'web',
       );
   }
 
@@ -304,47 +313,41 @@ export class AgentController {
     query?: string,
   ) {
     return this.functionCallService.searchUserSessions(
-      req.user.userid,
+      req.user.userId,
       query ?? '',
     );
   }
 
 
+  // فقط برای ادمین: کیفیت تبدیل صدا به متن را بدون اجرای agent امتحان می‌کند.
   @Post('speech/transcribe-test')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      storage: diskStorage({
-        destination: './uploads/audio-temp',
-
-        filename: (
-          req,
-          file,
-          cb,
-        ) => {
-          cb(
-            null,
-            `${Date.now()}-${file.originalname}`,
-          );
-        },
-      }),
-    }),
+  @UseGuards(
+    JwtAuthGuard,
+    AdminRolesGuard,
   )
+  @ApiBearerAuth()
+  @UseInterceptors(FileInterceptor('file', voiceUploadOptions))
   async transcribeTest(
     @UploadedFile()
-    file: Express.Multer.File,
+    file?: Express.Multer.File,
   ) {
+    if (!file) {
+      throw new BadRequestException('Audio file is required.');
+    }
+
     const startTime = Date.now();
 
-    const text =
-      await this.speechToTextService
-        .transcribeFile(file.path);
+    try {
+      const text =
+        await this.speechToTextService
+          .transcribeFile(file.path);
 
-    const elapsedMs =
-      Date.now() - startTime;
-
-    return {
-      text,
-      elapsedMs,
-    };
+      return {
+        text,
+        elapsedMs: Date.now() - startTime,
+      };
+    } finally {
+      await removeVoiceFiles(file.path);
+    }
   }
 }

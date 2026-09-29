@@ -25,6 +25,8 @@ import { TelegramMessagesService } from 'src/services/telegram/telegramMessages.
 
 import { TelegramService } from 'src/services/telegram/telegram.service';
 
+import { TelegramAgentBridge } from 'src/services/telegram/telegramAgentBridge';
+
 import { SubscriptionModule } from './SubscriptionModule';
 import { ChannelModule } from './ChannelModule';
 
@@ -67,6 +69,8 @@ import { ChannelModule } from './ChannelModule';
     TelegramAccountHandler,
 
     TelegramService,
+
+    TelegramAgentBridge,
   ],
 
   exports: [
@@ -83,6 +87,8 @@ import { ChannelModule } from './ChannelModule';
     TelegramMessagesService,
 
     TelegramService,
+
+    TelegramAgentBridge,
   ],
 })
 export class TelegramModule {}

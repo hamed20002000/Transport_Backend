@@ -15,6 +15,8 @@ export const CARGO_NOTIFICATION_DLQ = `${CARGO_NOTIFICATION_QUEUE}.dlq`;
 
 export interface CargoDetectedEvent {
   messageId: string;
+  // کد پیگیری بار (مثل TRB100000)؛ رویدادهای قدیمی ندارند.
+  code?: string;
   isVoice?: boolean;
   rawText: string;
   receivedAt: string;

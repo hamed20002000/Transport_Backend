@@ -1,262 +1,92 @@
 [
   {
-    "tool_name": "create_role",
-    "embedding_text": "Henüz tanımlı olmayan yeni bir yetki veya erişim rolünü sisteme kazandırır. Kullanıcı yeni bir rol tanımlamak istediğinde bu işlem devreye girer.",
-    "domain_name": "role"
+    "tool_name": "list_company_suggested_cargo",
+    "embedding_text": "لیست بارهای پیشنهادی را که از کانال‌ها و گروه‌ها برای شرکت رسیده برمی‌گرداند؛ همه یا فقط نخوانده‌ها. وقتی کاربر می‌خواهد ببیند چه بارها و آگهی‌هایی برایش آمده یا پیشنهادهای جدید را مرور کند.",
+    "domain_name": "company_suggested_cargo"
   },
   {
-    "tool_name": "update_role",
-    "embedding_text": "Var olan bir rolün adını veya bilgilerini değiştirmek için kullanılır. Rol zaten mevcuttur, sadece içeriği yeniden düzenlenir.",
-    "domain_name": "role"
+    "tool_name": "count_company_unread_suggestions",
+    "embedding_text": "فقط تعداد بارهای پیشنهادی نخوانده را می‌گوید، نه خود بارها را. وقتی کاربر می‌پرسد چندتا پیشنهاد یا بار نخوانده دارد.",
+    "domain_name": "company_suggested_cargo"
   },
   {
-    "tool_name": "delete_role",
-    "embedding_text": "Var olan bir rolü kalıcı olarak ortadan kaldırıp kayıtlardan çıkarır. Rol artık sistemde bulunmaz hale gelir.",
-    "domain_name": "role"
+    "tool_name": "mark_company_suggestions_read",
+    "embedding_text": "پیشنهادهای بار را خوانده‌شده علامت می‌زند تا دیگر جزو جدیدها نباشند؛ پیشنهادها پاک نمی‌شوند. وقتی کاربر می‌گوید همه را دیدم، خوانده شده کن یا تیکشان بزن.",
+    "domain_name": "company_suggested_cargo"
   },
   {
-    "tool_name": "assign_role_operations",
-    "embedding_text": "Bir role hangi işlemleri yapabileceğine dair yetki tanımlar. Rolün yetenekleri ve izinleri belirlenir, rolün kendisi değişmez.",
-    "domain_name": "role"
+    "tool_name": "publish_company_suggested_cargo",
+    "embedding_text": "یکی از بارهای پیشنهادی را به نام شرکت برای راننده‌های مشترک منتشر می‌کند؛ مشخصات بار از همان پیشنهاد برداشته می‌شود. وقتی کاربر می‌خواهد یک بار پیشنهادی را برای راننده‌ها اعلام، پخش یا بفرستد، نه بار کاملاً جدیدی را ثبت کند.",
+    "domain_name": "company_suggested_cargo"
   },
   {
-    "tool_name": "update_role_record_status",
-    "embedding_text": "Bir rolü kullanıma açık veya kapalı hale getirir. Rol silinmez, yalnızca etkinlik durumu değişir.",
-    "domain_name": "role"
+    "tool_name": "create_company_cargo",
+    "embedding_text": "یک بار کاملاً جدید با مشخصاتی که کاربر می‌گوید ثبت می‌کند و به نام شرکت برای راننده‌ها می‌فرستد: مبدأ، مقصد، نوع بار، وزن، نوع ماشین، کرایه، توضیحات و شماره تماس. وقتی کاربر بار یا محموله‌ی تازه‌ای دارد و برایش ماشین و راننده می‌خواهد.",
+    "domain_name": "company_create_cargo"
   },
   {
-    "tool_name": "create_user",
-    "embedding_text": "Sistemde yer almayan bir kişi için yeni bir kullanıcı hesabı açar. Personel veya kullanıcı ilk kez kaydedilirken kullanılır.",
-    "domain_name": "user"
+    "tool_name": "list_company_my_cargo",
+    "embedding_text": "لیست بارهایی را که شرکت قبلاً برای راننده‌ها منتشر کرده همراه وضعیتشان برمی‌گرداند؛ همه، فقط بازها یا فقط برداشته‌شده‌ها. وقتی کاربر می‌خواهد آگهی‌های بار خودش یا وضعیت آن‌ها را ببیند.",
+    "domain_name": "company_my_cargo"
   },
   {
-    "tool_name": "update_user",
-    "embedding_text": "Mevcut bir kullanıcının adını veya profil bilgilerini düzenler. Kullanıcı zaten kayıtlıdır, sadece bilgileri yenilenir.",
-    "domain_name": "user"
+    "tool_name": "mark_company_cargo_taken",
+    "embedding_text": "یکی از بارهای منتشرشده‌ی شرکت را «برداشته شد» اعلام می‌کند و آگهی آن برای راننده‌ها بسته می‌شود. وقتی کاربر می‌گوید بار رفت، پر شد، ماشین پیدا شد یا راننده بار را برداشت.",
+    "domain_name": "company_my_cargo"
   },
   {
-    "tool_name": "delete_user",
-    "embedding_text": "Bir kullanıcı hesabını sistemden tamamen kaldırır. Hesap artık erişilemez hale gelir ve kayıtlardan silinir.",
-    "domain_name": "user"
+    "tool_name": "reopen_company_cargo",
+    "embedding_text": "باری را که قبلاً «برداشته شد» اعلام شده دوباره باز و برای راننده‌ها فعال می‌کند. وقتی کاربر می‌گوید اشتباهی بستم، دوباره بازش کن یا برش گردان.",
+    "domain_name": "company_my_cargo"
   },
   {
-    "tool_name": "update_user_record_status",
-    "embedding_text": "Bir kullanıcı hesabını etkin veya devre dışı yapar. Hesap silinmez, yalnızca erişim durumu değişir.",
-    "domain_name": "user"
+    "tool_name": "list_company_channels",
+    "embedding_text": "لیست گروه‌ها و کانال‌های واتس‌اپ و تلگرام ثبت‌شده‌ی شرکت را همراه وضعیت عضویت ربات برمی‌گرداند. وقتی کاربر می‌خواهد گروه‌هایش را ببیند یا بپرسد ربات در کدام گروه‌ها عضو شده یا منتظر تأیید است.",
+    "domain_name": "company_channels"
   },
   {
-    "tool_name": "change-user-password",
-    "embedding_text": "Bir kullanıcının hesabına giriş için kullandığı parolayı yeniler. Kullanıcının kimlik bilgileri güncellenir, diğer bilgileri değişmez.",
-    "domain_name": "user"
+    "tool_name": "add_company_channel",
+    "embedding_text": "لینک یک گروه یا کانال واتس‌اپ یا تلگرام را ثبت می‌کند تا ربات عضو شود و آگهی‌های بار آن خوانده شود. وقتی کاربر لینکی می‌فرستد یا می‌خواهد گروهی را اضافه یا وصل کند.",
+    "domain_name": "company_channels"
   },
   {
-    "tool_name": "assign-user-roles",
-    "embedding_text": "Var olan bir kullanıcıya bir veya birden fazla rol bağlar. Kullanıcının hangi yetkilere sahip olacağı belirlenir.",
-    "domain_name": "user"
+    "tool_name": "delete_company_channel",
+    "embedding_text": "یک گروه یا کانال را از لیست شرکت حذف می‌کند تا دیگر آگهی‌هایش خوانده نشود. وقتی کاربر می‌خواهد گروهی را پاک کند یا از کانالی خارج شود.",
+    "domain_name": "company_channels"
   },
   {
-    "tool_name": "create_category",
-    "embedding_text": "Ürünleri sınıflandırmak için henüz var olmayan yeni bir kategori tanımlar. Bir üst kategori altında da oluşturulabilir.",
-    "domain_name": "category"
+    "tool_name": "list_company_display_filters",
+    "embedding_text": "لیست فیلترهای نمایش بار شرکت و شرط‌های هر کدام را برمی‌گرداند. وقتی کاربر می‌خواهد ببیند چه فیلترها و شرط‌هایی تنظیم کرده.",
+    "domain_name": "company_cargo_display_filters"
   },
   {
-    "tool_name": "update_category",
-    "embedding_text": "Var olan bir kategorinin adını veya diğer bilgilerini yeniden düzenler. Kategori zaten mevcuttur, sadece detayları değişir.",
-    "domain_name": "category"
+    "tool_name": "create_company_display_filter",
+    "embedding_text": "یک فیلتر تازه می‌سازد تا از این به بعد فقط بارهایی با مبدأ، مقصد، نوع بار، نوع ماشین یا بازه‌ی کرایه‌ی مشخص به شرکت پیشنهاد شود. وقتی کاربر می‌گوید فقط بارهای فلان مسیر یا نوع برایم بیاید و فیلتری برای آن ندارد.",
+    "domain_name": "company_cargo_display_filters"
   },
   {
-    "tool_name": "delete_category",
-    "embedding_text": "Var olan bir kategoriyi kalıcı olarak kaldırır. Kategori artık kayıtlarda bulunmaz.",
-    "domain_name": "category"
+    "tool_name": "update_company_display_filter",
+    "embedding_text": "شرط‌های یک فیلتر موجود را تغییر می‌دهد، مثل اضافه یا برداشتن یک شهر، نوع بار یا نوع ماشین، یا عوض کردن بازه‌ی کرایه. فیلتر از قبل هست و فقط شرط‌هایش ویرایش می‌شود.",
+    "domain_name": "company_cargo_display_filters"
   },
   {
-    "tool_name": "update_category_record_status",
-    "embedding_text": "Bir kategoriyi kullanıma açık veya kapalı hale getirir. Kategori silinmez, yalnızca durumu değişir.",
-    "domain_name": "category"
+    "tool_name": "set_company_display_filter_active",
+    "embedding_text": "یک فیلتر موجود را بدون حذف کردن فعال یا غیرفعال می‌کند. وقتی کاربر می‌گوید فیلتر را خاموش، غیرفعال، روشن یا دوباره فعال کن.",
+    "domain_name": "company_cargo_display_filters"
   },
   {
-    "tool_name": "change_category_parent",
-    "embedding_text": "Bir kategoriyi farklı bir üst kategorinin altına taşır. Kategorinin ağaç yapısındaki konumu değişir, adı veya diğer bilgileri değişmez.",
-    "domain_name": "category"
+    "tool_name": "delete_company_display_filter",
+    "embedding_text": "یک فیلتر را برای همیشه حذف می‌کند. وقتی کاربر می‌خواهد فیلتری را پاک کند یا همه‌ی شرط‌ها را بردارد.",
+    "domain_name": "company_cargo_display_filters"
   },
   {
-    "tool_name": "create_item_unit",
-    "embedding_text": "Adet, kilogram, litre gibi henüz tanımlı olmayan yeni bir ölçü birimini sisteme ekler.",
-    "domain_name": "item_unit"
+    "tool_name": "get_company_profile",
+    "embedding_text": "اطلاعات فعلی حساب و مشخصات شرکت را نشان می‌دهد بدون تغییر. وقتی کاربر می‌پرسد چه اطلاعاتی ثبت کرده یا اطلاعاتش چیست.",
+    "domain_name": "company_profile"
   },
   {
-    "tool_name": "update_item_unit",
-    "embedding_text": "Var olan bir ölçü biriminin adını değiştirir. Birim zaten kayıtlıdır, sadece adı düzenlenir.",
-    "domain_name": "item_unit"
-  },
-  {
-    "tool_name": "delete_item_unit",
-    "embedding_text": "Var olan bir ölçü birimini kalıcı olarak kaldırır. Birim artık kayıtlarda bulunmaz.",
-    "domain_name": "item_unit"
-  },
-  {
-    "tool_name": "update_item_unit_record_status",
-    "embedding_text": "Bir ölçü birimini kullanıma açık veya kapalı hale getirir. Birim silinmez, yalnızca durumu değişir.",
-    "domain_name": "item_unit"
-  },
-  {
-    "tool_name": "create_product",
-    "embedding_text": "Henüz kayıtlı olmayan yeni bir ürünü adı, kodu, kategorisi ve birimiyle birlikte kaydeder.",
-    "domain_name": "product"
-  },
-  {
-    "tool_name": "update_product",
-    "embedding_text": "Var olan bir ürünün adını, kodunu, açıklamasını, ağırlığını, kategorisini veya birimini yeniden düzenler.",
-    "domain_name": "product"
-  },
-  {
-    "tool_name": "delete_product",
-    "embedding_text": "Var olan bir ürünü kalıcı olarak kaldırır. Ürün artık kayıtlarda bulunmaz.",
-    "domain_name": "product"
-  },
-  {
-    "tool_name": "update_product_record_status",
-    "embedding_text": "Bir ürünü kullanıma açık veya kapalı hale getirir. Ürün silinmez, yalnızca durumu değişir.",
-    "domain_name": "product"
-  },
-  {
-    "tool_name": "create_pole_or_transformer",
-    "embedding_text": "Şebekede kullanılacak, henüz tanımlı olmayan yeni bir direk veya transformatör türünü sisteme kaydeder. Demir direk, beton direk ya da trafo ilk kez tanıtılırken kullanılır.",
-    "domain_name": "product_type"
-  },
-  {
-    "tool_name": "update_pole_or_transformer",
-    "embedding_text": "Var olan bir direk veya transformatör türünün adını ya da tipini yeniden düzenler. Kayıt zaten mevcuttur, sadece bilgileri değişir.",
-    "domain_name": "product_type"
-  },
-  {
-    "tool_name": "delete_pole_or_transformer",
-    "embedding_text": "Var olan bir direk veya transformatör türünü kalıcı olarak kaldırır. Kayıt artık sistemde bulunmaz.",
-    "domain_name": "product_type"
-  },
-  {
-    "tool_name": "update_pole_or_transformer_record_status",
-    "embedding_text": "Bir direk veya transformatör türünü kullanıma açık veya kapalı hale getirir. Kayıt silinmez, yalnızca durumu değişir.",
-    "domain_name": "product_type"
-  },
-  {
-    "tool_name": "create_region",
-    "embedding_text": "Henüz kayıtlı olmayan yeni bir bölge açar. Bölge, isteğe bağlı olarak üst bir bölgenin alt bölgesi şeklinde de tanımlanabilir.",
-    "domain_name": "region"
-  },
-  {
-    "tool_name": "update_region",
-    "embedding_text": "Var olan bir bölgenin adını veya bağlı olduğu üst bölgeyi değiştirir. Bölge zaten mevcuttur, sadece bilgileri güncellenir.",
-    "domain_name": "region"
-  },
-  {
-    "tool_name": "delete_region",
-    "embedding_text": "Var olan bir bölgeyi kalıcı olarak kaldırır. Bölge artık kayıtlarda bulunmaz.",
-    "domain_name": "region"
-  },
-  {
-    "tool_name": "update_region_record_status",
-    "embedding_text": "Var olan bir bölgeyi kullanıma açık veya kapalı hale getirir. Bölge silinmez, yalnızca durumu değişir.",
-    "domain_name": "region"
-  },
-  {
-    "tool_name": "create_supplier",
-    "embedding_text": "Henüz kayıtlı olmayan yeni bir tedarikçi veya firmayı, bağlı olduğu bölgeyle birlikte sisteme dahil eder.",
-    "domain_name": "provider"
-  },
-  {
-    "tool_name": "update_supplier",
-    "embedding_text": "Var olan bir tedarikçinin adını, adresini, telefonunu veya bağlı olduğu bölgeyi yeniden düzenler.",
-    "domain_name": "provider"
-  },
-  {
-    "tool_name": "delete_supplier",
-    "embedding_text": "Var olan bir tedarikçiyi kalıcı olarak kaldırır. Tedarikçi artık kayıtlarda bulunmaz.",
-    "domain_name": "provider"
-  },
-  {
-    "tool_name": "update_supplier_record_status",
-    "embedding_text": "Bir tedarikçiyi kullanıma açık veya kapalı hale getirir. Tedarikçi silinmez, yalnızca durumu değişir.",
-    "domain_name": "provider"
-  },
-  {
-    "tool_name": "create_force_major",
-    "embedding_text": "Henüz tanımlı olmayan yeni bir Mücbir Sebep başlığını sisteme kaydeder.",
-    "domain_name": "force_major"
-  },
-  {
-    "tool_name": "update_force_major",
-    "embedding_text": "Var olan bir Mücbir Sebep kaydının başlığını veya bilgilerini yeniden düzenler.",
-    "domain_name": "force_major"
-  },
-  {
-    "tool_name": "delete_force_major",
-    "embedding_text": "Var olan bir Mücbir Sebep kaydını kalıcı olarak kaldırır. Kayıt artık sistemde bulunmaz.",
-    "domain_name": "force_major"
-  },
-  {
-    "tool_name": "update_force_major_record_status",
-    "embedding_text": "Bir Mücbir Sebep kaydını kullanıma açık veya kapalı hale getirir. Kayıt silinmez, yalnızca durumu değişir.",
-    "domain_name": "force_major"
-  },
-  {
-    "tool_name": "create_tender",
-    "embedding_text": "Henüz kayıtlı olmayan yeni bir ihale, sadece başlığıyla açılır. İhale süreci bu ilk kayıtla başlar, diğer detaylar sonradan eklenir.",
-    "domain_name": "tender"
-  },
-  {
-    "tool_name": "update_tender",
-    "embedding_text": "Var olan bir ihalenin başlığını veya temel bilgilerini günceller. İhale zaten mevcuttur, sadece bilgileri yeniden düzenlenir.",
-    "domain_name": "tender"
-  },
-  {
-    "tool_name": "delete_tender",
-    "embedding_text": "Var olan bir ihaleyi kalıcı olarak kaldırır. İhale artık kayıtlarda bulunmaz.",
-    "domain_name": "tender"
-  },
-  {
-    "tool_name": "update_tender_record_status",
-    "embedding_text": "Var olan bir ihaleyi kullanıma açık veya kapalı hale getirir. İhale silinmez, yalnızca durumu değişir.",
-    "domain_name": "tender"
-  },
-  {
-    "tool_name": "create_work",
-    "embedding_text": "Henüz kayıtlı olmayan yeni bir iş kaydı açar. İşin başlığı, bağlı olduğu ihale ve başlangıç tarihi belirtilerek oluşturulur.",
-    "domain_name": "work"
-  },
-  {
-    "tool_name": "update_work",
-    "embedding_text": "Var olan bir iş kaydının başlığını, bağlı olduğu ihaleyi veya tarihlerini değiştirir. İş zaten mevcuttur, sadece bilgileri güncellenir.",
-    "domain_name": "work"
-  },
-  {
-    "tool_name": "delete_work",
-    "embedding_text": "Var olan bir iş kaydını kalıcı olarak kaldırır. İş artık kayıtlarda bulunmaz.",
-    "domain_name": "work"
-  },
-  {
-    "tool_name": "update_work_record_status",
-    "embedding_text": "Var olan bir iş kaydını kullanıma açık veya kapalı hale getirir. İş silinmez, yalnızca durumu değişir.",
-    "domain_name": "work"
-  },
-  {
-    "tool_name": "create_network",
-    "embedding_text": "Bir işe bağlı olarak henüz kayıtlı olmayan yeni bir şebeke oluşturur. Şebekenin başlığı, açıklaması ve bağlı olduğu iş belirtilerek kaydedilir.",
-    "domain_name": "network"
-  },
-  {
-    "tool_name": "update_network",
-    "embedding_text": "Mevcut ve daha önce kaydedilmiş bir şebekenin bilgilerini değiştirir. Yeni bir şebeke oluşturmaz; şebekeyi sistemden kaldırmaz veya sadece durumunu değiştirmez, içeriğini günceller.",
-    "domain_name": "network"
-  },
-  {
-    "tool_name": "update_network_record_status",
-    "embedding_text": "Mevcut bir şebekenin kayıt durumunu (aktif/pasif) değiştirir. Şebekenin başlığı, açıklaması veya bağlı olduğu iş gibi bilgilerini değiştirmez, sadece durumunu günceller.",
-    "domain_name": "network"
-  },
-  {
-    "tool_name": "delete_network",
-    "embedding_text": "Mevcut bir şebekeyi sistemden kaldırır. Yeni bir şebeke oluşturmaz ve bilgilerini değiştirmez, şebekeyi tamamen siler.",
-    "domain_name": "network"
+    "tool_name": "update_company_profile",
+    "embedding_text": "اطلاعات حساب و مشخصات شرکت را ثبت یا اصلاح می‌کند: نوع حساب حقیقی یا حقوقی، نام و نام خانوادگی، کد ملی، نام شرکت، شناسه ملی شرکت، کد اقتصادی، شماره ثبت، تلفن ثابت، کد پستی و آدرس. وقتی کاربر می‌خواهد یکی از این‌ها را وارد، تغییر یا به‌روز کند.",
+    "domain_name": "company_profile"
   }
 ]

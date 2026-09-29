@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 
 import { RecordStatus } from '../../enums/RecordStatus';
+import { CustomerType } from '../../enums/company.enum';
 import { UserRole } from './UserRole';
 import { CompanyUser } from './CompanyUser';
 import { Driver } from '../driver/Driver';
@@ -52,6 +53,40 @@ export class User {
     default: RecordStatus.Active,
   })
   recordStatus!: RecordStatus;
+
+  // اطلاعات پروفایل (شخصی/شرکتی) همه اختیاری‌اند؛ کاربر بعد از ثبت‌نام تکمیل یا اصلاحشان می‌کند.
+  @Column({ type: 'smallint', nullable: true })
+  profileType?: CustomerType | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  firstName?: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  lastName?: string | null;
+
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  nationalCode?: string | null;
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  companyName?: string | null;
+
+  @Column({ type: 'varchar', length: 11, nullable: true })
+  companyNationalId?: string | null;
+
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  economicCode?: string | null;
+
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  registrationNo?: string | null;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  phone?: string | null;
+
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  postalCode?: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  address?: string | null;
 
   @OneToMany(
     () => UserRole,

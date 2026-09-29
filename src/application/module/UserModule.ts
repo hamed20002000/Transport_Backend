@@ -6,9 +6,11 @@ import { User } from 'src/domain/entities/auth/User';
 import { UserService } from 'src/services/UserService';
 import { PasswordService } from 'src/services/auth/password.service';
 
+import { UserProfileController } from 'src/presentation/controllers/user/user-profile.controller';
 import { UserRepository } from 'src/infrastructure/repositories/UserRepository';
 
 import { USER_REPOSITORY } from 'src/domain/repositories/repository.tokens';
+import { CompanyProfileTools } from 'src/services/companyProfileTools';
 
 @Module({
   imports: [
@@ -16,6 +18,8 @@ import { USER_REPOSITORY } from 'src/domain/repositories/repository.tokens';
       User,
     ]),
   ],
+
+  controllers: [UserProfileController],
 
   providers: [
     UserRepository,
@@ -27,6 +31,8 @@ import { USER_REPOSITORY } from 'src/domain/repositories/repository.tokens';
 
     PasswordService,
     UserService,
+    // ابزارهای agent برای پروفایل
+    CompanyProfileTools,
   ],
 
   exports: [

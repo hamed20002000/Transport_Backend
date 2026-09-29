@@ -17,6 +17,7 @@ import { WhatsappAuthKey } from 'src/domain/entities/agent/WhatsappAuthKey';
 import { WhatsappUserMapping } from 'src/domain/entities/agent/WhatsappUserMapping';
 import { useDbAuthState } from '../hooks/useDbAuthState';
 import { FunctionCallService } from './functioncall.service';
+import { AgentRequest } from '../types';
 import { AuthService } from 'src/auth/auth.service';
 import { SpeechToTextService } from './Speechtotext.service';
 import { PendingConfirmationService } from './PendingConfirmationService';
@@ -26,6 +27,19 @@ import { ChannelBotFlowService } from 'src/services/channel/channelBotFlow.servi
 const execAsync = promisify(exec);
 
 const DEFAULT_SESSION_ID = 'main';
+
+
+// کلمه‌های کنترلی که کاربر در واتس‌اپ می‌نویسد؛ معادل ترکی قبلی هم پذیرفته می‌شود.
+const CANCEL_WORDS = ['لغو', 'انصراف', 'نه', 'iptal', 'vazgeç', 'hayır'];
+const NEW_CHAT_WORDS = ['گفتگوی جدید', 'گفتگو جدید', 'yeni sohbet'];
+const NEXT_PAGE_WORDS = ['بعدی', 'ادامه', 'devam'];
+const PREVIOUS_PAGE_WORDS = ['قبلی', 'برگشت', 'geri'];
+
+/** «۱» و «١» را هم مثل «1» می‌خواند تا جواب عددی کاربر فارسی‌زبان رد نشود. */
+const toLatinDigits = (value: string) =>
+  value
+    .replace(/[۰-۹]/g, (digit) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)))
+    .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)));
 
 @Injectable()
 export class WhatsappService implements OnModuleInit {
@@ -317,11 +331,6 @@ export class WhatsappService implements OnModuleInit {
 
     const { userid, username } = mapping;
 
-    // AgentGateway.sendToolResult/sendCurrentTool check this flag to decide
-    // where to relay the eventual response (Telegram, WhatsApp, or just the
-    // web socket). Must be set before triggering ANY pipeline call below.
-    this.functionCallService.source = 'whatsapp';
-
     // Checked FIRST: is this user in the middle of confirming a
     // voice-transcribed command? This takes priority over everything else
     // because it's the most specific pending state.
@@ -363,14 +372,14 @@ export class WhatsappService implements OnModuleInit {
     if (hasPending) {
       // User wants to cancel whatever operation is currently paused/waiting.
       if (this.isCancelReply(text)) {
-        void this.functionCallService.handleGeneratorResponse(userid, null, true);
+        void this.functionCallService.handleGeneratorResponse(userid, null, true, 'whatsapp');
         return;
       }
 
       // User replied with a number -- treat it as their answer to the
       // pending generator prompt (e.g. "which option did you mean?").
       if (selectionIndex !== null) {
-        void this.functionCallService.handleGeneratorResponse(userid, selectionIndex, false);
+        void this.functionCallService.handleGeneratorResponse(userid, selectionIndex, false, 'whatsapp');
         return;
       }
 
@@ -381,7 +390,7 @@ export class WhatsappService implements OnModuleInit {
       // way to resolve it, so instead we ask the user to clarify and stop.
       await this.sendMessage(
         jid,
-        'Lütfen bir seçenek numarası girin veya işlemi iptal etmek için "iptal" yazın.',
+        'لطفاً شماره یکی از گزینه‌ها را بفرستید یا برای لغو «لغو» بنویسید.',
       );
       return;
     }
@@ -393,7 +402,7 @@ export class WhatsappService implements OnModuleInit {
     // NEW: 'yeni sohbet' -- exact WhatsApp equivalent of Telegram's /yeni
     // and the web's "new chat" button. Clears CurrentSessionId so the next
     // message starts a brand-new, empty session (no old context carried over).
-    if (text.trim().toLowerCase() === 'yeni sohbet') {
+    if (NEW_CHAT_WORDS.includes(text.trim().toLowerCase())) {
       await this.handleNewSessionCommand(jid, userid);
       return;
     }
@@ -430,9 +439,9 @@ export class WhatsappService implements OnModuleInit {
     // pipeline (originally built for HTTP + Telegram) reads the caller's
     // identity from req.user.userid / req.user.username. We fake that shape
     // here since WhatsApp has no real HTTP request to piggyback on.
-    const req = {
+    const req: AgentRequest = {
       user: {
-        userid,
+        userId: userid,
         username,
       },
     };
@@ -465,7 +474,7 @@ export class WhatsappService implements OnModuleInit {
     // own internal try/catch (e.g. in the session-ownership check), the
     // error gets logged instead of silently disappearing as an unhandled
     // promise rejection.
-    this.functionCallService.RunFunctionCalling(text, req, files, sessionId).catch((error) => {
+    this.functionCallService.RunFunctionCalling(text, req, files, sessionId, 'whatsapp').catch((error) => {
       this.logger.error(`RunFunctionCalling hata verdi (WhatsApp): ${userid}`, error as Error);
     });
 
@@ -482,7 +491,7 @@ export class WhatsappService implements OnModuleInit {
       mappingRow.CurrentSessionId = null;
       await this.userMappingRepo.save(mappingRow);
     }
-    await this.sendMessage(jid, '🆕 Yeni bir sohbet başlatıldı.');
+    await this.sendMessage(jid, '🆕 گفتگوی جدید شروع شد.');
   }
 
 
@@ -507,7 +516,7 @@ export class WhatsappService implements OnModuleInit {
     if (parts.length !== 2) {
       await this.sendMessage(
         jid,
-        'Bu numara sisteme kayıtlı değil. Lütfen kullanıcı adınızı ve şifrenizi şu formatta gönderin:\nkullaniciadi sifre',
+        'این شماره در سامانه ثبت نشده است. لطفاً نام کاربری و رمز عبور خود را به این شکل بفرستید:\nنام‌کاربری رمز',
       );
       return;
     }
@@ -529,7 +538,7 @@ export class WhatsappService implements OnModuleInit {
       // Even on an unexpected error, the message still contained a real
       // password -- delete it regardless of outcome.
       await this.deleteMessage(jid, messageKey);
-      await this.sendMessage(jid, 'Giriş sırasında bir hata oluştu. Lütfen tekrar deneyin.');
+      await this.sendMessage(jid, 'هنگام ورود خطایی رخ داد. لطفاً دوباره تلاش کنید.');
       return;
     }
 
@@ -542,7 +551,7 @@ export class WhatsappService implements OnModuleInit {
     // meaning the username/password combination itself was wrong (as
     // opposed to a system error, which was already handled above).
     if (!authResult) {
-      await this.sendMessage(jid, 'Kullanıcı adı veya şifre hatalı. Lütfen tekrar deneyin.');
+      await this.sendMessage(jid, 'نام کاربری یا رمز عبور اشتباه است. لطفاً دوباره تلاش کنید.');
       return;
     }
 
@@ -560,7 +569,7 @@ export class WhatsappService implements OnModuleInit {
     // find this mapping and treat this number as a known, logged-in user.
     await this.sendMessage(
       jid,
-      `Hoş geldiniz, ${username}! Artık komutlarınızı buradan gönderebilirsiniz.`,
+      `${username} عزیز، خوش آمدید! از این به بعد می‌توانید درخواست‌هایتان را همین‌جا بفرستید.`,
     );
   }
 
@@ -632,7 +641,7 @@ export class WhatsappService implements OnModuleInit {
   private parseUserSelectionReply(text: string): number | null {
     // Trim first so stray whitespace (e.g. "  1 ", or a trailing newline
     // from the WhatsApp client) doesn't cause a false negative below.
-    const trimmed = text.trim();
+    const trimmed = toLatinDigits(text.trim());
 
     // Number("") would be 0, not NaN -- normally not writable as
     // Number.isInteger(0) would still pass and wrongly treat an empty
@@ -675,7 +684,7 @@ export class WhatsappService implements OnModuleInit {
     // free-text cancel wording, e.g. when a pending generator selection has
     // no numbered options attached and the user just types "iptal" directly,
     // or as a redundant catch-all alongside numbered replies.
-    return ['iptal', 'vazgeç', 'hayır'].includes(normalized);
+    return CANCEL_WORDS.includes(normalized);
   }
 
 
@@ -694,7 +703,7 @@ export class WhatsappService implements OnModuleInit {
     if (!mapping) {
       await this.sendMessage(
         jid,
-        'Bu numara sisteme kayıtlı değil. Lütfen önce kullanıcı adınızı ve şifrenizi şu formatta gönderin:\nkullaniciadi sifre',
+        'این شماره در سامانه ثبت نشده است. لطفاً ابتدا نام کاربری و رمز عبور خود را به این شکل بفرستید:\nنام‌کاربری رمز',
       );
       return;
     }
@@ -712,7 +721,7 @@ export class WhatsappService implements OnModuleInit {
       // Immediate feedback -- voice processing (download + ffmpeg +
       // transcription) can take a few seconds, so the user gets some
       // indication something is happening rather than silence.
-      await this.sendMessage(jid, '🎤 Ses işleniyor...');
+      await this.sendMessage(jid, '🎤 در حال پردازش پیام صوتی...');
 
       // Two separate directories, mirroring TelegramService's approach --
       // keeps the raw downloaded file and the ffmpeg-converted output from
@@ -760,7 +769,7 @@ export class WhatsappService implements OnModuleInit {
       // audio had no recognizable speech. Nothing meaningful to confirm, so
       // stop here rather than asking the user to approve an empty command.
       if (!text) {
-        await this.sendMessage(jid, 'Ses metne dönüştürülemedi. Lütfen tekrar deneyin.');
+        await this.sendMessage(jid, 'پیام صوتی به متن تبدیل نشد. لطفاً دوباره تلاش کنید.');
         return;
       }
 
@@ -774,7 +783,7 @@ export class WhatsappService implements OnModuleInit {
       // chance of typos being misread as either answer.
       await this.sendMessage(
         jid,
-        `🎤 Şunu anladım:\n"${text}"\n\n1) Evet, çalıştır\n2) Hayır, iptal et`,
+        `🎤 متوجه شدم:\n«${text}»\n\n۱) بله، انجام بده\n۲) نه، لغو کن`,
       );
     } catch (error) {
       // Catches failures from ANY step above -- download, file I/O, ffmpeg
@@ -783,7 +792,7 @@ export class WhatsappService implements OnModuleInit {
       // failure point; the user just needs to know it didn't work and can
       // try again.
       this.logger.error(`Ses işleme hatası: ${jid}`, error as Error);
-      await this.sendMessage(jid, 'Ses işlenirken bir hata oluştu.');
+      await this.sendMessage(jid, 'در پردازش پیام صوتی خطایی رخ داد.');
     }
   }
 
@@ -804,7 +813,7 @@ export class WhatsappService implements OnModuleInit {
     if (!mapping) {
       await this.sendMessage(
         jid,
-        'Bu numara sisteme kayıtlı değil. Lütfen önce kullanıcı adınızı ve şifrenizi şu formatta gönderin:\nkullaniciadi sifre',
+        'این شماره در سامانه ثبت نشده است. لطفاً ابتدا نام کاربری و رمز عبور خود را به این شکل بفرستید:\nنام‌کاربری رمز',
       );
       return;
     }
@@ -812,7 +821,7 @@ export class WhatsappService implements OnModuleInit {
     if (!caption?.trim()) {
       await this.sendMessage(
         jid,
-        'Lütfen dosya/resimle birlikte ne yapmak istediğinizi de açıklama olarak yazın.',
+        'لطفاً همراه فایل یا تصویر، در توضیح (کپشن) بنویسید چه کاری باید انجام شود.',
       );
       return;
     }
@@ -848,11 +857,10 @@ export class WhatsappService implements OnModuleInit {
       await writeFile(filePath, buffer);
 
       const { userid, username } = mapping;
-      this.functionCallService.source = 'whatsapp';
       await this.runCommand(userid, username, caption.trim(), [filePath]);
     } catch (error) {
       this.logger.error(`Dosya işleme hatası: ${jid}`, error as Error);
-      await this.sendMessage(jid, 'Dosya işlenirken bir hata oluştu.');
+      await this.sendMessage(jid, 'در پردازش فایل خطایی رخ داد.');
     }
   }
 
@@ -884,7 +892,7 @@ export class WhatsappService implements OnModuleInit {
       // command turns out to be ambiguous and needs a follow-up selection),
       // there's no leftover stale entry still sitting in pendingTranscriptions.
       this.pendingTranscriptions.delete(jid);
-      await this.sendMessage(jid, `✅ Onaylandı: "${pendingText}"`);
+      await this.sendMessage(jid, `✅ تأیید شد: «${pendingText}»`);
       // From here on, this is handled exactly like a normal typed command --
       // full segmentation, tool selection, etc. all run fresh against the
       // confirmed transcript text.
@@ -896,7 +904,7 @@ export class WhatsappService implements OnModuleInit {
       // Rejected -- just clear and stop. No pipeline call at all; the voice
       // note is simply discarded.
       this.pendingTranscriptions.delete(jid);
-      await this.sendMessage(jid, '❌ İptal edildi. Lütfen tekrar deneyin.');
+      await this.sendMessage(jid, '❌ لغو شد. لطفاً دوباره تلاش کنید.');
       return;
     }
 
@@ -905,7 +913,7 @@ export class WhatsappService implements OnModuleInit {
     // keep waiting for a valid answer rather than silently dropping the
     // transcript or letting this message fall through to being treated as a
     // brand-new command.
-    await this.sendMessage(jid, `Lütfen 1 (Evet) veya 2 (Hayır) yazın.`);
+    await this.sendMessage(jid, `لطفاً ۱ (بله) یا ۲ (نه) را بفرستید.`);
   }
 
 
@@ -928,8 +936,8 @@ export class WhatsappService implements OnModuleInit {
     // (isCancelReply) -- covering both the prompt we sent ("1) Evet / 2)
     // Hayır") and a user who just types "iptal" out of habit instead.
     if (choice === 2 || this.isCancelReply(text)) {
-      await this.functionCallService.resumePendingConfirmation(userid, false);
-      await this.sendMessage(jid, '❌ İşlem iptal edildi.');
+      await this.functionCallService.resumePendingConfirmation(userid, false, 'whatsapp');
+      await this.sendMessage(jid, '❌ عملیات لغو شد.');
       return;
     }
 
@@ -939,7 +947,7 @@ export class WhatsappService implements OnModuleInit {
       // için) -- bu yüzden gerçek "başarılı/başarısız" cevabı zaten
       // source='whatsapp' üzerinden ayrıca WhatsappService.sendOrUpdateProgress
       // ile kullanıcıya gidecek.
-      await this.functionCallService.resumePendingConfirmation(userid, true);
+      await this.functionCallService.resumePendingConfirmation(userid, true, 'whatsapp');
       return;
     }
 
@@ -947,7 +955,7 @@ export class WhatsappService implements OnModuleInit {
     // Deliberately do NOT clear pendingConfirmationService here, so the
     // pending delete stays intact and the user can still answer correctly
     // on a follow-up message.
-    await this.sendMessage(jid, `Lütfen onaylamak için 1, iptal için 2 yazın.`);
+    await this.sendMessage(jid, `لطفاً برای تأیید ۱ و برای لغو ۲ را بفرستید.`);
   }
 
 
@@ -1009,7 +1017,7 @@ export class WhatsappService implements OnModuleInit {
     // .message field, sendMessage's own fallback ('İşlem tamamlandı.')
     // would be misleading here -- nothing is done yet, it's asking a
     // question. Use a context-appropriate default instead.
-    const finalMessage = message && message.trim() ? message : 'Bu işlemi onaylıyor musunuz?';
+    const finalMessage = message && message.trim() ? message : 'آیا این عملیات را تأیید می‌کنید؟';
 
     // Append the numbered options directly onto whatever confirmation
     // message the pipeline generated (e.g. `"X kaydını sil" işlemini
@@ -1017,7 +1025,7 @@ export class WhatsappService implements OnModuleInit {
     // how to answer it in one message. This is what
     // handleDeleteConfirmationReply above expects the user to respond to
     // with "1" or "2".
-    await this.sendMessage(jid, `${finalMessage}\n\n1) Evet\n2) Hayır`);
+    await this.sendMessage(jid, `${finalMessage}\n\n۱) بله\n۲) نه`);
   }
   // Called by AgentGateway when a "confirm_required" result comes back WITH
   // an `options` array -- e.g. multiple ambiguous matches were found and the
@@ -1075,7 +1083,7 @@ export class WhatsappService implements OnModuleInit {
     // any option regardless of which page is currently displayed (see
     // handleSelectionReply, which indexes into the full `options` array).
     const lines = pageOptions.map((option, i) => {
-      const label = option.title && option.title.trim() ? option.title : `Seçenek ${start + i + 1}`;
+      const label = option.title && option.title.trim() ? option.title : `گزینه ${start + i + 1}`;
       return `${start + i + 1}) ${label}`;
     });
 
@@ -1088,13 +1096,13 @@ export class WhatsappService implements OnModuleInit {
     if (hasNext) {
       // Tell the user exactly how many more options are waiting on the next
       // page (capped at pageSize, in case fewer than a full page remain).
-      navHints.push(`'devam' yazarak sonraki ${Math.min(pageSize, options.length - end)} seçeneği görün`);
+      navHints.push(`برای دیدن ${Math.min(pageSize, options.length - end)} گزینه بعدی «بعدی» بنویسید`);
     }
     if (hasPrev) {
-      navHints.push(`'geri' yazarak önceki sayfaya dönün`);
+      navHints.push(`برای برگشتن به صفحه قبل «قبلی» بنویسید`);
     }
     // Cancel is always available regardless of page.
-    navHints.push(`İptal etmek için 'iptal' yazın`);
+    navHints.push(`برای لغو «لغو» بنویسید`);
 
     // Assemble the final message from up to three parts, separated by blank
     // lines:
@@ -1152,21 +1160,21 @@ export class WhatsappService implements OnModuleInit {
     // like a page-navigation keyword or a number.
     if (this.isCancelReply(text)) {
       this.pendingSelections.delete(userId);
-      await this.finalizeSelectionMessage(userId, jid, '❌ İşlem iptal edildi.');
+      await this.finalizeSelectionMessage(userId, jid, '❌ عملیات لغو شد.');
       // Resumes the underlying generator (in FunctionCallService) with
       // cancelled=true, so it can clean itself up properly (e.g. release any
       // resources, run a finally block) rather than just being abandoned in
       // memory.
-      void this.functionCallService.handleGeneratorResponse(userId, null, true);
+      void this.functionCallService.handleGeneratorResponse(userId, null, true, 'whatsapp');
       return;
     }
 
     // Pagination: move forward one page, unless we're already on the last
     // page (nextStart would be past the end of the options array).
-    if (normalized === 'devam') {
+    if (NEXT_PAGE_WORDS.includes(normalized)) {
       const nextStart = (pending.page + 1) * pageSize;
       if (nextStart >= pending.options.length) {
-        await this.sendMessage(jid, 'Başka seçenek yok.');
+        await this.sendMessage(jid, 'گزینه دیگری وجود ندارد.');
         return;
       }
       // Mutates `pending` in place (it's a reference into the Map's value,
@@ -1178,9 +1186,9 @@ export class WhatsappService implements OnModuleInit {
     }
 
     // Pagination: move back one page, unless already on the first page.
-    if (normalized === 'geri') {
+    if (PREVIOUS_PAGE_WORDS.includes(normalized)) {
       if (pending.page === 0) {
-        await this.sendMessage(jid, 'Zaten ilk sayfadasınız.');
+        await this.sendMessage(jid, 'در صفحه اول هستید.');
         return;
       }
       pending.page -= 1;
@@ -1197,7 +1205,7 @@ export class WhatsappService implements OnModuleInit {
       // than guessing or falling through to treating it as a new command.
       await this.sendMessage(
         jid,
-        `Lütfen listeden bir numara girin, veya 'devam' / 'geri' / 'iptal' yazın.`,
+        `لطفاً شماره یکی از گزینه‌های لیست را بفرستید، یا «بعدی» / «قبلی» / «لغو» بنویسید.`,
       );
       return;
     }
@@ -1210,7 +1218,7 @@ export class WhatsappService implements OnModuleInit {
       // A syntactically valid number, but out of range (e.g. they typed "99"
       // when there are only 20 options, or a negative/zero number). Ask
       // again rather than crashing on an out-of-bounds access.
-      await this.sendMessage(jid, 'Geçersiz numara. Lütfen listedeki bir numarayı girin.');
+      await this.sendMessage(jid, 'شماره نامعتبر است. لطفاً یکی از شماره‌های لیست را بفرستید.');
       return;
     }
 
@@ -1221,8 +1229,8 @@ export class WhatsappService implements OnModuleInit {
     // of "option 3", only whatever actual value (an id, a name, etc.) that
     // option represents.
     this.pendingSelections.delete(userId);
-    await this.finalizeSelectionMessage(userId, jid, `✅ Seçildi: ${selectedOption.title}`);
-    void this.functionCallService.handleGeneratorResponse(userId, selectedOption.id, false);
+    await this.finalizeSelectionMessage(userId, jid, `✅ انتخاب شد: ${selectedOption.title}`);
+    void this.functionCallService.handleGeneratorResponse(userId, selectedOption.id, false, 'whatsapp');
   }
 
   /**
@@ -1267,7 +1275,7 @@ export class WhatsappService implements OnModuleInit {
       this.logger.warn(
         `sendMessage boş/undefined metinle çağrıldı (jid=${jid}) -- çağıran tarafta bir yerde .message eksik olabilir.`,
       );
-      text = 'İşlem tamamlandı.';
+      text = 'عملیات انجام شد.';
     }
 
     try {

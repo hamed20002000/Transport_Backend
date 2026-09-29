@@ -15,9 +15,11 @@ import { CancellationService } from './cancellation.service';
 import { ConversationSession } from 'src/domain/entities/agent/ConversationSession';
 import { PromptSubmission } from 'src/domain/entities/agent/PromptSubmission';
 import { ToolExecution } from 'src/domain/entities/agent/ToolExecution';
-import { ContextInfo, PendingGeneratorType, PendingAction } from '../types';
+import { AgentRequest, AgentSource, ContextInfo, PendingGeneratorType, PendingAction } from '../types';
 import { PendingConfirmationService } from './PendingConfirmationService';
 import { In } from 'typeorm';
+import { User } from 'src/domain/entities/auth/User';
+import { RecordStatus } from 'src/domain/enums/RecordStatus';
 
 
 
@@ -39,7 +41,17 @@ export class FunctionCallService {
 
     //#region ----------- Define Local Props
     private pendingGenerators = new Map<string, { generator: AsyncGenerator<any, any, any>; context: PendingGeneratorType }>();
-    public source: "telegram" | "whatsapp" | "web" = "web"
+    // کانال هر کاربر جدا نگه داشته می‌شود؛ یک فیلد مشترک روی این singleton
+    // باعث می‌شد درخواست هم‌زمان کاربر دیگر مقصد نتیجه را عوض کند.
+    private readonly userSources = new Map<string, AgentSource>();
+
+    getSource(userId: string): AgentSource {
+        return this.userSources.get(userId) ?? "web";
+    }
+
+    private setSource(userId: string, source: AgentSource | undefined): void {
+        if (source) this.userSources.set(userId, source);
+    }
     isSpecial(toolname: string): boolean {
         switch (toolname) {
             case "create_tender":
@@ -54,8 +66,9 @@ export class FunctionCallService {
 
 
     //#region ---------------------Entry Function
-    async RunFunctionCalling(prompt: string, req: any, files: string[], sessionId: string): Promise<void> {
-        const userId = req.user.userid;
+    async RunFunctionCalling(prompt: string, req: AgentRequest, files: string[], sessionId: string, source: AgentSource = "web"): Promise<void> {
+        const userId = req.user.userId;
+        this.setSource(userId, source);
         const username = req.user.username;
 
         //#region ------------- Determine Session -----------------------
@@ -65,7 +78,7 @@ export class FunctionCallService {
         if (!session) {
             this.agentGateway.sendToolResult(userId, {
                 result: "error",
-                message: "Geçersiz oturum. Lütfen yeni bir sohbet başlatın.",
+                message: "گفتگو معتبر نیست. لطفاً یک گفتگوی جدید شروع کنید.",
                 prompt: prompt,
                 continuePrompt: undefined,
                 toolName: undefined,
@@ -78,7 +91,7 @@ export class FunctionCallService {
         if (session.Userid !== userId) {
             this.agentGateway.sendToolResult(userId, {
                 result: "error",
-                message: "Bu oturuma erişim yetkiniz yok.",
+                message: "به این گفتگو دسترسی ندارید.",
                 prompt: prompt,
                 continuePrompt: undefined,
                 toolName: undefined,
@@ -89,6 +102,10 @@ export class FunctionCallService {
             return;
         }
         //#endregion ----------- Determine Session -------------------------
+
+        // نقش‌ها هر بار از دیتابیس خوانده می‌شوند و روی req می‌مانند تا مراحل
+        // بعدی (تأیید، generator) هم با همین نقش‌ها ادامه دهند.
+        req.user.roles = await this.activeRoles(userId);
 
 
 
@@ -124,7 +141,7 @@ export class FunctionCallService {
 
         try {
             await this.agentGateway.sendCurrentTool(userId, {
-                currentOp: "Hazırlıkların yapılması"
+                currentOp: "در حال آماده‌سازی"
             })
             const segmentsPrompts = await this.segmentPromptIntoSubIntents(prompt);
             await this.processSegments(segmentsPrompts, 0, submission, req, files, sessionId, controller);
@@ -134,7 +151,7 @@ export class FunctionCallService {
             if (error?.name === "CanceledError" || error?.name === "AbortError") {
                 this.agentGateway.sendToolResult(userId, {
                     result: "cancelled",
-                    message: "İşlem kullanıcı tarafından durduruldu.",
+                    message: "عملیات توسط شما متوقف شد.",
                     prompt: prompt,
                     continuePrompt: undefined,
                     toolName: undefined,
@@ -145,7 +162,7 @@ export class FunctionCallService {
             } else {
                 this.agentGateway.sendToolResult(userId, {
                     result: "error",
-                    message: "Kritik hata, lütfen operatörle iletişime geçin.",
+                    message: "خطای غیرمنتظره رخ داد، لطفاً با پشتیبانی تماس بگیرید.",
                     prompt: prompt,
                     continuePrompt: undefined,
                     toolName: undefined,
@@ -163,6 +180,19 @@ export class FunctionCallService {
 
 
 
+    /** همان قاعده‌ی JwtPayload: فقط نقش‌های فعال کاربر */
+    private async activeRoles(userId: string): Promise<string[]> {
+        const user = await this.dataSource.getRepository(User).findOne({
+            where: { id: userId },
+            relations: { userRoles: { role: true } },
+        });
+        return (
+            user?.userRoles
+                ?.filter((userRole) => userRole.role?.recordStatus === RecordStatus.Active)
+                .map((userRole) => userRole.role.name) ?? []
+        );
+    }
+
     //#region Two Step Prompt eg:delete&genreator Check For Continue
     public hasPendingGenerator(userId: string): boolean {
         return this.pendingGenerators.has(userId);
@@ -173,8 +203,10 @@ export class FunctionCallService {
 
     async resumePendingConfirmation(
         userId: string,
-        confirmed: boolean
+        confirmed: boolean,
+        source?: AgentSource
     ): Promise<{ success: boolean }> {
+        this.setSource(userId, source);
         const actionInfo: PendingAction = this.pendingConfirmationService.get(userId)!;
         if (!actionInfo) {
             return { success: false };
@@ -185,7 +217,7 @@ export class FunctionCallService {
         if (!confirmed) {
             this.agentGateway.sendToolResult(userId, {
                 result: "cancelled",
-                message: "İşlem kullanıcı tarafından iptal edildi.",
+                message: "عملیات توسط شما لغو شد.",
                 prompt: actionInfo.subIntent,
                 continuePrompt: "",
                 toolName: actionInfo.selectedToolName,
@@ -258,7 +290,7 @@ export class FunctionCallService {
         return {
             id: session.Id,
             // اگه Title دستی ست نشده بود، از اولین prompt همون session استفاده کن
-            title: session.Title || session.Submissions?.[0]?.RawPrompt?.slice(0, 50) || "Yeni Sohbet",
+            title: session.Title || session.Submissions?.[0]?.RawPrompt?.slice(0, 50) || "گفتگوی جدید",
             createdAt: session.CreatedAt ?? new Date(),
         };
     }
@@ -288,7 +320,7 @@ export class FunctionCallService {
 
         if (!session || session.Userid !== userid) {
             throw new Error(
-                'Bu oturuma erişim yetkiniz yok.',
+                'به این گفتگو دسترسی ندارید.',
             );
         }
 
@@ -320,7 +352,7 @@ export class FunctionCallService {
         });
 
         if (!session || session.Userid !== userid) {
-            throw new Error("Bu oturuma erişim yetkiniz yok.");
+            throw new Error("به این گفتگو دسترسی ندارید.");
         }
 
         const executions = await this.dataSource.getRepository(ToolExecution)
@@ -339,7 +371,7 @@ export class FunctionCallService {
             prompt: e.SubIntentText, // متن دقیق درخواستی که این نتیجه رو تولید کرده
             message: e.Status === "success"
                 ? socketMapping[`${e.Operation}_end` as keyof typeof socketMapping]
-                : "İşlem gerçekleştirilirken hata oluştu.",
+                : "در انجام عملیات خطا رخ داد.",
             continuePrompt: (e.Result as any)?.continuePrompt,
             toolName: undefined,
             //(e.Result as any)?.toolName,
@@ -396,7 +428,7 @@ export class FunctionCallService {
         context: PendingGeneratorType,
         resumeValue?: any
     ): Promise<{ success: boolean; paused?: boolean }> {
-        const userId = context.req.user.userid;
+        const userId = context.req.user.userId;
         const socketKey =
             `${context.toolName}_end` as keyof typeof socketMapping;
 
@@ -408,7 +440,7 @@ export class FunctionCallService {
         } catch (error: any) {
             await this.agentGateway.sendToolResult(userId, {
                 result: "error",
-                message: error?.message || "İşlem gerçekleştirilirken hata oluştu.",
+                message: error?.message || "در انجام عملیات خطا رخ داد.",
                 prompt: context.subIntent,
                 toolName: undefined,
                 isSpecial: false,
@@ -425,7 +457,8 @@ export class FunctionCallService {
             const request = result.value;
             this.agentGateway.sendToolResult(userId, {
                 result: "confirm_required",
-                message: request.message,
+                // generatorها سؤالشان را در label می‌گذارند (الگوی setash)
+                message: request.message ?? request.label,
                 data: request,
                 continuePrompt: "",
                 isGenerator: true,
@@ -452,7 +485,7 @@ export class FunctionCallService {
 
         this.agentGateway.sendToolResult(userId, {
             result: "success",
-            message: socketMapping[socketKey],
+            message: toolResult?.message ?? socketMapping[socketKey],
             prompt: context.subIntent,
             continuePrompt: toolResult?.continuePrompt,
             toolName: toolResult?.toolName,
@@ -465,7 +498,8 @@ export class FunctionCallService {
         return { success: true };
     }
 
-    async handleGeneratorResponse(userId: string, response: any, cancelled: boolean = false): Promise<void> {
+    async handleGeneratorResponse(userId: string, response: any, cancelled: boolean = false, source?: AgentSource): Promise<void> {
+        this.setSource(userId, source);
         const pending = this.pendingGenerators.get(userId);
         if (!pending) return;
         this.pendingGenerators.delete(userId);
@@ -479,7 +513,7 @@ export class FunctionCallService {
 
             this.agentGateway.sendToolResult(userId, {
                 result: "cancelled",
-                message: "İşlem kullanıcı tarafından iptal edildi.",
+                message: "عملیات توسط شما لغو شد.",
                 prompt: context.subIntent,
                 continuePrompt: "",
                 toolName: context.toolName,
@@ -578,12 +612,12 @@ export class FunctionCallService {
         segmentsPrompts: string[],
         startIndex: number,
         submission: { Id: string },
-        req: any,
+        req: AgentRequest,
         files: string[],
         sessionId: string,
         controller: AbortController
     ): Promise<void> {
-        const userId = req.user.userid;
+        const userId = req.user.userId;
         const username = req.user.username;
 
         for (let i = startIndex; i < segmentsPrompts.length; i++) {
@@ -592,7 +626,7 @@ export class FunctionCallService {
             if (controller.signal.aborted) {
                 this.agentGateway.sendToolResult(userId, {
                     result: "cancelled",
-                    message: "İşlem kullanıcı tarafından durduruldu.",
+                    message: "عملیات توسط شما متوقف شد.",
                     prompt: subIntent,
                     continuePrompt: undefined,
                     toolName: undefined,
@@ -604,11 +638,11 @@ export class FunctionCallService {
             }
 
             this.agentGateway.sendCurrentTool(userId, {
-                currentOp: `(${subIntent})'nin emrini yerine getirmeye hazırlanıyoruz.`
+                currentOp: `در حال آماده‌سازی برای انجام «${subIntent}»`
             });
 
             const condinateToolsName = await this.condinate.getCondinateToolsForRunPrompt(
-                subIntent, this.history.getPreviousTool(username, sessionId) as string
+                subIntent, this.history.getPreviousTool(username, sessionId) as string, req.user.roles ?? []
             );
             const selectedToolName = await this.agentToolsService.extractSelectedTool(
                 subIntent, condinateToolsName, this.history.getHistory(0, username, sessionId) as string
@@ -634,7 +668,7 @@ export class FunctionCallService {
 
                 this.agentGateway.sendToolResult(userId, {
                     result: "confirm_required",
-                    message: `"${subIntent}" işlemini onaylıyor musunuz?`,
+                    message: `آیا «${subIntent}» را تأیید می‌کنید؟`,
                     continuePrompt: undefined,
                     toolName: selectedToolName,
                     isSpecial: false,
@@ -674,14 +708,14 @@ export class FunctionCallService {
         selectedToolName: string,
         selectedTool: { functionName: string; parameters: any },
         submission: { Id: string },
-        req: any,
+        req: AgentRequest,
         files: string[],
         sessionId: string,
         isLastSegment: boolean,
         remainingSegments: string[],
         resumeIndex: number
     ): Promise<{ success: boolean; paused?: boolean }> {
-        const userId = req.user.userid;
+        const userId = req.user.userId;
         const username = req.user.username;
         const socketKey =
             `${selectedToolName}` as keyof typeof socketMapping;
@@ -734,7 +768,7 @@ export class FunctionCallService {
 
             this.agentGateway.sendToolResult(userId, {
                 result: "success",
-                message: socketMapping[socketKey_end],
+                message: toolResult.message ?? socketMapping[socketKey_end],
                 prompt: subIntent,
                 continuePrompt: toolResult.continuePrompt,
                 toolName: toolResult.toolName,
@@ -758,10 +792,10 @@ export class FunctionCallService {
 
             this.agentGateway.sendToolResult(userId, {
                 result: "error",
-                message: error?.message || "İşlem gerçekleştirilirken hata oluştu.",
+                message: error?.message || "در انجام عملیات خطا رخ داد.",
                 prompt: subIntent,
                 continuePrompt: this.history.frequencyError(username, sessionId)
-                    ? "Komut istemi ardı ardına hatalar veriyorsa, komut istemini değiştirin."
+                    ? "این درخواست چند بار پشت سر هم خطا داد؛ لطفاً آن را طور دیگری بیان کنید."
                     : undefined,
                 toolName: undefined,
                 isSpecial: false,

@@ -23,6 +23,7 @@ import { CargoListingStatus } from '../../enums/notification';
 @Entity('CargoListing')
 @Index('UQ_CargoListing_source_publisher', ['sourceMessageId', 'publisherUserId'], { unique: true })
 @Index('IDX_CargoListing_publisher_created', ['publisherUserId', 'createdAt'])
+@Index('IDX_CargoListing_code', ['code'])
 export class CargoListing {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -30,6 +31,11 @@ export class CargoListing {
   // شناسه‌ی پیام بار در tarabari_backend
   @Column({ type: 'varchar', length: 100 })
   sourceMessageId!: string;
+
+  // کد پیگیری (TRB...): همان کد بار در tarabari_backend، یا برای بار دستی از
+  // manual_cargo_code_seq. یکتا نیست: اگر دو شرکت یک بار را منتشر کنند کدشان یکی است.
+  @Column({ type: 'varchar', length: 20 })
+  code!: string;
 
   // اعلان پیشنهادی که شرکت از رویش منتشر کرد
   @Column({ type: 'uuid', nullable: true })

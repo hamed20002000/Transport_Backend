@@ -23,6 +23,13 @@ import { AccountType } from 'src/domain/enums/subscription';
 import { MessengerPlatform } from 'src/domain/enums/messenger';
 import { BotReply, ChannelBotFlowService } from '../channel/channelBotFlow.service';
 import { TelegramSessionState } from 'src/domain/enums/telegram';
+import { createWriteStream } from 'node:fs';
+import { pipeline } from 'node:stream/promises';
+import {
+  AGENT_CALLBACK_PREFIX,
+  TelegramAgentBridge,
+  TelegramAgentContext,
+} from './telegramAgentBridge';
 
 import {
   TelegramCallback,
@@ -58,6 +65,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     private readonly keyboard: TelegramKeyboardService,
     private readonly telegramAccessService: TelegramAccessService,
     private readonly channelFlow: ChannelBotFlowService,
+    private readonly agentBridge: TelegramAgentBridge,
   ) {}
 
   /*
@@ -278,20 +286,34 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    /*
-     * =====================================================
-     * Voice
-     * =====================================================
-     *
-     * Agent هنوز اضافه نشده.
-     */
-
     if (!(await this.telegramMenuService.ensureActiveSubscription(this.bot, chatId, telegramUserId))) return;
 
     // لینک گروه/کانال بعد از «افزودن لینک» در بخش گروه‌ها و کانال‌ها
     if (message.text && await this.handleChannelText(chatId, telegramUserId, message.text)) return;
 
-    if (message.voice) {
+    /*
+     * =====================================================
+     * AI Agent (voice / free text)
+     * =====================================================
+     */
+
+    const voice = message.voice ?? message.audio;
+    const agent = this.agentBridge.current;
+    const agentCtx = agent && (voice || (message.text && !command?.startsWith('/')))
+      ? await this.agentContext(chatId, telegramUserId)
+      : null;
+
+    if (agent && agentCtx && voice) {
+      await agent.handleVoice(agentCtx, { fileId: voice.file_id, fileSize: voice.file_size, duration: voice.duration });
+      return;
+    }
+
+    if (agent && agentCtx && message.text) {
+      await agent.handleText(agentCtx, message.text);
+      return;
+    }
+
+    if (voice) {
       await this.sendMessage(
         chatId,
 
@@ -307,10 +329,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
     /*
      * =====================================================
-     * Normal Text
+     * Normal Text (agent disabled or unknown /command)
      * =====================================================
-     *
-     * Agent هنوز اضافه نشده.
      */
 
     if (message.text) {
@@ -625,6 +645,18 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
     if (!(await this.telegramMenuService.ensureActiveSubscription(this.bot, chatId, telegramUserId))) return;
 
+    if (data.startsWith(AGENT_CALLBACK_PREFIX)) {
+      const agent = this.agentBridge.current;
+      const agentCtx = agent ? await this.agentContext(chatId, telegramUserId) : null;
+      if (agent && agentCtx) {
+        await agent.handleCallback(agentCtx, data, query.message?.message_id);
+      } else {
+        await this.openMainMenu(chatId, telegramUserId);
+      }
+
+      return;
+    }
+
     if (
       data ===
       TelegramCallback.DriverSearchLoads
@@ -888,6 +920,63 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
       throw error;
     }
+  }
+
+  /*
+   * =====================================================
+   * AI Agent
+   * =====================================================
+   *
+   * پیام‌های agent مستقیم با bot فرستاده می‌شوند نه TelegramKeyboardService؛
+   * آن سرویس پیام عملیات قبلی را پاک می‌کند و پیام پیشرفت agent را از بین می‌برد.
+   */
+
+  private async agentContext(chatId: string, telegramUserId: string): Promise<TelegramAgentContext | null> {
+    const userId = await this.telegramIdentityService.getUserId(telegramUserId);
+    return userId ? { chatId, telegramUserId, userId } : null;
+  }
+
+  async sendAgentMessage(
+    chatId: string,
+    text: string,
+    buttons?: TelegramBot.InlineKeyboardButton[][],
+  ): Promise<number> {
+    const message = await this.requireBot().sendMessage(
+      chatId,
+      text,
+      buttons ? { reply_markup: { inline_keyboard: buttons } } : undefined,
+    );
+    return message.message_id;
+  }
+
+  async editAgentMessage(
+    chatId: string,
+    messageId: number,
+    text: string,
+    buttons?: TelegramBot.InlineKeyboardButton[][],
+  ): Promise<void> {
+    try {
+      await this.requireBot().editMessageText(text, {
+        chat_id: chatId,
+        message_id: messageId,
+        reply_markup: { inline_keyboard: buttons ?? [] },
+      });
+    } catch (error: unknown) {
+      if (this.getErrorMessage(error).includes('message is not modified')) return;
+      throw error;
+    }
+  }
+
+  /** دکمه‌های پیامی که کاربر رویش کلیک کرده را برمی‌دارد تا دوباره زده نشود. */
+  async clearAgentButtons(chatId: string, messageId: number): Promise<void> {
+    await this.requireBot()
+      .editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: messageId })
+      .catch(() => undefined);
+  }
+
+  /** فایل را در مسیری که فراخواننده تعیین کرده ذخیره می‌کند (نه نام فایل تلگرام). */
+  async downloadAgentFile(fileId: string, destination: string): Promise<void> {
+    await pipeline(this.requireBot().getFileStream(fileId), createWriteStream(destination));
   }
 
   private requireBot(): TelegramBot {

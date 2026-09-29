@@ -111,6 +111,14 @@ export class CargoNotificationRepository {
     });
   }
 
+  /** جدیدترین ردیف‌های کاربر (حداکثر take تا) برای فیلتر کردن در برنامه. */
+  findRecentForUser(
+    userId: string,
+    options: { unreadOnly: boolean; kind?: CargoNotificationKind; take: number },
+  ): Promise<CargoNotification[]> {
+    return this.findPageForUser(userId, { ...options, skip: 0 }).then(([rows]) => rows);
+  }
+
   countUnread(userId: string): Promise<number> {
     return this.repository.count({ where: { userId, isRead: false } });
   }

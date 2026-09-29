@@ -1,50 +1,44 @@
 [
   {
-    "domain_name": "role",
-    "embedding_text": "Kullanıcı rolleri ve yetki tanımlarıyla ilgili kayıtlar. Roller, rollerin sahip olduğu işlem yetkileri ve rollerin aktiflik durumu bu kapsamdadır."
+    "domain_name": "company_suggested_cargo",
+    "roles": [
+      "COMPANY"
+    ],
+    "embedding_text": "بارهای پیشنهادی که برای شرکت رسیده: آگهی‌های بار و محموله‌هایی که سامانه از کانال‌ها و گروه‌ها جمع کرده و به شرکت پیشنهاد می‌دهد. شرکت می‌پرسد چه بارهایی رسیده یا تازه آمده، پیشنهادهای جدید و نخوانده را مرور می‌کند، آن‌ها را دیده‌شده و خوانده‌شده علامت می‌زند، و یک بار پیشنهادی را به نام شرکت برای راننده‌ها اعلام یا پخش می‌کند. مثل: «چه بارهایی برام اومده؟»، «پیشنهادهای جدید رو بیار»، «امروز چه آگهی‌هایی رسیده؟»، «نخونده‌ها رو بیار»، «همه رو خونده شده کن»، «این پیشنهاد رو به اسم ما برای راننده‌ها بفرست»."
   },
   {
-    "domain_name": "user",
-    "embedding_text": "Sistem kullanıcıları ve hesap bilgileriyle ilgili kayıtlar. Kullanıcı hesapları, kullanıcı adı, şifre, profil bilgileri, rol ataması ve hesap durumu bu kapsamdadır."
+    "domain_name": "company_create_cargo",
+    "roles": [
+      "COMPANY"
+    ],
+    "embedding_text": "ثبت و اعلام بار جدید شرکت برای پیدا کردن ماشین و راننده: شرکت یک بار یا محموله‌ی تازه دارد و آگهی آن را می‌سازد تا به راننده‌ها فرستاده شود. مشخصات بار: مبدأ بارگیری، مقصد تخلیه، نوع بار، وزن و تناژ یا تعداد پالت، نوع ماشین مثل تریلی و کامیون و خاور، کرایه مقطوع یا توافقی، زمان بارگیری و شماره تماس. مثل: «یه بار جدید ثبت کن»، «آگهی بار بذار»، «یه محموله داریم که باید حمل بشه»، «برای این بار ماشین جور کن»، «یه کامیون برای بارگیری لازمه»، «برای حمل این محموله راننده پیدا کن»."
   },
   {
-    "domain_name": "category",
-    "embedding_text": "Ürünlerin sınıflandırıldığı kategori (category) yapısıyla ilgili kayıtlar. Kategoriler, kategori hiyerarşisi ve kategorilerin aktiflik durumu bu kapsamdadır."
+    "domain_name": "company_my_cargo",
+    "roles": [
+      "COMPANY"
+    ],
+    "embedding_text": "بارهایی که شرکت خودش قبلاً اعلام کرده و مدیریت وضعیت آن‌ها: دیدن لیست آگهی‌های بار خودم و اینکه کدام هنوز باز و فعال است و کدام بسته شده. وقتی ماشین پیدا شد، راننده بار را برداشت، بار رفت یا پر شد، شرکت آگهی را می‌بندد تا راننده‌ها بدانند؛ و اگر باری اشتباهی بسته شده، دوباره بازش می‌کند. مثل: «بارهایی که منتشر کردم رو بیار»، «آگهی‌های بار خودم رو بیار»، «کدوم بارهام هنوز بازن؟»، «این بار رفت، ببندش»، «بار فلان مسیر برداشته شد»، «راننده بار رو برداشت»، «ماشین پیدا شد، تمومش کن»، «اشتباهی بستمش، دوباره بازش کن»."
   },
   {
-    "domain_name": "item_unit",
-    "embedding_text": "Ürünlerin ölçüldüğü birimlerle ilgili kayıtlar. Adet, kilogram, litre, metre gibi ürün birimleri ve bu birimlerin aktiflik durumu bu kapsamdadır."
+    "domain_name": "company_channels",
+    "roles": [
+      "COMPANY"
+    ],
+    "embedding_text": "مدیریت گروه‌ها و کانال‌های تلگرام و واتس‌اپ که به سامانه وصل می‌شوند: شرکت لینک گروه یا کانال را اضافه و ثبت می‌کند تا ربات عضو شود و آگهی‌هایش خوانده شود، گروه یا کانال را حذف یا از آن خارج می‌شود، لیست گروه‌هایش را می‌بیند و وضعیت عضویت ربات را می‌پرسد: در صف عضویت، منتظر تأیید ادمین، فعال، عضویت ناموفق، ربات از گروه حذف شده. اسم گروه‌ها و کانال‌ها معمولاً کلمه‌ی بار یا باربری دارد، مثل «کانال اعلام بار» یا «گروه باربری». مثل: «این لینک گروه رو اضافه کن»، «کانال اعلام بار رو حذف کن»، «از گروه باربری خارج شو»، «کانال واتساپ رو وصل کن»، «این گروه رو حذف کن»، «از اون کانال بیا بیرون»، «لیست گروه‌هام رو بیار»، «ربات تو کدوم گروه‌ها عضو شده؟»."
   },
   {
-    "domain_name": "product",
-    "embedding_text": "Ürün ve malzeme kayıtlarıyla ilgili işlemler. Ürün adı, kodu, açıklaması, ağırlığı, birimi ve ürünün aktiflik durumu bu kapsamdadır. Ürünün hangi kategoriye ait olduğu da ürün bilgisinin bir parçasıdır; ancak kategorinin kendisinin oluşturulması, güncellenmesi veya silinmesi bu kapsamda değildir."
-  },
-    {
-    "domain_name": "product_type",
-    "embedding_text": "Elektrik şebekesinde kullanılan direk ve transformatör tipleriyle ilgili kayıtlar. Demir direk, beton direk, trafo tipleri ve bu tiplerin aktiflik durumu bu kapsamdadır."
-  },
-  {
-    "domain_name": "region",
-    "embedding_text": "Coğrafi bölge tanımlarıyla ilgili kayıtlar. Bölgeler, bölgelerin birbirine bağlı hiyerarşik yapısı ve bölgelerin aktiflik durumu bu kapsamdadır."
+    "domain_name": "company_cargo_display_filters",
+    "roles": [
+      "COMPANY"
+    ],
+    "embedding_text": "تنظیم اینکه از این به بعد چه بارهایی به شرکت پیشنهاد و اعلان شود و چه بارهایی نشود: شرکت با فیلتر و شرط مشخص می‌کند فقط بارهای مسیر، مبدأ یا مقصد دلخواه، نوع بار یا نوع ماشین دلخواه و بازه‌ی کرایه‌ی دلخواه برایش بیاید، و بارهایی که به کارش نمی‌آید دیگر فرستاده نشود. ساختن، ویرایش، فعال و غیرفعال کردن و حذف فیلتر. مثل: «فقط بارهای این مسیر رو برام بفرست»، «از این به بعد فقط بارهای این مبدأ یا مقصد رو نمایش بده»، «فقط بارهایی که مقصدشون این شهره نشونم بده»، «این نوع بار دیگه برام نیاد»، «بارهای کرایه پایین رو پیشنهاد نده»، «یه فیلتر جدید بساز»، «این شرط رو بردار»، «فیلترم رو غیرفعال کن»."
   },
   {
-    "domain_name": "provider",
-    "embedding_text": "Tedarikçi ve firma kayıtlarıyla ilgili işlemler. Tedarikçi adı, adresi, telefonu, bağlı olduğu bölge ve tedarikçinin aktiflik durumu bu kapsamdadır."
-  },
-  {
-    "domain_name": "force_major",
-    "embedding_text": "Mücbir Sebep tanımlarıyla ilgili kayıtlar. Mücbir Sebep başlıkları ve bunların aktiflik durumu bu kapsamdadır."
-  },
-  {
-    "domain_name": "tender",
-    "embedding_text": "İhale duyuruları, teklif süreçleri ve ihale sonuçlarıyla ilgili bilgiler. Firma teklifleri ve ihale takvimi de buraya dahildir."
-  },
-  {
-    "domain_name": "work",
-    "embedding_text": "Bir ihaleye bağlı olarak yürütülen işler. İşin başlığı, ilişkili olduğu ihale ve başlangıç-bitiş tarihleri buraya dahildir."
-  },
-  {
-    "domain_name": "network",
-    "embedding_text": "Bir işe bağlı olarak tanımlanan şebeke. İşin fiziksel altyapı bilgilerini ve şebekeye eklenen malzeme/miktar kayıtlarını içerir. Şebekenin ilk kez oluşturulup kaydedilmesidir; mevcut bir şebekenin bilgilerinin değiştirilmesi veya şebekenin kaldırılması bu kapsamda değildir."
+    "domain_name": "company_profile",
+    "roles": [
+      "COMPANY"
+    ],
+    "embedding_text": "اطلاعات حساب کاربری و مشخصات شرکت: نوع حساب حقیقی یا حقوقی و شرکتی، نام و نام خانوادگی، کد ملی، نام شرکت، شناسه ملی شرکت، کد اقتصادی، شماره ثبت، تلفن ثابت دفتر، کد پستی و آدرس دفتر. شرکت این اطلاعات را ثبت، تکمیل، اصلاح یا به‌روز می‌کند. مثل: «اسمم رو عوض کن»، «اطلاعاتم رو ویرایش کن»، «آدرس دفتر عوض شده»، «کد اقتصادی شرکت رو ثبت کن»، «حسابم رو حقوقی کن»، «تلفن دفتر رو به‌روز کن»."
   }
 ]

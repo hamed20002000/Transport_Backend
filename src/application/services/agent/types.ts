@@ -77,7 +77,13 @@ export type ContextInfo = {
 
 export type RequestResult = {
     toolName: string;
-    continuePrompt: string;
+    continuePrompt?: string;
+    /**
+     * پاسخی که به کاربر نشان داده می‌شود (مثلاً لیست بارها)؛ اگر نباشد متن ثابت
+     * socketMapping[`${toolName}_end`] فرستاده می‌شود. در تلگرام و واتس‌اپ که
+     * صفحه‌ی جداگانه‌ای نیست، ابزارهای خواندنی فقط از همین راه جواب می‌دهند.
+     */
+    message?: string;
 }
 
 export type ExecuteToolResultType={
@@ -112,6 +118,8 @@ export type EmbeddingToolType = {
 }
 export type EmbeddingDomainTool = {
     domain_name: string;
+    /** نقش‌هایی که این domain برایشان است؛ domain بدون نقش برای هیچ کاربری دیده نمی‌شود */
+    roles: string[];
     embedding_text: string
 }
 
@@ -120,7 +128,7 @@ export type RunFinalStepType = {
     selectedToolName: string,
     selectedTool: { functionName: string; parameters: any },
     submission: { Id: string },
-    req: any,
+    req: AgentRequest,
     files: string[],
     sessionId: string,
     isLastSegment: boolean
@@ -132,7 +140,7 @@ export interface PendingAction {
         selectedToolName: string,
         selectedTool?: { functionName: string; parameters: any },
         submission: { Id: string },
-        req: any,
+        req: AgentRequest,
         files: string[],
         sessionId: string,
         isLastSegment: boolean
@@ -147,8 +155,23 @@ export type PendingGeneratorType={
     sessionId: string;
     submissionId: string;
     selectedTool: { functionName: string; parameters: any };
-    req: any;
+    req: AgentRequest;
     files: string[];
     resumeIndex: number;
     remainingSegments: string[];
+}
+
+/** کانالی که درخواست agent از آن آمده؛ نتیجه به همان کانال برگردانده می‌شود. */
+export type AgentSource = 'telegram' | 'whatsapp' | 'web';
+
+/**
+ * هویت کاربر در کل pipeline agent. شکلش با JwtPayload یکی است تا request
+ * واقعی HTTP و requestی که تلگرام/واتس‌اپ می‌سازند یکسان خوانده شوند.
+ */
+export interface AgentRequest {
+    /**
+     * roles را FunctionCallService در شروع هر اجرا از دیتابیس پر می‌کند (نه از
+     * کلاینت)؛ domainهای agent بر اساس همین فیلتر می‌شوند.
+     */
+    user: { userId: string; username: string; roles?: string[] };
 }

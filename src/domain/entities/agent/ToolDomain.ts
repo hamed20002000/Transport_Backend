@@ -10,6 +10,10 @@ export class ToolDomain {
     @Column("text", { name: "DisplayText", nullable: false })
     DisplayText?: string;
 
+    // domain فقط برای کاربرانی که یکی از این نقش‌ها را دارند در انتخاب شرکت می‌کند
+    @Column("text", { name: "Roles", array: true, default: () => "'{}'" })
+    Roles!: string[];
+
     // @Column({
     //     name: "Embedding",
     //     nullable: true,

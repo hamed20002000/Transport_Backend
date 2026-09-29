@@ -6,6 +6,17 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { CondinateToolsTyes, ExtracteToolsType } from '../types';
 import { ToolRegister } from '../toolRegister';
 import { DenseDomainResult, DomainLexemeEntry, LexemeStat, LexicalDomainResult } from '../interfaces/Ihybridsearch';
+import {
+    buildLexicalIndex,
+    DomainEntry,
+    DOMAIN_FINAL_LIMIT,
+    DOMAIN_SEARCH_LIMIT,
+    DOMAIN_TEXT_SEARCH_CONFIG,
+    EMBEDDING_MODEL,
+    EMBEDDING_URL,
+    rankDomains,
+    scoreLexical,
+} from '../domainRanking';
 
 
 @Injectable()
@@ -17,18 +28,18 @@ export class CondinateService {
 
     }
 
-    private idfMap: Map<string, number> = new Map();
-    private domainTermFreq: Map<string, Map<string, number>> = new Map();
-    private totalDomains = 0;
-    private initialized = false;
-    private SHORT_STEM_LENGTH_THRESHOLD = 3;
-    private SHORT_STEM_DISCOUNT_FACTOR = 0.15; // یعنی فقط 15% از idf واقعی‌شون رو نگه می‌داریم
+    /** تعداد تکرار کلمه‌ها در توضیح هر domain همراه نقش‌هایش؛ idf برای هر نقش جدا ساخته می‌شود */
+    private domains: DomainEntry[] = [];
+    private loadedAt = 0;
+    // ToolDomain با npm run agent:seed از process دیگری عوض می‌شود؛
+    // index هر یک دقیقه دوباره خوانده می‌شود تا بدون restart به‌روز شود.
+    private static readonly INDEX_TTL_MS = 60_000;
 
 
 
     async getEmbedding(text: string): Promise<number[]> {
-        const resp = await axios.post("http://localhost:11434/api/embed", {
-            model: "bge-m3:latest",
+        const resp = await axios.post(EMBEDDING_URL, {
+            model: EMBEDDING_MODEL,
             input: text,
         });
         return resp.data.embeddings[0];
@@ -43,13 +54,13 @@ export class CondinateService {
         return combined.map((v) => v / norm);
     }
 
-    async getCondinateToolsForRunPrompt(prompt: string, previousTool: string): Promise<string[]> {
+    async getCondinateToolsForRunPrompt(prompt: string, previousTool: string, userRoles: string[]): Promise<string[]> {
 
         //const segmentsPrompts = await this.segmentPromptIntoSubIntents(prompt);
         const allCandidateTools = new Set<string>();
 
         //for (const subIntent of segmentsPrompts) {
-        const domains = await this.getCondinateDomainForRunPrompt(prompt, previousTool);
+        const domains = await this.getCondinateDomainForRunPrompt(prompt, previousTool, userRoles);
         const tools = await this.getCondinateToolsFromDomains(prompt, domains);
         tools.forEach((t) => allCandidateTools.add(t));
         //}
@@ -101,24 +112,6 @@ export class CondinateService {
     }
 
 
-    private reciprocalRankFusion(listA: string[], listB: string[], k: number = 60): string[] {
-        const scores = new Map<string, number>();
-
-        listA.forEach((name, index) => {
-            const rank = index + 1;
-            scores.set(name, (scores.get(name) ?? 0) + 1 / (k + rank));
-        });
-
-        listB.forEach((name, index) => {
-            const rank = index + 1;
-            scores.set(name, (scores.get(name) ?? 0) + 1 / (k + rank));
-        });
-
-        return Array.from(scores.entries())
-            .sort((a, b) => b[1] - a[1])
-            .map(([name]) => name);
-    }
-
     private async denseSearchDomain_old(queryText: string, limit: number): Promise<{name:string,score:number}[]> {
         const vec = await this.getEmbedding(queryText);
 
@@ -137,16 +130,19 @@ export class CondinateService {
     }
         private async denseSearchDomainScored(
         queryText: string,
-        limit: number
+        limit: number,
+        userRoles: string[]
     ): Promise<{ name: string; score: number }[]> {
         const vec = await this.getEmbedding(queryText);
 
+        // فقط domainهای نقش کاربر (&& یعنی حداقل یک نقش مشترک)
         const results: { DomainName: string; distance: number }[] = await this.dataSource.query(
             `SELECT "DomainName", "Embedding" <=> $1 AS distance
              FROM "ToolDomain"
+             WHERE "Roles" && $3::text[]
              ORDER BY "Embedding" <=> $1
              LIMIT $2;`,
-            [`[${vec.join(",")}]`, limit]
+            [`[${vec.join(",")}]`, limit, userRoles]
         );
 
         // distance بین 0 (کاملاً یکسان) تا 2 (کاملاً متضاد) هست؛
@@ -159,59 +155,34 @@ export class CondinateService {
      * seed/update کردن ToolDomain، دوباره صدا بزن.
      */
     async refreshIndex(): Promise<void> {
-        // ۱. تعداد کل domain ها
-        const totalResult: { count: string }[] = await this.dataSource.query(
-            `SELECT COUNT(*) FROM "ToolDomain";`
-        );
-        this.totalDomains = parseInt(totalResult[0].count, 10);
+        const rows: { name: string; roles: string[]; lexeme: string | null; tf: number | null }[] =
+            await this.dataSource.query(
+                `SELECT d."DomainName" AS name, d."Roles" AS roles, t.lexeme, cardinality(t.positions) AS tf
+                 FROM "ToolDomain" d
+                 LEFT JOIN LATERAL unnest(d."SearchVector") AS t(lexeme, positions, weights) ON true;`
+            );
 
-        // ۲. محاسبه‌ی IDF برای هر استم (بر اساس تعداد domain هایی که توشون حضور داره)
-        // به‌جای فیلتر کردن کلمات خاص، یک تخفیف خودکار به استم‌های کوتاه
-        // می‌دیم -- این قانون به‌طور خودکار روی هر مشکل مشابه در آینده هم
-        // اعمال می‌شه، بدون نیاز به کشف و لیست کردن دستی کلمات جدید.
-        const stats: LexemeStat[] = await this.dataSource.query(
-            `SELECT word, ndoc FROM ts_stat('SELECT "SearchVector" FROM "ToolDomain"');`
-        );
-
-        this.idfMap = new Map(
-            stats.map((s) => {
-                const baseIdf = Math.log(1 + this.totalDomains / s.ndoc);
-                const isShortStem = s.word.length <= this.SHORT_STEM_LENGTH_THRESHOLD;
-                const finalIdf = isShortStem ? baseIdf * this.SHORT_STEM_DISCOUNT_FACTOR : baseIdf;
-                return [s.word, finalIdf];
-            })
-        );
-
-        // ۳. محاسبه‌ی TF (تعداد تکرار) هر استم داخل هر domain
-        const domainLexemes: DomainLexemeEntry[] = await this.dataSource.query(
-            `SELECT "DomainName" AS "domainName", t.lexeme, cardinality(t.positions) AS tf
-             FROM "ToolDomain", unnest("SearchVector") AS t(lexeme, positions, weights);`
-        );
-
-        this.domainTermFreq = new Map();
-        for (const entry of domainLexemes) {
-            if (!this.domainTermFreq.has(entry.domainName)) {
-                this.domainTermFreq.set(entry.domainName, new Map());
-            }
-            this.domainTermFreq.get(entry.domainName)!.set(entry.lexeme, entry.tf);
+        const byName = new Map<string, DomainEntry>();
+        for (const row of rows) {
+            const entry = byName.get(row.name) ?? { name: row.name, roles: row.roles, termFreq: new Map() };
+            if (row.lexeme !== null && row.tf !== null) entry.termFreq.set(row.lexeme, Number(row.tf));
+            byName.set(row.name, entry);
         }
+        this.domains = [...byName.values()];
+        this.loadedAt = Date.now();
 
-        this.initialized = true;
-
-        console.log(
-            `Lexical index refreshed: ${this.totalDomains} domains, ${this.idfMap.size} unique stems.`
-        );
+        console.log(`Lexical index refreshed: ${this.domains.length} domains.`);
     }
 
     /**
-     * متن ورودی رو با همون stemmer ترکی پردازش می‌کنه و لیست lexeme ها رو برمی‌گردونه
+     * متن ورودی رو با همون پیکربندی SearchVector (simple) می‌شکنه و لیست lexeme ها رو برمی‌گردونه
      * (بدون هیچ فیلتر حذفی -- همه چی نگه داشته می‌شه، وزن‌دهی بعداً انجام می‌شه)
      */
     private async extractLexemes(text: string): Promise<string[]> {
         const rows: { lexeme: string }[] = await this.dataSource.query(
             `SELECT lexeme
-             FROM unnest(to_tsvector('turkish', $1)) AS t(lexeme, positions, weights);`,
-            [text]
+             FROM unnest(to_tsvector($2::regconfig, $1)) AS t(lexeme, positions, weights);`,
+            [text, DOMAIN_TEXT_SEARCH_CONFIG]
         );
         return rows.map((r) => r.lexeme);
     }
@@ -222,37 +193,16 @@ export class CondinateService {
      */
     async lexicalSearchDomainScored(
         queryText: string,
-        limit: number
+        limit: number,
+        userRoles: string[]
     ): Promise<{ name: string; score: number }[]> {
-        if (!this.initialized) {
+        if (Date.now() - this.loadedAt > CondinateService.INDEX_TTL_MS) {
             await this.refreshIndex();
         }
 
         const queryLexemes = await this.extractLexemes(queryText);
 
-        if (queryLexemes.length === 0) {
-            return [];
-        }
-
-        const domainScores: { name: string; score: number }[] = [];
-
-        for (const [domainName, termFreqMap] of this.domainTermFreq.entries()) {
-            let score = 0;
-
-            for (const lexeme of queryLexemes) {
-                const tf = termFreqMap.get(lexeme);
-                if (tf === undefined) continue; // این lexeme توی این domain نیست
-
-                const idf = this.idfMap.get(lexeme) ?? 0;
-                score += tf * idf;
-            }
-
-            if (score > 0) {
-                domainScores.push({ name: domainName, score });
-            }
-        }
-
-        return domainScores.sort((a, b) => b.score - a.score).slice(0, limit);
+        return scoreLexical(buildLexicalIndex(this.domains, userRoles), queryLexemes, limit);
     }
 
 
@@ -278,35 +228,11 @@ export class CondinateService {
     }
 
 
-    /**
- * قبل از اینکه نتایج lexical (که امتیاز TF-IDF دارن) وارد RRF بشن،
- * باید نویز (match های خیلی ضعیف و تصادفی) رو حذف کنیم -- چون RRF
- * فقط به رتبه نگاه می‌کنه، نه به مقدار امتیاز، و یک match ضعیف در
- * رتبه‌ی ۱ (وقتی فقط ۱-۲ تا نتیجه‌ی ضعیف داریم) همون وزن یک match
- * قوی رو می‌گیره.
- *
- * threshold نسبی (نه مطلق) استفاده می‌کنیم چون scale امتیاز TF-IDF
- * بسته به طول و محتوای هر prompt متفاوته -- پس همیشه نسبت به
- * بهترین امتیاز همون کوئری می‌سنجیم، نه یک عدد ثابت.
- */
-    private filterWeakLexicalMatches(
-        scored: { name: string; score: number }[],
-        relativeThreshold: number = 0.25
-    ): { name: string; score: number }[] {
-        if (scored.length === 0) return [];
-
-        const topScore = scored[0].score; // چون از قبل مرتب‌شده (نزولی) برمی‌گرده
-        if (topScore === 0) return [];
-
-        return scored.filter((s) => s.score / topScore >= relativeThreshold);
-    }
-
-
     async segmentPromptIntoSubIntents(prompt: string): Promise<string[]> {
         const systemPrompt = `
             You are a text segmentation assistant.
 
-            Your task: if the user's message (in Turkish) contains multiple independent
+            Your task: if the user's message (in Persian/Farsi) contains multiple independent
             operation requests, split them into separate sentences. Each resulting
             sentence must be self-contained and represent one independent operation
             request.
@@ -316,10 +242,10 @@ export class CondinateService {
             sentence unchanged as a single-element list.
             - Preserve the original wording in each segment as much as possible
             (split, don't rewrite or paraphrase).
-            - Use Turkish connective words as split points: "ve" (and), "ile" (with),
-            "sonra" (then), "ayrıca" (also), and commas separating distinct clauses.
+            - Use Persian connective words as split points: "و" (and), "بعد" / "سپس"
+            (then), "همچنین" (also), and commas separating distinct clauses.
             - Keep parameters (names, values) attached to the segment they belong to.
-            - The input and output text must remain in Turkish -- you are only
+            - The input and output text must remain in Persian -- you are only
             splitting the sentence structure, not translating or altering content.
 
             Return JSON only, nothing else:
@@ -384,39 +310,19 @@ export class CondinateService {
     async getCondinateDomainForRunPrompt(
         prompt: string,
         previousToolName: string | null,
-        finalLimit: number = 2
+        userRoles: string[],
+        finalLimit: number = DOMAIN_FINAL_LIMIT
     ): Promise<string[]> {
-        const searchLimit = 8;
-
         const [denseFromPromptScored, lexicalFromPrompt] = await Promise.all([
-            this.denseSearchDomainScored(prompt, searchLimit),
-            this.lexicalSearchDomainScored(prompt, searchLimit),
+            this.denseSearchDomainScored(prompt, DOMAIN_SEARCH_LIMIT, userRoles),
+            this.lexicalSearchDomainScored(prompt, DOMAIN_SEARCH_LIMIT, userRoles),
         ]);
 
-        const denseFromPrompt = denseFromPromptScored.map((d) => d.name);
+        // "مبهم" فقط وقتی است که هم lexical شکست خورده هم dense مطمئن نیست --
+        // نه صرفاً چون lexical خالی برگشته.
+        const { ranked, ambiguous } = rankDomains(denseFromPromptScored, lexicalFromPrompt);
 
-        const filteredweakdomain = this.filterWeakLexicalMatches(lexicalFromPrompt).map(
-            (item) => item.name
-        );
-
-        let combined = this.reciprocalRankFusion(denseFromPrompt, filteredweakdomain);
-
-        // آستانه‌ی اطمینان dense -- اگه بالاترین شباهت dense به‌اندازه‌ی
-        // کافی بالا بود (مثلاً بیشتر از 0.5)، یعنی حتی بدون کمک lexical،
-        // می‌تونیم به dense اعتماد کنیم. این عدد رو باید با eval خودت
-        // تنظیم کنی.
-        const DENSE_CONFIDENCE_THRESHOLD = 0.5;
-        const denseIsConfident =
-            denseFromPromptScored.length > 0 &&
-            denseFromPromptScored[0].score >= DENSE_CONFIDENCE_THRESHOLD;
-
-        // حالا "مبهم بودن" رو درست‌تر تعریف می‌کنیم: فقط وقتی که هم
-        // lexical شکست خورده هم dense به نتیجه‌ش مطمئن نیست -- نه صرفاً
-        // چون lexical خالی برگشته (که ممکنه به‌خاطر یک باگ stemmer باشه،
-        // نه چون prompt واقعاً بی‌محتواست)
-        const promptIsAmbiguous = filteredweakdomain.length === 0 && !denseIsConfident;
-
-        if (promptIsAmbiguous && previousToolName) {
+        if (ambiguous && previousToolName) {
             const previousDomain = await this.getDomainOfPreviousTool(previousToolName);
 
             if (previousDomain) {
@@ -424,6 +330,6 @@ export class CondinateService {
             }
         }
 
-        return combined.slice(0, finalLimit);
+        return ranked.slice(0, finalLimit);
     }
 }

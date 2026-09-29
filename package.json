@@ -20,7 +20,11 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "typeorm": "ts-node -r tsconfig-paths/register node_modules/typeorm/cli.js -d ./src/infrastructure/database/data-source.ts",
-    "seed": "ts-node -r tsconfig-paths/register src/infrastructure/database/seeds/seed.ts"
+    "seed": "ts-node -r tsconfig-paths/register src/infrastructure/database/seeds/seed.ts",
+    "agent:eval-domains": "ts-node -r tsconfig-paths/register src/application/services/agent/eval/evaluateDomains.ts",
+    "agent:seed": "ts-node -r tsconfig-paths/register src/application/services/agent/eval/seedAgent.ts",
+    "agent:eval-tools": "ts-node -r tsconfig-paths/register src/application/services/agent/eval/evaluateTools.ts",
+    "agent:eval-params": "ts-node -r tsconfig-paths/register src/application/services/agent/eval/evaluateParams.ts"
   },
   "dependencies": {
     "@golevelup/nestjs-rabbitmq": "^5.7.0",

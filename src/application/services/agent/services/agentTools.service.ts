@@ -154,6 +154,8 @@ Return JSON only.
                     content: prompt
                 }],
             stream: false,
+            // بدون نمونه‌گیری: یک جمله همیشه همان ابزار و همان پارامترها را بدهد
+            options: { temperature: 0, top_p: 0.9, repeat_penalty: 1.1 },
         }
 
         const resp = await axios.post(
@@ -364,6 +366,8 @@ ${JSON.stringify(selectedTool)}
     ],
 
     stream: false,
+    // بدون نمونه‌گیری: یک جمله همیشه همان ابزار و همان پارامترها را بدهد
+    options: { temperature: 0, top_p: 0.9, repeat_penalty: 1.1 },
   };
 
   const resp = await axios.post(

@@ -6,6 +6,7 @@ import { TarabariChannelsClient } from '../../services/channel/tarabariChannels.
 import { RedisModule } from './RedisModule';
 import { SubscriptionModule } from './SubscriptionModule';
 import { UserModule } from './UserModule';
+import { CompanyChannelTools } from '../../services/channel/companyChannelTools';
 
 /**
  * گروه/کانال‌های واتساپ و تلگرامی که کاربر برای دریافت بار ثبت می‌کند
@@ -13,7 +14,7 @@ import { UserModule } from './UserModule';
  */
 @Module({
   imports: [RedisModule, SubscriptionModule, UserModule],
-  providers: [TarabariChannelsClient, ChannelSubscriptionService, ChannelBotFlowService],
+  providers: [TarabariChannelsClient, ChannelSubscriptionService, ChannelBotFlowService, CompanyChannelTools],
   exports: [ChannelSubscriptionService, ChannelBotFlowService],
 })
 export class ChannelModule {}

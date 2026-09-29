@@ -60,7 +60,8 @@ export class CargoListingService {
     const contact = await this.audience.findPublisherContact(userId);
 
     const fields: CargoListingFields = {
-      companyName: contact.company?.name ?? null,
+      code: cargo.code ?? null,
+      companyName: contact.company?.name || null,
       origin: cargo.origin ?? '',
       destination: cargo.destination ?? '',
       cargoType: cargo.cargoType ?? null,
@@ -78,7 +79,7 @@ export class CargoListingService {
   async buildManualDraft(userId: string): Promise<Pick<CargoListingFields, 'companyName' | 'contactPhones'>> {
     const contact = await this.audience.findPublisherContact(userId);
     return {
-      companyName: contact.company?.name ?? null,
+      companyName: contact.company?.name || null,
       contactPhones: [...new Set([contact.mobile, contact.company?.phone].filter((p): p is string => !!p?.trim()))],
     };
   }
@@ -88,7 +89,9 @@ export class CargoListingService {
     if (await this.listings.findBySourceAndPublisher(suggestion.sourceMessageId, userId)) {
       throw new ConflictException('You have already published this cargo.');
     }
-    return this.publishListing(userId, fields, suggestion.sourceMessageId, suggestion.id);
+    // رویدادهای قدیمی کد ندارند؛ آن‌ها مثل بار دستی کد می‌گیرند.
+    const code = (suggestion.payload as Partial<CargoDetectedEvent>).code ?? await this.listings.nextManualCode();
+    return this.publishListing(userId, { ...fields, code }, suggestion.sourceMessageId, suggestion.id);
   }
 
   /**
@@ -97,12 +100,13 @@ export class CargoListingService {
    * راننده‌ها مثل بارهای منتشرشده از پیشنهاد کار کنند.
    */
   async createManual(userId: string, fields: CargoListingFields) {
-    return this.publishListing(userId, fields, `manual:${randomUUID()}`, null);
+    const code = await this.listings.nextManualCode();
+    return this.publishListing(userId, { ...fields, code }, `manual:${randomUUID()}`, null);
   }
 
   private async publishListing(
     userId: string,
-    fields: CargoListingFields,
+    fields: CargoListingFields & { code: string },
     sourceMessageId: string,
     sourceNotificationId: string | null,
   ) {
@@ -249,6 +253,7 @@ export class CargoListingService {
   private toView(listing: CargoListing) {
     return {
       id: listing.id,
+      code: listing.code,
       sourceMessageId: listing.sourceMessageId,
       companyName: listing.companyName ?? null,
       origin: listing.origin,

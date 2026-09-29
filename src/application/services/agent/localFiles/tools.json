@@ -1,1274 +1,418 @@
 {
-    "tools": [
-        {
-            "name": "create_role",
-            "description": "Yeni bir rol oluşturur. Sisteme yeni yetki veya erişim rolü eklemek için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Yalnızca rol adını döndür. Rol adını çevreleyen kelimeleri ekleme. Çıktı sadece rol adından oluşmalıdır. Örnekler: 'Vekil rolünü oluştur' → 'Vekil', 'Muhasebe rolünü sil' → 'Muhasebe', 'Admin rolünü aktif et' → 'Admin'.Oluşturulacak rolün adı. Kullanıcının yazdığı değeri aynen al. Çeviri yapma, değiştirme veya yorumlama."
-                    }
-                },
-                "required": [
-                    "name"
-                ]
-            }
+  "tools": [
+    {
+      "name": "list_company_suggested_cargo",
+      "description": "مرور آگهی‌هایی که از گروه‌ها رسیده؛ همه یا فقط تازه‌ها.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "onlyNew": {
+            "type": "boolean",
+            "description": "true وقتی تازه‌ها، جدیدها یا نخونده‌ها خواسته شده. «فقط نخونده‌ها رو بیار» → true"
+          }
         },
-        {
-            "name": "update_role",
-            "description": "Mevcut rol bilgilerini günceller. Rol adını değiştirmek veya rol bilgilerini düzenlemek için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Mevcut rol adı. Kullanıcının yazdığı değeri aynen al."
-                    },
-                    "newname": {
-                        "type": "string",
-                        "description": "Yeni rol adı. Kullanıcının yazdığı değeri aynen al."
-                    }
-                },
-                "required": [
-                    "name"
-                ]
-            }
+        "required": []
+      }
+    },
+    {
+      "name": "count_company_unread_suggestions",
+      "description": "فقط یک عدد: چندتا پیشنهاد هنوز دیده نشده. خود آگهی‌ها را برنمی‌گرداند.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "mark_company_suggestions_read",
+      "description": "همه‌ی پیشنهادها را «دیده‌شده» تیک می‌زند؛ چیزی پاک نمی‌شود.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "publish_company_suggested_cargo",
+      "description": "یک آگهیِ پیشنهادیِ موجود را به اسم ما برای رانندگان پخش می‌کند.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "suggestion": {
+            "type": "string",
+            "description": "نشانه‌ی آگهی پیشنهادی: کالا یا مسیرش. «اون بار شیشه رو پخش کن» → «شیشه». اگر نشانه‌ای نیست خالی."
+          },
+          "newFare": {
+            "type": "string",
+            "description": "کرایه‌ی جایگزین اگر گفته شد، مثل «۳۰ میلیون»."
+          },
+          "callNumbers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "شماره‌هایی که رانندگان تماس بگیرند، اگر گفته شد."
+          }
         },
-        {
-            "name": "delete_role",
-            "description": "Mevcut bir rolü sistemden siler.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Silinecek rol adı. Kullanıcının yazdığı değeri aynen al."
-                    }
-                },
-                "required": [
-                    "name"
-                ]
-            }
+        "required": []
+      }
+    },
+    {
+      "name": "create_company_cargo",
+      "description": "محموله‌ای تازه که هنوز آگهی نشده را با مبدأ، مقصد و مشخصاتش ثبت و منتشر می‌کند.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "origin": {
+            "type": "string",
+            "description": "شهر یا محل بارگیری. «از اصفهان به بندرعباس» → «اصفهان»"
+          },
+          "destination": {
+            "type": "string",
+            "description": "شهر یا محل تخلیه. «از اصفهان به بندرعباس» → «بندرعباس»"
+          },
+          "goods": {
+            "type": "string",
+            "description": "جنس محموله. «۲۲ تن کاشی» → «کاشی»"
+          },
+          "amount": {
+            "type": "string",
+            "description": "وزن یا تعداد. «۲۲ تن کاشی» → «۲۲ تن»، «۱۲ پالت» → «۱۲ پالت»"
+          },
+          "truck": {
+            "type": "string",
+            "description": "ماشین لازم. «تریلی کفی می‌خوام» → «تریلی کفی»"
+          },
+          "fare": {
+            "type": "string",
+            "description": "کرایه‌ی پیشنهادی. «کرایه ۴۵ میلیون» → «۴۵ میلیون»، «توافقی» → «توافقی»"
+          },
+          "notes": {
+            "type": "string",
+            "description": "زمان بارگیری، شرایط پرداخت یا هر توضیح دیگر."
+          },
+          "phones": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "شماره‌های تماس؛ اگر گفته نشده خالی تا از پروفایل برداشته شود."
+          }
         },
-        {
-            "name": "assign_role_operations",
-            "description": "Bir role işlem ve yetki atar.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "role_Name": {
-                        "type": "string",
-                        "description": "Yetki verilecek rol adı."
-                    },
-                    "operation_names": {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        },
-                        "description": "Role atanacak işlem veya yetki isimleri."
-                    }
-                },
-                "required": [
-                    "role_Name",
-                    "operation_names"
-                ]
-            }
+        "required": [
+          "origin",
+          "destination"
+        ]
+      }
+    },
+    {
+      "name": "list_company_my_cargo",
+      "description": "آگهی‌های منتشرشده‌ی خودمان و وضعیت هرکدام: باز یا بسته.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "all",
+              "open",
+              "taken"
+            ],
+            "description": "open برای «هنوز بازن/فعالن»، taken برای «بسته‌شده‌ها/رفته‌ها»، در غیر این صورت all."
+          }
         },
-        {
-            "name": "update_role_record_status",
-            "description": "Bir rolün aktif veya pasif durumunu değiştirir.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Rol adı. Kullanıcının yazdığı değeri aynen al."
-                    },
-                    "recordStatus": {
-                        "type": "integer",
-                        "enum": [
-                            0,
-                            1
-                        ],
-                        "description": "Rol durumu. Aktif için 0, pasif için 1."
-                    }
-                },
-                "required": [
-                    "name",
-                    "recordStatus"
-                ]
-            }
+        "required": []
+      }
+    },
+    {
+      "name": "mark_company_cargo_taken",
+      "description": "آگهیِ منتشرشده را می‌بندد چون بار رفت، پر شد، ماشین پیدا شد یا راننده برداشت.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "listing": {
+            "type": "string",
+            "description": "نشانه‌ی آگهی‌ای که بسته می‌شود: کالا، مسیر یا کد. «بار گندم پر شد» → «گندم»، «بار اصفهان به شیراز رفت» → «اصفهان به شیراز»"
+          }
         },
-        {
-            "name": "create_user",
-            "description": "Yeni kullanıcı hesabı oluşturur.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "username": {
-                        "type": "string",
-                        "description": "Yeni kullanıcının adı veya kullanıcı adı. Kullanıcının yazdığı değeri aynen al."
-                    },
-                    "password": {
-                        "type": "string",
-                        "description": "Kullanıcı şifresi."
-                    },
-                    "roleNames": {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        },
-                        "description": "Kullanıcıya atanacak roller."
-                    },
-                    "imageSrc": {
-                        "type": "string",
-                        "description": "Kullanıcı profil resmi adresi."
-                    }
-                },
-                "required": [
-                    "username",
-                    "password"
-                ]
-            }
+        "required": []
+      }
+    },
+    {
+      "name": "reopen_company_cargo",
+      "description": "آگهیِ بسته‌شده را دوباره فعال می‌کند؛ برای وقتی که اشتباهی بسته شده.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "closedListing": {
+            "type": "string",
+            "description": "نشانه‌ی آگهی بسته‌شده. «اشتباهی بار رشت رو بستم، برگردونش» → «رشت»"
+          }
         },
-        {
-            "name": "update_user",
-            "description": "Mevcut kullanıcı bilgilerini günceller. Kullanıcı adı veya profil bilgilerini değiştirmek için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "username": {
-                        "type": "string",
-                        "description": "Mevcut kullanıcı adı. Kullanıcının yazdığı değeri aynen al."
-                    },
-                    "newusername": {
-                        "type": "string",
-                        "description": "Yeni kullanıcı adı. Kullanıcının yazdığı değeri aynen al."
-                    },
-                    "imageSrc": {
-                        "type": "string",
-                        "description": "Yeni profil resmi adresi."
-                    }
-                },
-                "required": [
-                    "username"
-                ]
-            }
+        "required": []
+      }
+    },
+    {
+      "name": "list_company_channels",
+      "description": "گروه‌ها و کانال‌های وصل‌شده و وضعیت عضویت ربات در هرکدام (در صف، منتظر ادمین، فعال، ناموفق).",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "add_company_channel",
+      "description": "لینک گروه یا کانال تلگرام یا واتس‌اپ را می‌گیرد تا ربات عضو شود و آگهی‌هایش را بخواند.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "link": {
+            "type": "string",
+            "description": "آدرس دعوت که با https://t.me/ یا https://chat.whatsapp.com/ شروع می‌شود."
+          },
+          "title": {
+            "type": "string",
+            "description": "اسمی که برای این گروه گفته شد، اگر گفته شد. «گروه باربری تبریز» → «باربری تبریز»"
+          }
         },
-        {
-            "name": "delete_user",
-            "description": "Mevcut kullanıcı hesabını sistemden siler.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "username": {
-                        "type": "string",
-                        "description": "Silinecek kullanıcı adı. Kullanıcının yazdığı değeri aynen al."
-                    }
-                },
-                "required": [
-                    "username"
-                ]
-            }
+        "required": []
+      }
+    },
+    {
+      "name": "delete_company_channel",
+      "description": "گروه یا کانالی را از فهرست بیرون می‌آورد تا دیگر خوانده نشود.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "description": "اسم یا آدرس گروهی که بیرون می‌آید. «کانال بار تهران رو پاک کن» → «بار تهران»"
+          }
         },
-        {
-            "name": "update_user_record_status",
-            "description": "Bir kullanıcı hesabının aktif veya pasif durumunu değiştirir.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "username": {
-                        "type": "string"
-                    },
-                    "recordStatus": {
-                        "type": "integer",
-                        "enum": [
-                            0,
-                            1
-                        ],
-                        "description": "Kullanıcı durumu. Aktif için 0, pasif için 1."
-                    }
-                },
-                "required": [
-                    "username",
-                    "recordStatus"
-                ]
-            }
+        "required": []
+      }
+    },
+    {
+      "name": "list_company_display_filters",
+      "description": "فیلترهای فعلی نمایش بار و شرط‌های هرکدام.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "create_company_display_filter",
+      "description": "فیلتر نو: از این به بعد فقط باری با این شرط‌ها پیشنهاد شود.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "اسم دلخواه فیلتر، اگر گفته شد."
+          },
+          "origins": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "مبدأهای مجاز. «فقط بارهای مبدا تهران و کرج» → [«تهران»، «کرج»]"
+          },
+          "destinations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "مقصدهای مجاز. «فقط بارهایی که مقصدشون اهوازه» → [«اهواز»]"
+          },
+          "goodsKinds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "جنس‌های مجاز، مثل [«آهن‌آلات»]."
+          },
+          "truckKinds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "ماشین‌های مجاز. «یه فیلتر برای تریلی بساز» → [«تریلی»]"
+          },
+          "fareMin": {
+            "type": "string",
+            "description": "کرایه‌ی کمتر از این نیاید. «زیر ۲۰ میلیون رو نشون نده» → «۲۰ میلیون»"
+          },
+          "fareMax": {
+            "type": "string",
+            "description": "کرایه‌ی بیشتر از این نیاید."
+          }
         },
-        {
-            "name": "change-user-password",
-            "description": "Mevcut kullanıcının şifresini değiştirmek için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "username": {
-                        "type": "string",
-                        "description": "Şifresi değiştirilecek mevcut kullanıcının kullanıcı adı. Kullanıcının yazdığı değeri aynen al."
-                    },
-                    "currentPassword": {
-                        "type": "string",
-                        "description": "Kullanıcının mevcut şifresi. Kullanıcının yazdığı değeri aynen al."
-                    },
-                    "newPassword": {
-                        "type": "string",
-                        "description": "Kullanıcının belirlediği yeni şifre. Kullanıcının yazdığı değeri aynen al."
-                    }
-                },
-                "required": [
-                    "username",
-                    "currentPassword",
-                    "newPassword"
-                ]
-            }
+        "required": []
+      }
+    },
+    {
+      "name": "update_company_display_filter",
+      "description": "در فیلتری که از قبل هست مقداری اضافه یا کم می‌کند یا بازه‌ی کرایه را عوض می‌کند.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "نشانه‌ی فیلتر موجود. «به فیلتر مسیر مشهد…» → «مشهد»"
+          },
+          "addOrigins": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "مبدأهایی که اضافه می‌شوند."
+          },
+          "addDestinations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "مقصدهایی که اضافه می‌شوند. «شیراز رو هم اضافه کن» → [«شیراز»]"
+          },
+          "addGoodsKinds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "جنس‌هایی که اضافه می‌شوند."
+          },
+          "addTruckKinds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "ماشین‌هایی که اضافه می‌شوند."
+          },
+          "dropValues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "مقدارهایی که از هر شرطی برداشته می‌شوند. «شرط تریلی رو بردار» → [«تریلی»]"
+          },
+          "fareFloor": {
+            "type": "string",
+            "description": "کف تازه‌ی کرایه."
+          },
+          "fareCeiling": {
+            "type": "string",
+            "description": "سقف تازه‌ی کرایه."
+          }
         },
-        {
-            "name": "assign-user-roles",
-            "description": "Mevcut kullanıcıya bir veya birden fazla rol atamak için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "username": {
-                        "type": "string",
-                        "description": "Rol atanacak mevcut kullanıcının kullanıcı adı. Kullanıcının yazdığı değeri aynen al."
-                    },
-                    "roles": {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        },
-                        "description": "Kullanıcıya atanacak rollerin listesi. Kullanıcının belirttiği rol değerlerini aynen al."
-                    }
-                },
-                "required": [
-                    "username",
-                    "roles"
-                ]
-            }
+        "required": []
+      }
+    },
+    {
+      "name": "set_company_display_filter_active",
+      "description": "فیلتر را خاموش یا روشن می‌کند؛ شرط‌هایش دست نمی‌خورد.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "which": {
+            "type": "string",
+            "description": "نشانه‌ی فیلتر به همان کلمه‌ی فارسی کاربر. «فیلتر مسیر مشهد رو غیرفعال کن» → «مشهد»، «فیلتر کمپرسی رو روشن کن» → «کمپرسی»"
+          },
+          "on": {
+            "type": "boolean",
+            "description": "true برای روشن یا فعال، false برای خاموش یا غیرفعال."
+          }
         },
-        {
-            "name": "create_category",
-            "description": "Yeni bir kategori oluşturur. Kullanıcının isteği yeni bir kategori kaydı oluşturmayı ifade ediyorsa kullanılır. Kategori henüz sistemde mevcut değilmiş gibi yeni bir kayıt oluşturur; mevcut bir kategorinin üst kategorisini değiştirmek için kullanılmaz.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Oluşturulacak yeni kategorinin adı. Kullanıcının belirttiği kategori adını aynen al."
-                    },
-                    "parentname": {
-                        "type": "string",
-                        "description": "Yeni oluşturulacak kategorinin altında yer alacağı mevcut üst kategorinin adı. Kullanıcı üst kategori belirttiyse değeri aynen al."
-                    }
-                },
-                "required": [
-                    "name"
-                ]
-            }
+        "required": [
+          "on"
+        ]
+      }
+    },
+    {
+      "name": "delete_company_display_filter",
+      "description": "فیلتر را کلاً پاک می‌کند.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "which": {
+            "type": "string",
+            "description": "نشانه‌ی فیلتری که پاک می‌شود. «فیلتر یخچالی رو حذف کن» → «یخچالی»"
+          },
+          "everything": {
+            "type": "boolean",
+            "description": "true وقتی گفته شد همه‌ی فیلترها."
+          }
         },
-        {
-            "name": "update_category",
-            "description": "Mevcut kategori bilgilerini günceller. Kategori adını değiştirmek veya mevcut kategori bilgilerini düzenlemek için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Mevcut kategori adı. Kullanıcının yazdığı değeri aynen al."
-                    },
-                    "newname": {
-                        "type": "string",
-                        "description": "Yeni kategori adı. Kullanıcının yazdığı değeri aynen al."
-                    },
-                    "newparentname": {
-                        "type": "string",
-                        "description": "Yeni üst kategori adı. Kullanıcının yazdığı değeri aynen al."
-                    }
-                },
-                "required": [
-                    "name",
-                    "newname"
-                ]
-            }
+        "required": []
+      }
+    },
+    {
+      "name": "get_company_profile",
+      "description": "مشخصات ثبت‌شده‌ی حساب را فقط نمایش می‌دهد.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "update_company_profile",
+      "description": "نام، کد ملی، نوع حساب، مشخصات حقوقی، تلفن دفتر، کد پستی یا نشانی را ثبت یا اصلاح می‌کند. فقط مواردی که گفته شد.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "profileType": {
+            "type": "string",
+            "enum": [
+              "PERSON",
+              "COMPANY"
+            ],
+            "description": "PERSON برای حقیقی؛ COMPANY برای حقوقی یا شرکتی. فقط وقتی خودِ نوع حساب صریحاً گفته شد؛ از روی اسم یا چیز دیگری حدس زده نشود."
+          },
+          "firstName": {
+            "type": "string",
+            "description": "نام کوچک. «اسمم رو به علی رضایی تغییر بده» → «علی»"
+          },
+          "lastName": {
+            "type": "string",
+            "description": "نام خانوادگی. «… علی رضایی» → «رضایی»"
+          },
+          "nationalCode": {
+            "type": "string",
+            "description": "کد ملی ۱۰ رقمی."
+          },
+          "companyName": {
+            "type": "string",
+            "description": "اسم شرکت."
+          },
+          "companyNationalId": {
+            "type": "string",
+            "description": "شناسه ملی ۱۱ رقمی شرکت."
+          },
+          "economicCode": {
+            "type": "string",
+            "description": "کد اقتصادی."
+          },
+          "registrationNo": {
+            "type": "string",
+            "description": "شماره ثبت."
+          },
+          "phone": {
+            "type": "string",
+            "description": "تلفن ثابت دفتر، حتی وقتی کنار چیزهای دیگر گفته شده. «… و تلفن دفتر ۰۳۱۳۲۲۲۴۴۵۵ رو ثبت کن» → «۰۳۱۳۲۲۲۴۴۵۵»"
+          },
+          "postalCode": {
+            "type": "string",
+            "description": "کد پستی ۱۰ رقمی."
+          },
+          "address": {
+            "type": "string",
+            "description": "نشانی کامل."
+          }
         },
-        {
-            "name": "delete_category",
-            "description": "Mevcut kategori hesabını sistemden siler.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Silinecek kategori adı. Kullanıcının yazdığı değeri aynen al."
-                    }
-                },
-                "required": [
-                    "name"
-                ]
-            }
-        },
-        {
-            "name": "update_category_record_status",
-            "description": "Bir kategori hesabının aktif veya pasif durumunu değiştirir.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string"
-                    },
-                    "recordStatus": {
-                        "type": "integer",
-                        "enum": [
-                            0,
-                            1
-                        ],
-                        "description": "kategori durumu. Aktif için 0, pasif için 1."
-                    }
-                },
-                "required": [
-                    "name",
-                    "recordStatus"
-                ]
-            }
-        },
-        {
-            "name": "create_item_unit",
-            "description": "Yeni bir ürün birimi oluşturur. Sisteme yeni bir ölçü veya ürün birimi eklemek için kullanılır. Kullanıcının belirttiği birim adını sisteme yeni bir birim olarak kaydetme isteklerini ifade eder.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Oluşturulacak yeni ürün biriminin adı. Kullanıcının belirttiği birim adını aynen al. Çeviri yapma, değiştirme, düzeltme veya yorumlama. Çevreleyen kelimeleri parametreye dahil etme."
-                    }
-                },
-                "required": [
-                    "title"
-                ]
-            }
-        },
-        {
-            "name": "update_item_unit",
-            "description": "Mevcut bir ürün biriminin bilgilerini günceller. Birim adını değiştirmek veya birimin aktif/pasif durumunu değiştirmek için kullanılır. Mevcut bir ürün birimini yeniden adlandırma, birim bilgilerini düzenleme veya birimin kayıt durumunu değiştirme isteklerini ifade eder.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Güncellenecek mevcut ürün biriminin adı. Kullanıcının belirttiği mevcut birim adını aynen al. Çeviri yapma, değiştirme, düzeltme veya yorumlama."
-                    },
-                    "newtitle": {
-                        "type": "string",
-                        "description": "Ürün birimi için belirtilen yeni ad. Kullanıcı yeni bir ad belirttiyse yalnızca yeni birim adını aynen al. Çeviri yapma, değiştirme, düzeltme veya yorumlama."
-                    }
-                },
-                "required": [
-                    "title"
-                ]
-            }
-        },
-        {
-            "name": "delete_item_unit",
-            "description": "Mevcut bir ürün birimini sistemden siler. Kullanıcının mevcut bir ürün birimini silme veya kaldırma isteğini ifade eder.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Silinecek mevcut ürün biriminin adı. Kullanıcının belirttiği mevcut birim adını aynen al. Çeviri yapma, değiştirme, düzeltme veya yorumlama."
-                    }
-                },
-                "required": [
-                    "title"
-                ]
-            }
-        },
-        {
-            "name": "update_item_unit_record_status",
-            "description": "Mevcut bir ürün biriminin kayıt durumunu günceller. Birim aktif hale getirmek, pasif yapmak, devre dışı bırakmak veya tekrar aktif etmek için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Durumu değiştirilecek mevcut ürün biriminin adı. Kullanıcının belirttiği birim adını aynen al. Çeviri yapma, değiştirme, düzeltme veya yorumlama."
-                    },
-                    "recordStatus": {
-                        "type": "integer",
-                        "enum": [
-                            0,
-                            1
-                        ],
-                        "description": "Ürün biriminin yeni kayıt durumu. Aktif için 0, pasif için 1."
-                    }
-                },
-                "required": [
-                    "name",
-                    "recordStatus"
-                ]
-            }
-        },
-        {
-            "name": "create_product",
-            "description": "Yeni bir ürün oluşturur. Sisteme yeni bir ürün kaydı eklemek için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "productname": {
-                        "type": "string",
-                        "description": "Oluşturulacak ürünün adı. Kullanıcının yazdığı ürün adını aynen al. Çeviri yapma, değiştirme, düzeltme veya yorumlama."
-                    },
-                    "categoryname": {
-                        "type": "string",
-                        "description": "Ürünün atanacağı mevcut kategorinin adı. Kullanıcının belirttiği kategori adını aynen al. Çeviri yapma veya değiştirme."
-                    },
-                    "unitname": {
-                        "type": "string",
-                        "description": "Ürünün atanacağı mevcut ürün biriminin adı. Kullanıcının belirttiği birim adını aynen al. Çeviri yapma veya değiştirme."
-                    },
-                    "code": {
-                        "type": "string",
-                        "description": "Ürünün kodu. Kullanıcı tarafından belirtilmişse değeri aynen al."
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "Ürün açıklaması. Kullanıcı tarafından belirtilmişse metni aynen al."
-                    },
-                    "abbreviation": {
-                        "type": "string",
-                        "description": "Ürünün kısaltması. Kullanıcı tarafından belirtilmişse değeri aynen al."
-                    },
-                    "weight": {
-                        "type": "number",
-                        "description": "Ürünün ağırlığı. Kullanıcı tarafından belirtilmişse sayısal değeri aynen al."
-                    }
-                },
-                "required": [
-                    "productname",
-                    "categoryname",
-                    "unitname",
-                    "code"
-                ]
-            }
-        },
-        {
-            "name": "update_product",
-            "description": "Mevcut bir ürünün bilgilerini günceller. Ürün adını, kodunu, açıklamasını, kısaltmasını, ağırlığını, kategorisini veya ürün birimini değiştirmek için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Bilgileri güncellenecek mevcut ürünün adı. Kullanıcının belirttiği ürün adını aynen al. Çeviri yapma, değiştirme veya düzeltme."
-                    },
-                    "newname": {
-                        "type": "string",
-                        "description": "Ürünün yeni adı. Kullanıcı tarafından belirtilmişse değeri aynen al."
-                    },
-                    "code": {
-                        "type": "string",
-                        "description": "Ürünün yeni kodu. Kullanıcı tarafından belirtilmişse değeri aynen al."
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "Ürünün yeni açıklaması. Kullanıcı tarafından belirtilmişse metni aynen al."
-                    },
-                    "abbreviation": {
-                        "type": "string",
-                        "description": "Ürünün yeni kısaltması. Kullanıcı tarafından belirtilmişse değeri aynen al."
-                    },
-                    "categoryname": {
-                        "type": "string",
-                        "description": "Ürünün atanacağı yeni kategorinin adı. Kullanıcı tarafından belirtilmişse kategori adını aynen al."
-                    },
-                    "unitname": {
-                        "type": "string",
-                        "description": "Ürünün atanacağı yeni ürün biriminin adı. Kullanıcı tarafından belirtilmişse birim adını aynen al."
-                    },
-                    "weight": {
-                        "type": "number",
-                        "description": "Ürünün yeni ağırlığı. Kullanıcı tarafından belirtilmişse sayısal değeri aynen al."
-                    }
-                },
-                "required": [
-                    "name"
-                ]
-            }
-        },
-        {
-            "name": "delete_product",
-            "description": "Mevcut bir ürünü sistemden siler. Ürün kaydını kalıcı olarak kaldırmak için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Silinecek mevcut ürünün adı. Kullanıcının belirttiği ürün adını aynen al. Çeviri yapma, değiştirme, düzeltme veya yorumlama."
-                    }
-                },
-                "required": [
-                    "name"
-                ]
-            }
-        },
-        {
-            "name": "update_product_record_status",
-            "description": "Mevcut bir ürünün kayıt durumunu güncelleme işlemidir. Ürünü aktif veya pasif yapmak, ürünün kullanım durumunu değiştirmek veya ürünü tekrar kullanıma açmak için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Durumu değiştirilecek mevcut ürünün adı. Kullanıcının belirttiği ürün adını aynen al. Çeviri yapma, değiştirme, düzeltme veya yorumlama."
-                    },
-                    "recordstatus": {
-                        "type": "integer",
-                        "enum": [
-                            0,
-                            1
-                        ],
-                        "description": "Ürünün yeni kayıt durumu. Aktif için 0, pasif için 1."
-                    }
-                },
-                "required": [
-                    "name",
-                    "recordstatus"
-                ]
-            }
-        },
-        {
-            "name": "create_region",
-            "description": "Yeni bir bölge oluşturur. Sisteme yeni bir bölge eklemek ve isteğe bağlı olarak mevcut bir üst bölgeye bağlamak için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Oluşturulacak yeni bölgenin adı. Kullanıcının belirttiği bölge adını aynen al. Çeviri yapma, değiştirme, düzeltme veya yorumlama."
-                    },
-                    "parentname": {
-                        "type": "string",
-                        "description": "Yeni bölgenin bağlanacağı mevcut üst bölgenin adı. Kullanıcı bir üst bölge belirtmişse adını aynen al. Çeviri yapma, değiştirme veya düzeltme. Üst bölge belirtilmemişse bu parametreyi gönderme."
-                    }
-                },
-                "required": [
-                    "name"
-                ]
-            }
-        },
-        {
-            "name": "update_region",
-            "description": "Mevcut bir bölgenin adını veya bağlı olduğu üst bölgeyi günceller.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Bilgileri güncellenecek mevcut bölgenin adı. Kullanıcının belirttiği bölge adını aynen al. Çeviri yapma, değiştirme veya düzeltme."
-                    },
-                    "newname": {
-                        "type": "string",
-                        "description": "Bölgenin yeni adı. Kullanıcı tarafından belirtilmişse değeri aynen al. Çeviri yapma, değiştirme veya düzeltme. Kullanıcı yeni bir ad belirtmemişse bu parametreyi gönderme."
-                    },
-                    "newparentname": {
-                        "type": "string",
-                        "description": "Bölgenin bağlanacağı yeni üst bölgenin adı. Kullanıcı tarafından belirtilmişse değeri aynen al. Çeviri yapma, değiştirme veya düzeltme. Kullanıcı yeni bir üst bölge belirtmemişse bu parametreyi gönderme."
-                    }
-                },
-                "required": [
-                    "name"
-                ]
-            }
-        },
-        {
-            "name": "delete_region",
-            "description": "Mevcut bir bölgeyi siler. Silinecek bölgenin adı belirtilerek bölgenin sistemden kaldırılması için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Silinecek mevcut bölgenin adı. Kullanıcının belirttiği bölge adını aynen al. Çeviri yapma, değiştirme veya düzeltme."
-                    }
-                },
-                "required": [
-                    "name"
-                ]
-            }
-        },
-        {
-            "name": "update_region_record_status",
-            "description": "Mevcut bir bölgenin aktiflik durumunu değiştirir. Bir bölgeyi aktif etmek, etkinleştirmek, yeniden kullanıma açmak, pasif yapmak, devre dışı bırakmak veya kullanıma kapatmak için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Aktiflik durumu değiştirilecek mevcut bölgenin adı. Kullanıcının belirttiği bölge adını aynen al. Çeviri yapma, değiştirme veya düzeltme."
-                    },
-                    "recordstatus": {
-                        "type": "integer",
-                        "enum": [
-                            0,
-                            1
-                        ],
-                        "description": "Bölgenin yeni aktiflik durumu. Kullanıcı tarafından belirtilmişse sayısal değerini aynen al.Aktif için 0, pasif için 1."
-                    }
-                },
-                "required": [
-                    "name"
-                ]
-            }
-        },
-        {
-            "name": "create_pole_or_transformer",
-            "description": "Sisteme yeni bir direk veya transformatör ürün tipi kaydetmek için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Sisteme kaydedilecek yeni ürün tipinin adı. Kullanıcının belirttiği değeri aynen al. Çeviri yapma, değiştirme veya düzeltme."
-                    },
-                    "type": {
-                        "type": "string",
-                        "enum": [
-                            "ahani",
-                            "beton",
-                            "transformer",
-                            "dr1",
-                            "dr2",
-                            "trafo"
-                        ],
-                        "description": "Oluşturulacak ürün tipinin türü. 'ahani' veya 'dr1' demir direk, 'beton' veya 'dr2' beton direk, 'transformer' veya 'trafo' transformatör anlamına gelir. Kullanıcının belirttiği değeri bu desteklenen değerlerden uygun olanıyla eşleştir."
-                    }
-                },
-                "required": [
-                    "name",
-                    "type"
-                ]
-            }
-        },
-        {
-            "name": "update_pole_or_transformer",
-            "description": "Mevcut bir direk veya transformatör ürün tipinin bilgilerini günceller. Ürün tipinin adını veya türünü değiştirmek için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Bilgileri güncellenecek mevcut ürün tipinin adı. Kullanıcının belirttiği mevcut ürün tipi adını aynen al. Çeviri yapma, değiştirme veya düzeltme."
-                    },
-                    "newname": {
-                        "type": "string",
-                        "description": "Ürün tipinin yeni adı. Kullanıcı tarafından belirtilmişse değeri aynen al. Çeviri yapma, değiştirme veya düzeltme."
-                    },
-                    "type": {
-                        "type": "string",
-                        "enum": [
-                            "ahani",
-                            "beton",
-                            "transformer",
-                            "dr1",
-                            "dr2",
-                            "trafo"
-                        ],
-                        "description": "Ürün tipinin yeni türü. 'ahani' veya 'dr1' demir direk, 'beton' veya 'dr2' beton direk, 'transformer' veya 'trafo' transformatör anlamına gelir. Kullanıcı tarafından belirtilmişse bu değerlerden uygun olanını kullan."
-                    }
-                },
-                "required": [
-                    "name"
-                ]
-            }
-        },
-        {
-            "name": "delete_pole_or_transformer",
-            "description": "Mevcut bir direk veya transformatör ürün tipini sistemden silmek için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Sistemden silinecek mevcut ürün tipinin adı. Kullanıcının belirttiği ürün tipi adını aynen al. Çeviri yapma, değiştirme veya düzeltme."
-                    }
-                },
-                "required": [
-                    "name"
-                ]
-            }
-        },
-        {
-            "name": "update_pole_or_transformer_record_status",
-            "description": "Mevcut bir direk veya transformatör ürün tipinin aktiflik durumunu değiştirir. Ürün tipini aktif etmek, etkinleştirmek, yeniden kullanıma açmak, pasif yapmak, devre dışı bırakmak veya kullanıma kapatmak için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Aktiflik durumu değiştirilecek mevcut ürün tipinin adı. Kullanıcının belirttiği ürün tipi adını aynen al. Çeviri yapma, değiştirme veya düzeltme."
-                    },
-                    "recordStatus": {
-                        "type": "integer",
-                        "enum": [
-                            0,
-                            1
-                        ],
-                        "description": "Ürün tipinin yeni aktiflik durumu. Kullanıcı tarafından belirtilmişse sayısal değeri aynen al.Aktif için 0, pasif için 1."
-                    }
-                },
-                "required": [
-                    "name"
-                ]
-            }
-        },
-        {
-            "name": "create_supplier",
-            "description": "Yeni bir tedarikçi oluşturur. Sisteme yeni bir tedarikçi kaydı eklemek için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Oluşturulacak tedarikçinin adı. Kullanıcının yazdığı tedarikçi adını aynen al. Çeviri yapma, değiştirme, düzeltme veya yorumlama."
-                    },
-                    "regionname": {
-                        "type": "string",
-                        "description": "Tedarikçinin atanacağı mevcut bölgenin adı. Kullanıcının belirttiği bölge adını aynen al. Çeviri yapma, değiştirme veya başka bir bölge adıyla değiştirme."
-                    },
-                    "address": {
-                        "type": "string",
-                        "description": "Tedarikçinin adresi. Kullanıcı tarafından belirtilmişse adres bilgisini aynen al. Çeviri yapma veya değiştirme."
-                    },
-                    "selffirm": {
-                        "type": "boolean",
-                        "description": "Tedarikçinin şirketin kendi bünyesine ait olup olmadığını belirtir. Tedarikçi şirketin kendi bünyesindeyse true, dışarıdan veya harici bir tedarikçiyse false döndür."
-                    }
-                },
-                "required": [
-                    "name",
-                    "regionname"
-                ]
-            }
-        },
-        {
-            "name": "update_supplier",
-            "description": "Mevcut bir tedarikçinin bilgilerini günceller. Tedarikçinin adını, adresini, telefonunu, bağlı olduğu bölgeyi veya şirketin kendi tedarikçisi olup olmadığını değiştirmek için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Mevcut tedarikçinin adı. Kullanıcının belirttiği mevcut tedarikçi adını aynen al. Çeviri yapma, değiştirme, düzeltme veya yorumlama."
-                    },
-                    "newname": {
-                        "type": "string",
-                        "description": "Tedarikçinin yeni adı. Kullanıcı tarafından belirtilmişse değeri aynen al. Çeviri yapma, değiştirme veya yorumlama."
-                    },
-                    "address": {
-                        "type": "string",
-                        "description": "Tedarikçinin yeni adresi. Kullanıcı tarafından belirtilmişse adres bilgisini aynen al. Çeviri yapma veya değiştirme."
-                    },
-                    "phone": {
-                        "type": "string",
-                        "description": "Tedarikçinin yeni telefon numarası. Kullanıcı tarafından belirtilmişse telefon numarasını aynen al. Değiştirme, düzeltme veya yorumlama."
-                    },
-                    "selffirm": {
-                        "type": "string",
-                        "description": "Tedarikçinin şirketin kendi bünyesine ait olup olmadığını belirtir. Kullanıcı tedarikçinin kendi şirketine ait olduğunu veya dışarıdan/harici bir tedarikçi olduğunu belirtiyorsa bu bilgiyi aynen al. Kullanıcının belirttiği değeri değiştirme, yorumlama veya çevirme."
-                    },
-                    "regionname": {
-                        "type": "string",
-                        "description": "Tedarikçinin atanacağı yeni bölgenin adı. Kullanıcının belirttiği bölge adını aynen al. Çeviri yapma, değiştirme veya başka bir bölge adıyla değiştirme."
-                    }
-                },
-                "required": [
-                    "name"
-                ]
-            }
-        },
-        {
-            "name": "delete_supplier",
-            "description": "Mevcut bir tedarikçiyi sistemden siler.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Silinecek tedarikçinin adı. Kullanıcının belirttiği tedarikçi adını aynen al. Çeviri yapma, değiştirme, düzeltme veya yorumlama."
-                    }
-                },
-                "required": [
-                    "name"
-                ]
-            }
-        },
-        {
-            "name": "update_supplier_record_status",
-            "description": "Bir tedarikçinin aktif veya pasif durumunu değiştirir. Tedarikçiyi aktif etmek, etkinleştirmek, yeniden kullanıma açmak, pasif yapmak, devre dışı bırakmak veya kullanıma kapatmak için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Tedarikçinin adı. Kullanıcının belirttiği tedarikçi adını aynen al. Çeviri yapma, değiştirme, düzeltme veya yorumlama."
-                    },
-                    "recordstatus": {
-                        "type": "integer",
-                        "enum": [
-                            0,
-                            1
-                        ],
-                        "description": "Tedarikçinin durumu. Aktif veya etkin durumda yapmak için 0, pasif veya devre dışı durumda yapmak için 1 kullanılır."
-                    }
-                },
-                "required": [
-                    "name",
-                    "recordstatus"
-                ]
-            }
-        },
-        {
-            "name": "create_force_major",
-            "description": "Yeni bir Mücbir Sebep (Force Major) kaydı oluşturur. Sisteme yeni bir Mücbir Sebep eklemek için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Oluşturulacak Mücbir Sebep kaydının başlığı. Kullanıcının yazdığı değeri aynen al. Çeviri yapma, değiştirme veya yorumlama."
-                    }
-                },
-                "required": [
-                    "title"
-                ]
-            }
-        },
-        {
-            "name": "update_force_major",
-            "description": "Mevcut bir Mücbir Sebep (Force Major) kaydının adını veya başlığını günceller.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Güncellenecek mevcut Mücbir Sebep kaydının adı veya başlığı. Kullanıcının yazdığı değeri aynen al. Çeviri yapma, değiştirme veya yorumlama."
-                    },
-                    "newtitle": {
-                        "type": "string",
-                        "description": "Mevcut Mücbir Sebep kaydı için belirlenecek yeni ad veya başlık. Kullanıcının yazdığı değeri aynen al. Çeviri yapma, değiştirme veya yorumlama."
-                    }
-                },
-                "required": [
-                    "title",
-                    "newtitle"
-                ]
-            }
-        },
-        {
-            "name": "delete_force_major",
-            "description": "Mevcut bir Mücbir Sebep (Force Major) kaydını sistemden siler.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Silinecek mevcut Mücbir Sebep kaydının adı veya başlığı. Kullanıcının yazdığı değeri aynen al. Çeviri yapma, değiştirme veya yorumlama."
-                    }
-                },
-                "required": [
-                    "title"
-                ]
-            }
-        },
-        {
-            "name": "update_force_major_record_status",
-            "description": "Bir Mücbir Sebep (Force Major) kaydının aktif veya pasif durumunu değiştirir.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Mücbir Sebep kaydının adı veya başlığı. Kullanıcının yazdığı değeri aynen al. Çeviri yapma, değiştirme veya yorumlama."
-                    },
-                    "recordstatus": {
-                        "type": "integer",
-                        "enum": [
-                            0,
-                            1
-                        ],
-                        "description": "Mücbir Sebep kaydının durumu. Aktif için 0, pasif için 1."
-                    }
-                },
-                "required": [
-                    "title",
-                    "recordstatus"
-                ]
-            }
-        },
-        {
-            "name": "create_tender",
-            "description": "Yeni bir ihale oluşturur. Yeni ihale kaydı eklemek için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Oluşturulacak ihalenin başlığı. Kullanıcının belirttiği başlığı aynen al. Çeviri yapma, değiştirme, düzeltme veya yorumlama. Çevreleyen kelimeleri (ihale, oluştur, kaydet, aç gibi) parametreye dahil etme."
-                    }
-                },
-                "required": [
-                    "title"
-                ]
-            }
-        },
-        {
-            "name": "update_tender",
-            "description": "Var olan bir ihalenin bilgilerini günceller. Başlığını değiştirmek veya kalem detaylarını manuel olarak eklemek için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Güncellenecek mevcut ihalenin başlığı. Kullanıcının belirttiği mevcut başlığı aynen al. Çeviri yapma, değiştirme, düzeltme veya yorumlama."
-                    },
-                    "newtitle": {
-                        "type": "string",
-                        "description": "İhale için belirtilen yeni başlık. Kullanıcı yeni bir başlık belirtmişse değeri aynen al. Çeviri yapma, değiştirme, düzeltme veya yorumlama. Çevreleyen kelimeleri (ihale, güncelle, değiştir gibi) parametreye dahil etme."
-                    },
-                    "newdetail": {
-                        "type": "object",
-                        "description": "Kullanıcının manuel olarak girdiği tek bir ihale kategorisi, kendi detay kalemleriyle birlikte. Kullanıcının belirttiği değerleri aynen al, çeviri yapma veya yorumlama. Kullanıcı hangi alanları belirtmişse yalnızca onları doldur, belirtmediği alanları boş bırak.",
-                        "properties": {
-                            "title": {
-                                "type": "string",
-                                "description": "Kategori başlığı."
-                            },
-                            "eskiPoz": {
-                                "type": "string",
-                                "description": "Kategoriye ait eski poz numarası."
-                            },
-                            "percent": {
-                                "type": "number",
-                                "description": "Kategoriye ait yüzde değeri."
-                            },
-                            "description": {
-                                "type": "string",
-                                "description": "Kategori açıklaması."
-                            },
-                            "details": {
-                                "type": "array",
-                                "description": "Bu kategoriye ait detay kalemlerinin listesi.",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "eskiPoz": {
-                                            "type": "string",
-                                            "description": "Eski poz numarası."
-                                        },
-                                        "tedas": {
-                                            "type": "string",
-                                            "description": "TEDAŞ sınıflandırma değeri."
-                                        },
-                                        "ana": {
-                                            "type": "string",
-                                            "description": "Ana kategori sınıflandırma değeri."
-                                        },
-                                        "alt": {
-                                            "type": "string",
-                                            "description": "Alt kategori sınıflandırma değeri."
-                                        },
-                                        "firmProcuredItemQuantities": {
-                                            "type": "number",
-                                            "description": "Firma tarafından tedarik edilecek malzeme miktarı."
-                                        },
-                                        "ourProcuredItemQuantities": {
-                                            "type": "number",
-                                            "description": "Bizim tarafımızdan tedarik edilecek malzeme miktarı."
-                                        },
-                                        "demontaj": {
-                                            "type": "number",
-                                            "description": "Demontaj (sökme) miktarı."
-                                        },
-                                        "demontajMontaj": {
-                                            "type": "number",
-                                            "description": "Demontajdan sonra tekrar montaj miktarı (DMM)."
-                                        },
-                                        "firmProcuredItemPrice": {
-                                            "type": "string",
-                                            "description": "Firma tarafından tedarik edilecek malzemenin birim fiyatı."
-                                        },
-                                        "ourProcuredItemPrice": {
-                                            "type": "string",
-                                            "description": "Bizim tarafımızdan tedarik edilecek malzemenin birim fiyatı."
-                                        },
-                                        "montajPrice": {
-                                            "type": "string",
-                                            "description": "Montaj birim fiyatı."
-                                        },
-                                        "demontajPrice": {
-                                            "type": "string",
-                                            "description": "Demontaj (sökme) birim fiyatı."
-                                        },
-                                        "demontajMontajPrice": {
-                                            "type": "string",
-                                            "description": "Demontajdan montaj (DMM) birim fiyatı."
-                                        },
-                                        "malzemeTutari": {
-                                            "type": "string",
-                                            "description": "Malzeme toplam tutarı."
-                                        },
-                                        "montajTutari": {
-                                            "type": "string",
-                                            "description": "Montaj toplam tutarı."
-                                        },
-                                        "demontajTutari": {
-                                            "type": "string",
-                                            "description": "Demontaj toplam tutarı."
-                                        },
-                                        "dMMTutari": {
-                                            "type": "string",
-                                            "description": "DMM toplam tutarı."
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                "required": [
-                    "title"
-                ]
-            }
-        },
-        {
-            "name": "delete_tender",
-            "description": "Var olan bir ihaleyi siler. İhale kaydını kalıcı olarak kaldırmak için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Silinecek mevcut ihalenin başlığı. Kullanıcının belirttiği başlığı aynen al. Çeviri yapma, değiştirme, düzeltme veya yorumlama. Çevreleyen kelimeleri (ihale, sil, kaldır gibi) parametreye dahil etme."
-                    }
-                },
-                "required": [
-                    "title"
-                ]
-            }
-        },
-        {
-            "name": "update_tender_record_status",
-            "description": "Bir ihale kaydının aktif veya pasif durumunu değiştirir.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "İhale kaydının adı veya başlığı. Kullanıcının yazdığı değeri aynen al. Çeviri yapma, değiştirme veya yorumlama."
-                    },
-                    "recordstatus": {
-                        "type": "integer",
-                        "enum": [
-                            0,
-                            1
-                        ],
-                        "description": "İhale kaydının durumu. Aktif için 0, pasif için 1."
-                    }
-                },
-                "required": [
-                    "title",
-                    "recordstatus"
-                ]
-            }
-        },
-        {
-            "name": "create_work",
-            "description": "Yeni bir iş kaydı oluşturur. İşin başlığı, isteğe bağlı olarak bağlı olduğu ihale ve başlangıç tarihi belirtilerek oluşturulur.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Oluşturulacak işin başlığı. Kullanıcının belirttiği değeri aynen al. Çeviri yapma, değiştirme veya yorumlama. Çevreleyen kelimeleri (iş, oluştur, kaydet gibi) parametreye dahil etme."
-                    },
-                    "tendername": {
-                        "type": "string",
-                        "description": "İşin bağlı olduğu ihalenin adı. SADECE cümlede 'ihale'/'ihalesi' gibi bir kelimeyle açıkça bir ihaleden bahsediliyorsa bu alanı doldur. Kullanıcının belirttiği ihale adını aynen al. Çeviri yapma, değiştirme veya yorumlama. Çevreleyen kelimeleri (ihale, ihalesi, için gibi) parametreye dahil etme -- örneğin 'K1 ihalesi için' ifadesinden yalnızca 'K1' alınmalıdır. Cümlede ihaleye dair açık bir referans yoksa bu parametreyi kesinlikle gönderme -- aynı değeri hem title hem tendername'e koyma."
-                    },
-                    "startdate": {
-                        "type": "string",
-                        "description": "İşin başlangıç tarihi, GG/AA/YYYY formatında. Kullanıcının belirttiği tarihi aynen al. Eğer cümlede birden fazla tarih geçiyorsa (örneğin ihalenin bitiş tarihi gibi), yalnızca işin kendi başlangıç tarihini al -- diğer tarihleri bu parametreye dahil etme."
-                    }
-                },
-                "required": [
-                    "title"
-                ]
-            }
-        },
-        {
-            "name": "update_work",
-            "description": "Yeni bir iş kaydı oluşturur. İşin başlığı, isteğe bağlı olarak bağlı olduğu ihale ve başlangıç tarihi belirtilerek oluşturulur.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Oluşturulacak işin başlığı. Kullanıcının belirttiği değeri aynen al. Çeviri yapma, değiştirme veya yorumlama. Çevreleyen kelimeleri (iş, oluştur, kaydet gibi) parametreye dahil etme."
-                    },
-                    "tendername": {
-                        "type": "string",
-                        "description": "İşin bağlı olduğu ihalenin adı. SADECE cümlede 'ihale'/'ihalesi' gibi bir kelimeyle açıkça bir ihaleden bahsediliyorsa bu alanı doldur. Kullanıcının belirttiği ihale adını aynen al. Çeviri yapma, değiştirme veya yorumlama. Çevreleyen kelimeleri (ihale, ihalesi, için gibi) parametreye dahil etme -- örneğin 'K1 ihalesi için' ifadesinden yalnızca 'K1' alınmalıdır. Cümlede ihaleye dair açık bir referans yoksa bu parametreyi kesinlikle gönderme -- aynı değeri hem title hem tendername'e koyma."
-                    },
-                    "newtitle": {
-                        "type": "string",
-                        "description": "Oluşturulacak işin başlığı. Kullanıcının belirttiği değeri aynen al. Çeviri yapma, değiştirme veya yorumlama. Çevreleyen kelimeleri (iş, oluştur, kaydet gibi) parametreye dahil etme."
-                    },
-                    "startdate": {
-                        "type": "string",
-                        "description": "İşin başlangıç tarihi, GG/AA/YYYY formatında. Kullanıcının belirttiği tarihi aynen al. Eğer cümlede birden fazla tarih geçiyorsa (örneğin ihalenin bitiş tarihi gibi), yalnızca işin kendi başlangıç tarihini al -- diğer tarihleri bu parametreye dahil etme."
-                    }
-                },
-                "required": [
-                    "title"
-                ]
-            }
-        },
-        {
-            "name": "delete_work",
-            "description": "Yeni bir iş kaydı oluşturur. İşin başlığı, isteğe bağlı olarak bağlı olduğu ihale ve başlangıç tarihi belirtilerek oluşturulur.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Oluşturulacak işin başlığı. Kullanıcının belirttiği değeri aynen al. Çeviri yapma, değiştirme veya yorumlama. Çevreleyen kelimeleri (iş, oluştur, kaydet gibi) parametreye dahil etme."
-                    }
-                },
-                "required": [
-                    "title"
-                ]
-            }
-        },
-        {
-            "name": "update_work_record_status",
-            "description": "Bir Mücbir Sebep (Force Major) kaydının aktif veya pasif durumunu değiştirir.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Mücbir Sebep kaydının adı veya başlığı. Kullanıcının yazdığı değeri aynen al. Çeviri yapma, değiştirme veya yorumlama."
-                    },
-                    "recordstatus": {
-                        "type": "integer",
-                        "enum": [
-                            0,
-                            1
-                        ],
-                        "description": "Mücbir Sebep kaydının durumu. Aktif için 0, pasif için 1."
-                    }
-                },
-                "required": [
-                    "title",
-                    "recordstatus"
-                ]
-            }
-        },
-
-        
-        {
-            "name": "create_network",
-            "description": "Bir işe bağlı olarak yeni bir şebeke kaydı oluşturur. Şebekenin başlığı, açıklaması ve bağlı olduğu iş belirtilerek oluşturulur.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Oluşturulacak şebekenin başlığı. Kullanıcının belirttiği değeri aynen al. Çeviri yapma, değiştirme veya yorumlama. Çevreleyen kelimeleri (şebeke, oluştur, kaydet gibi) parametreye dahil etme."
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "Şebekenin açıklaması. Kullanıcının belirttiği değeri aynen al. Çeviri yapma, değiştirme veya yorumlama."
-                    },
-                    "workname": {
-                        "type": "string",
-                        "description": "Şebekenin bağlı olduğu işin adı. Kullanıcının belirttiği iş adını aynen al. Çeviri yapma, değiştirme veya yorumlama. Çevreleyen kelimeleri (iş, işi, için gibi) parametreye dahil etme -- örneğin 'K1 işi için' ifadesinden yalnızca 'K1' alınmalıdır."
-                    }
-                },
-                "required": [
-                    "title"
-                ]
-            }
-        },
-        {
-            "name": "update_network",
-            "description": "Mevcut bir şebekenin bilgilerini günceller. Şebekenin başlığını, açıklamasını veya bağlı olduğu işi değiştirmek için kullanılır.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Güncellenecek mevcut şebekenin başlığı. Kullanıcının belirttiği mevcut başlığı aynen al. Çeviri yapma, değiştirme veya yorumlama."
-                    },
-                    "newtitle": {
-                        "type": "string",
-                        "description": "Şebekenin yeni başlığı. Kullanıcı tarafından açıkça yeni bir başlık belirtilmişse değeri aynen al. Çeviri yapma, değiştirme veya yorumlama. Kullanıcı yeni başlık belirtmediyse bu parametreyi gönderme."
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "Şebekenin yeni açıklaması. Kullanıcı tarafından açıkça belirtilmişse değeri aynen al. Çeviri yapma, değiştirme veya yorumlama. Kullanıcı belirtmediyse bu parametreyi gönderme."
-                    },
-                    "workname": {
-                        "type": "string",
-                        "description": "Şebekenin bağlı olduğu işin yeni adı. Kullanıcının belirttiği iş adını aynen al. Çeviri yapma, değiştirme veya yorumlama. Çevreleyen kelimeleri (iş, işi, için gibi) parametreye dahil etme -- örneğin 'K1 işi için' ifadesinden yalnızca 'K1' alınmalıdır. Kullanıcı iş değişikliği belirtmediyse bu parametreyi gönderme."
-                    }
-                },
-                "required": [
-                    "title"
-                ]
-            }
-        },
-        {
-            "name": "delete_network",
-            "description": "Mevcut bir şebekeyi sistemden siler.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Silinecek mevcut şebekenin başlığı. Kullanıcının belirttiği başlığı aynen al. Çeviri yapma, değiştirme veya yorumlama."
-                    }
-                },
-                "required": [
-                    "title"
-                ]
-            }
-        },
-        {
-            "name": "update_network_record_status",
-            "description": "Bir şebeke kaydının aktif veya pasif durumunu değiştirir.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Şebeke kaydının adı veya başlığı. Kullanıcının yazdığı değeri aynen al. Çeviri yapma, değiştirme veya yorumlama."
-                    },
-                    "recordstatus": {
-                        "type": "integer",
-                        "enum": [
-                            0,
-                            1
-                        ],
-                        "description": "Şebeke kaydının yeni durumu. Kullanıcı 'aktif et', 'aktif yap' gibi bir ifade kullanıyorsa 0; 'pasif et', 'devre dışı bırak', 'kapat' gibi bir ifade kullanıyorsa 1 gönder."
-                    }
-                },
-                "required": [
-                    "title",
-                    "recordstatus"
-                ]
-            }
-        }
-    ]
+        "required": []
+      }
+    }
+  ]
 }

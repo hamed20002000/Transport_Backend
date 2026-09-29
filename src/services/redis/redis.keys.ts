@@ -9,6 +9,7 @@ export const KEY_PREFIXES = {
   telegramSession: 'telegram:session:v1',
   telegramReceiptLock: 'telegram:receipt-lock:v1',
   telegramKeyboard: 'telegram:keyboard:v1',
+  telegramAgentSession: 'telegram:agent-session:v1',
   messengerChannelFlow: 'messenger:channel-flow:v1',
 } as const;
 
@@ -23,5 +24,6 @@ export type RedisKeyParts = {
   telegramSession: [botId: string, userId: string];
   telegramReceiptLock: [botId: string, userId: string];
   telegramKeyboard: [botId: string, chatId: string];
+  telegramAgentSession: [botId: string, userId: string];
   messengerChannelFlow: [platform: string, externalUserId: string];
 };

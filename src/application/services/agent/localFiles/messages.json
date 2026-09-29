@@ -1,81 +1,105 @@
-
-
 {
-
-    "role":{
-        "namerequired":"Rol adı zorunludur!",
-        "roleexist":"Bu rol zaten mevcut.",
-        "nameandnewNameisrequired":"Rol adı ve yeni ad zorunludur!",
-        "rolenotfound":"Rol bulunamadı."
-    },
-    "user":{
-        "usernamerequired":"Kullanıcı adı zorunludur.",
-        "passwordrequired":"Şifre gereklidir.",
-        "Theusenameexists":"Kullanıcı adı zaten mevcut.",
-        "Somerolesnotfound":"Bazı roller bulunamadı.",
-        "Usernotfound":"Kullanıcı bulunamadı!",
-        "passwordisincorrect":"Geçerli şifre yanlış!"
-    },
-    "category":{
-        "namerequired":"Kategori adı gereklidir.",
-        "categoryexist":"Kategori zaten mevcut.",
-        "categorynotfound":"Kategori bulunamadı!",
-        "parentnotfound":"Üst kategori bulunamadı",
-        "parentnamerequired":"Ebeveyn adı gereklidir.",
-        "parentnamenotfound":"Üst öğe adı bulunamadı"
-
-    },
-    "unit":{
-        "unitalreadyexist":"Ürün birimi zaten mevcut.",
-        "namerequired":"Ürün birimi gereklidir.",
-        "nameandnewNameisrequired":"Ürün birimi ve yeni ad zorunludur!",
-        "itemunitfound":"Öğe birimi bulunamadı!"
-
-    },
-    "product":{
-        "productalreadyexist":"Ürün zaten mevcut.",
-        "nameisrequired":"Ürün adı gereklidir.",
-        "abbriviationalreadyexist":"Bu kısaltmaya sahip ürün halihazırda mevcut.",
-        "categorynotfound":"Kategori bulunamadı!",
-        "categorynamerequired":"Kategori adı gereklidir.",
-        "unitnamerequired":"Ürün birimi gereklidir.",
-        "unititemunitfound":"Öğe birimi bulunamadı!",
-        "productnotfound":"Ürün bulunamadı"
-    },
-    "poletrafo":{
-        "nameisrequired":"Direk adı gereklidir.",
-        "typeisrequired":"Direk tipi gereklidir.",
-        "notfound":"Direk tipi bulunamadı!"
-    },
-    "region":{
-        "nameisrequired":"Bölge adı gereklidir.",
-        "parentnamenotfound":"Bölge üst öğe adı bulunamadı",
-        "regionalreadyexists":"Bölge zaten mevcut",
-        "notfound":"Bölge adı bulunamadı!"
-    },
-    "supplier":{
-        "nameisrequired":"Tedarikçi adı gereklidir.",
-        "regionnameisrequired":"Bölge adı gereklidir.",
-        "regionnotfound":"Bölge adı bulunamadı!",
-        "notfound":"Tedarikçi adı bulunamadı!"
-    },
-    "forceMajor":{
-        "nameisrequired":"Mücbir sebep adı gereklidir.",
-        "notfound":"Mücbir sebep bulunamadı!"
-    },
-    "tender":{
-        "nameisrequired":"İhale adı gereklidir.",
-        "notfound":"İhale bulunamadı!"
-    },
-    "work":{
-        "nameisrequired":"İş adı gereklidir.",
-        "tendernameisrequired":"İhale adı gereklidir.",
-        "startdaterequired":"Başlangıç tarihi gereklidir.",
-        "notfound":"İş adı bulunamadı!"
-    },
-     "network":{
-        "nameisrequired":"Şebeke adı gereklidir.",
-        "notfound":"Şebeke bulunamadı!"
-    }
-
+  "common": {
+    "notAllowed": "این کار فقط برای حساب شرکت در دسترس است."
+  },
+  "suggested": {
+    "none": "فعلاً بار پیشنهادی‌ای برایتان نرسیده.",
+    "noneUnread": "پیشنهاد نخوانده‌ای ندارید.",
+    "header": "{count} بار پیشنهادی{scope}:",
+    "shownLatest": "({shown} مورد آخر)",
+    "unreadMark": " (نخوانده)",
+    "publishedMark": " (منتشر شده)",
+    "unreadCount": "{count} پیشنهاد نخوانده دارید.",
+    "markedRead": "{count} پیشنهاد خوانده‌شده علامت خورد.",
+    "nothingToMark": "پیشنهاد نخوانده‌ای نبود.",
+    "nothingToPublish": "بار پیشنهادیِ منتشرنشده‌ای ندارید.",
+    "pickToPublish": "کدام بار پیشنهادی منتشر شود؟",
+    "notPicked": "باری انتخاب نشد؛ دوباره درخواست کنید.",
+    "badPhone": "شماره تماس «{phone}» معتبر نیست.",
+    "needPhone": "برای این بار شماره تماسی نیست؛ شماره را هم بگویید یا در پروفایل ثبت کنید.",
+    "publishFailed": "این بار قابل انتشار نیست؛ شاید قبلاً منتشر شده باشد.",
+    "published": "بار {cargo} با کد {code} برای {recipients} راننده منتشر شد."
+  },
+  "cargo": {
+    "originRequired": "مبدأ بار را بگویید.",
+    "destinationRequired": "مقصد بار را بگویید.",
+    "badPhone": "شماره تماس «{phone}» معتبر نیست.",
+    "needPhone": "شماره تماسی برای بار نیست؛ شماره را هم بگویید یا در پروفایل ثبت کنید.",
+    "createFailed": "ثبت بار انجام نشد؛ مشخصات را بررسی کنید.",
+    "created": "بار {cargo} با کد {code} ثبت و برای {recipients} راننده منتشر شد."
+  },
+  "myCargo": {
+    "none": "هنوز باری منتشر نکرده‌اید.",
+    "noneOpen": "بار بازی ندارید.",
+    "noneTaken": "بار بسته‌شده‌ای ندارید.",
+    "header": "{count} بار{scope}:",
+    "open": "باز",
+    "taken": "برداشته شد",
+    "nothingOpen": "بار بازی برای بستن ندارید.",
+    "nothingTaken": "بار بسته‌شده‌ای برای باز کردن ندارید.",
+    "pickTaken": "کدام بار برداشته شد؟",
+    "pickReopen": "کدام بار دوباره باز شود؟",
+    "notPicked": "باری انتخاب نشد؛ دوباره درخواست کنید.",
+    "statusFailed": "وضعیت این بار عوض نشد؛ دوباره تلاش کنید.",
+    "markedTaken": "بار {cargo} (کد {code}) «برداشته شد» اعلام شد و پیام راننده‌ها به‌روز شد.",
+    "reopened": "بار {cargo} (کد {code}) دوباره باز شد."
+  },
+  "channel": {
+    "notCompany": "ثبت گروه و کانال فقط برای حساب شرکت است.",
+    "noSubscription": "برای ثبت گروه و کانال اشتراک فعال لازم است.",
+    "none": "هنوز گروه یا کانالی ثبت نکرده‌اید.",
+    "header": "{count} گروه و کانال:",
+    "statusActive": "فعال · در حال دریافت بار",
+    "statusPending": "در انتظار تأیید ادمین",
+    "statusFailed": "خطا در عضویت",
+    "statusQueued": "در صف عضویت",
+    "statusInactive": "غیرفعال",
+    "linkRequired": "لینک گروه یا کانال را بفرستید (با https://t.me/ یا https://chat.whatsapp.com/).",
+    "badLink": "این لینک تلگرام یا واتس‌اپ نیست.",
+    "added": "لینک ثبت شد؛ عضویت ربات به‌زودی انجام می‌شود.",
+    "alreadyAdded": "این گروه قبلاً ثبت شده بود و به لیست شما اضافه شد.",
+    "serviceDown": "سرویس گروه‌ها و کانال‌ها در دسترس نیست؛ کمی بعد دوباره تلاش کنید.",
+    "nothingToDelete": "گروه یا کانالی برای حذف ندارید.",
+    "pickDelete": "کدام گروه یا کانال حذف شود؟",
+    "notPicked": "موردی انتخاب نشد؛ دوباره درخواست کنید.",
+    "deleteFailed": "حذف انجام نشد؛ شاید قبلاً حذف شده باشد.",
+    "deleted": "«{name}» از لیست شما حذف شد.",
+    "statusMemberFailed": "عضویت ناموفق",
+    "statusRemoved": "ربات از گروه حذف شد"
+  },
+  "filter": {
+    "none": "فیلتری ندارید؛ همه‌ی بارهای کانال‌ها برایتان نمایش داده می‌شود.",
+    "header": "{count} فیلتر:",
+    "any": "همه‌ی بارها",
+    "inactive": " (غیرفعال)",
+    "needCondition": "دست‌کم یک شرط بگویید: مبدأ، مقصد، نوع بار، نوع ماشین یا کرایه.",
+    "badPrice": "مبلغ «{price}» را متوجه نشدم.",
+    "badPriceRange": "کف کرایه نباید از سقف آن بیشتر باشد.",
+    "created": "فیلتر ساخته شد: {filter}. از بارهای بعدی اعمال می‌شود.",
+    "nothingToEdit": "فیلتری برای ویرایش ندارید.",
+    "pickUpdate": "کدام فیلتر ویرایش شود؟",
+    "nothingToChange": "چه چیزی در فیلتر عوض شود؟ شرطی برای اضافه یا حذف نگفتید.",
+    "updated": "فیلتر به‌روز شد: {filter}.",
+    "activeRequired": "فیلتر روشن شود یا خاموش؟",
+    "pickActive": "کدام فیلتر؟",
+    "activated": "فیلتر «{filter}» فعال شد.",
+    "deactivated": "فیلتر «{filter}» غیرفعال شد.",
+    "nothingToDelete": "فیلتری برای حذف ندارید.",
+    "pickDelete": "کدام فیلتر حذف شود؟",
+    "deleted": "فیلتر «{filter}» حذف شد.",
+    "allDeleted": "{count} فیلتر حذف شد؛ از این به بعد همه‌ی بارها نمایش داده می‌شود.",
+    "notPicked": "فیلتری انتخاب نشد؛ دوباره درخواست کنید.",
+    "failed": "تغییر فیلتر انجام نشد؛ دوباره تلاش کنید."
+  },
+  "profile": {
+    "empty": "هنوز اطلاعاتی در پروفایل ثبت نکرده‌اید.",
+    "header": "اطلاعات حساب:",
+    "nothingToChange": "چه اطلاعاتی را ثبت یا اصلاح کنم؟",
+    "invalid": "این مقادیر معتبر نیست: {fields}.",
+    "confirm": "این اطلاعات ثبت شود؟\n{summary}",
+    "confirmYes": "بله، ثبت کن",
+    "confirmNo": "نه",
+    "notSaved": "اطلاعات ثبت نشد.",
+    "saved": "اطلاعات ثبت شد:\n{summary}"
+  }
 }

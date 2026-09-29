@@ -1,169 +1,38 @@
 {
-    
-        "create_role":"rol oluşturma",
-        "create_role_end":"Rol kaydı yapıldı.",
-
-        "update_role":"rolü güncelleme",
-        "update_role_end":"Rol güncellemesi tamamlandı.",
-
-        "delete_role":"rol silme",
-        "delete_role_end":"Rol silme işlemi tamamlandı.",
-
-        "assign_role_operations":"operasyonlara rol atama",
-        "assign_role_operations_end":"Görev için kayıt işlemi tamamlandı.",
-
-        "update_role_record_status":"rol durumunu güncelleme",
-        "update_role_record_status_end":"Rol durumu güncellemesi tamamlandı.",
-
-        "create_user":"kullanıcı oluşturma",
-        "create_user_end":"Kullanıcı kayıtlı",
-
-        "update_user":"kullanıcıyı güncelliyor",
-        "update_user_end":"Kullanıcı güncellemesi tamamlandı.",
-
-        "delete_user":"kullanıcıyı silme",
-        "delete_user_end":"Kullanıcı silindi.",
-
-        "update_user_record_status":"kullanıcı durumunu güncelleme",
-        "update_user_record_status_end":"Kullanıcı durumu güncellendi.",
-
-        "change-user-password":"kullanıcı şifresini değiştirme",
-        "change-user-password_end":"Kullanıcı şifresi güncellendi.",
-
-         "assign-user-roles":"kullanıcı rollerini atama",
-         "assign-user-roles_end":"Kullanıcı rolleri atandı.",
-
-         "create_category":"Kategori oluşturuluyor.",
-         "create_category_end":"kategori oluşturuldu",
-
-         "update_category":"Kategori güncelleniyor.",
-         "update_category_end":"kategori güncellendi",
-
-         "delete_category":"kategori siliniyor",
-         "delete_category_end":"kategori silindi",
-
-         "update_category_record_status":"Kategori durumu güncelleniyor.",
-         "update_category_record_status_end":"kategori durumu güncellendi",
-
-         "change_category_parent":"Üst kategori değişiyor.",
-         "change_category_parent_end":"Üst kategori değiştirildi",
-
-         "create_item_unit":"Ürün birimi oluşturuluyor.",
-         "create_item_unit_end":"Öğe birimi oluşturuldu",
-
-         "update_item_unit":" Birimi güncelleniyor.",
-         "update_item_unit_end":"Birim güncellendi.",
-
-         "delete_item_unit":"Birim siliniyor.",
-         "delete_item_unit_end":"Birim silindi.",
-
-         "update_item_unit_record_status":"Birim durumu güncelleniyor.",
-         "update_item_unit_record_status_end":"Birim durumu güncellendi",
-
-
-         "create_product":"Ürün oluşturuluyor",
-         "create_product_end":"Ürün oluşturuldu",
-
-         "update_product":"Ürün güncelleniyor.",
-         "update_product_end":"Ürün güncellendi",
-
-         "delete_product":"Ürün siliniyor.",
-         "delete_product_end":"Ürün silindi",
-
-         "update_product_record_status":"Ürün durumu güncelleniyor.",
-         "update_product_record_status_end":"Ürün durumu güncellendi",
-
-         "create_pole_or_transformer":"Ürün türü oluşturuluyor.",
-         "create_pole_or_transformer_end":"Ürün türü oluşturuldu",
-
-         "update_pole_or_transformer":"Ürün türü güncelleniyor.",
-         "update_pole_or_transformer_end":"Ürün türü güncellendi",
-
-
-         "delete_pole_or_transformer":"Ürün türü siliniyor.",
-         "delete_pole_or_transformer_end":"ürün türü silindi",
-
-         "update_pole_or_transformer_record_status":"Ürün tipi durumu güncelleniyor",
-         "update_pole_or_transformer_record_status_end":"Ürün türü durumu güncellendi.",
-
-         "create_region":"bölge oluşturuyor",
-         "create_region_end":"bölge oluşturuldu",
-
-         "update_region":"Bölge güncelleniyor.",
-         "update_region_end":"bölge güncellendi",
-
-         "delete_region":"bölge siliniyor",
-         "delete_region_end":"bölge silindi",
-
-         "update_region_record_status":"Bölge durumu güncelleniyor.",
-         "update_region_record_status_end":"Bölge durumu güncellendi",
-
-         "change_region_parent":"Bölge üst öğesi güncelleniyor.",
-         "change_region_parent_end":"bölge üst öğesi güncellendi",
-
-         "create_supplier":"Tedarikçi oluşturuyor",
-         "create_supplier_end":"tedarikçi oluşturuldu",
-
-         "update_supplier":"Tedarikçi güncelleme yapıyor.",
-         "update_supplier_end":"Tedarikçi güncellendi",
-
-         "delete_supplier":"Tedarikçi siliyor.",
-         "delete_supplier_end":"Tedarikçi silindi",
-
-         "update_supplier_record_status":"Tedarikçi durumu güncelleniyor.",
-         "update_supplier_record_status_end":"Tedarikçi durumu güncellendi.",
-
-
-         "create_force_major":"Mücbir sebep  oluşuyor.",
-         "create_force_major_end":"Mücbir sebep oluştu.",
-
-         "update_force_major":"Mücbir sebep güncelleniyor.",
-         "update_force_major_end":"Mücbir sebep güncellendi.",
-
-         "delete_force_major":"Mücbir sebep siliniyor.",
-         "delete_force_major_end":"Mücbir sebep silindi.",
-
-         "update_force_major_record_status":"Mücbir sebep durumu güncelleniyor.",
-         "update_force_major_record_status_end":"Mücbir sebep durumu güncellendi.",
-
-
-         "create_tender":"ihale yaratılır",
-         "create_tender_end":"ihale oluşturuldu",
-
-
-         "update_tender":"ihale güncelleniyor",
-         "update_tender_end":"ihale güncellendi",
-
-          "delete_tender":"ihale siliniyor.",
-         "delete_tender_end":"ihale silindi.",
-
-          "update_tender_record_status":"ihale durumu güncelleniyor.",
-         "update_tender_record_status_end":"ihaledurumu güncellendi.",
-
-
-          "create_work":"İş yaratılır",
-         "create_work_end":"İş oluşturuldu",
-
-
-         "update_work":"İş güncelleniyor",
-         "update_work_end":"İş güncellendi",
-
-          "delete_work":"İş siliniyor.",
-         "delete_work_end":"İş silindi.",
-
-          "update_work_record_status":"İş durumu güncelleniyor.",
-         "update_work_record_status_end":"İş durumu güncellendi.",
-
-           "create_network":"Şebeke yaratılır",
-         "create_network_end":"Şebeke oluşturuldu",
-
-
-         "update_network":"Şebeke güncelleniyor",
-         "update_network_end":"Şebeke güncellendi",
-
-          "delete_network":"Şebeke siliniyor.",
-         "delete_network_end":"Şebeke silindi.",
-
-          "update_network_record_status":"Şebeke durumu güncelleniyor.",
-         "update_network_record_status_end":"Şebeke durumu güncellendi."
+  "list_company_suggested_cargo": "در حال آوردن بارهای پیشنهادی",
+  "list_company_suggested_cargo_end": "بارهای پیشنهادی آماده است.",
+  "count_company_unread_suggestions": "در حال شمردن پیشنهادهای نخوانده",
+  "count_company_unread_suggestions_end": "تعداد پیشنهادهای نخوانده آماده است.",
+  "mark_company_suggestions_read": "در حال علامت زدن پیشنهادها",
+  "mark_company_suggestions_read_end": "پیشنهادها خوانده‌شده علامت خورد.",
+  "publish_company_suggested_cargo": "در حال انتشار بار پیشنهادی برای راننده‌ها",
+  "publish_company_suggested_cargo_end": "بار پیشنهادی منتشر شد.",
+  "create_company_cargo": "در حال ثبت بار جدید",
+  "create_company_cargo_end": "بار جدید ثبت و منتشر شد.",
+  "list_company_my_cargo": "در حال آوردن بارهای منتشرشده",
+  "list_company_my_cargo_end": "لیست بارهای شما آماده است.",
+  "mark_company_cargo_taken": "در حال بستن آگهی بار",
+  "mark_company_cargo_taken_end": "بار «برداشته شد» اعلام شد.",
+  "reopen_company_cargo": "در حال باز کردن دوباره‌ی بار",
+  "reopen_company_cargo_end": "بار دوباره باز شد.",
+  "list_company_channels": "در حال آوردن گروه‌ها و کانال‌ها",
+  "list_company_channels_end": "لیست گروه‌ها و کانال‌ها آماده است.",
+  "add_company_channel": "در حال ثبت لینک گروه یا کانال",
+  "add_company_channel_end": "لینک ثبت شد.",
+  "delete_company_channel": "در حال حذف گروه یا کانال",
+  "delete_company_channel_end": "گروه یا کانال حذف شد.",
+  "list_company_display_filters": "در حال آوردن فیلترها",
+  "list_company_display_filters_end": "لیست فیلترها آماده است.",
+  "create_company_display_filter": "در حال ساختن فیلتر",
+  "create_company_display_filter_end": "فیلتر ساخته شد.",
+  "update_company_display_filter": "در حال ویرایش فیلتر",
+  "update_company_display_filter_end": "فیلتر به‌روز شد.",
+  "set_company_display_filter_active": "در حال تغییر وضعیت فیلتر",
+  "set_company_display_filter_active_end": "وضعیت فیلتر تغییر کرد.",
+  "delete_company_display_filter": "در حال حذف فیلتر",
+  "delete_company_display_filter_end": "فیلتر حذف شد.",
+  "get_company_profile": "در حال آوردن اطلاعات حساب",
+  "get_company_profile_end": "اطلاعات حساب آماده است.",
+  "update_company_profile": "در حال ثبت اطلاعات حساب",
+  "update_company_profile_end": "اطلاعات حساب ثبت شد."
 }

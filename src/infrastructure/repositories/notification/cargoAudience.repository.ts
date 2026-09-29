@@ -5,13 +5,15 @@ import { DataSource } from 'typeorm';
 import { User } from '../../../domain/entities/auth/User';
 import { CompanyUser } from '../../../domain/entities/auth/CompanyUser';
 import { RecordStatus } from '../../../domain/enums/RecordStatus';
+import { CustomerType } from '../../../domain/enums/company.enum';
 import { SubscriptionStatus } from '../../../domain/enums/subscription';
 
 export const DRIVER_ROLE = 'DRIVER';
 
 export interface PublisherContact {
   mobile: string | null;
-  company: { id: string; name: string; phone: string | null } | null;
+  // id is null when the name/phone come only from the user's profile and no TransportCompany is linked.
+  company: { id: string | null; name: string; phone: string | null } | null;
 }
 
 /** کوئری‌هایی که مشخص می‌کنند بار منتشرشده به چه کسانی برسد و از طرف چه کسی. */
@@ -56,9 +58,18 @@ export class CargoAudienceRepository {
     });
     const company = companyUser?.transportCompany;
 
+    // آنچه کاربر در پروفایلش ثبت کرده بر اطلاعات جدول شرکت مقدم است؛ برای
+    // پروفایل «حقیقی» نام و نام خانوادگی به‌جای نام شرکت می‌آید.
+    const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(' ') || null;
+    const name =
+      user?.profileType === CustomerType.Person
+        ? fullName ?? user?.companyName ?? company?.name
+        : user?.companyName ?? company?.name ?? fullName;
+    const phone = user?.phone ?? company?.phone ?? null;
+
     return {
       mobile: user?.mobile ?? null,
-      company: company ? { id: company.id, name: company.name, phone: company.phone ?? null } : null,
+      company: name || company ? { id: company?.id ?? null, name: name ?? '', phone } : null,
     };
   }
 }

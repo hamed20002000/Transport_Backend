@@ -13,6 +13,8 @@ export class SpeechToTextService {
     private readonly whisperCppDir = process.env.WHISPER_CPP_DIR || '/home/hamed/whisper.cpp';
     private readonly whisperBinaryPath = join(this.whisperCppDir, 'build', 'bin', 'whisper-cli');
     private readonly modelPath = join(this.whisperCppDir, 'models', 'ggml-medium.bin');
+    // زبان گفتار کاربرها؛ تشخیص خودکار whisper برای جمله‌های کوتاه فارسی قابل اعتماد نیست
+    private readonly language = /^[a-z]{2}$/.test(process.env.WHISPER_LANGUAGE ?? '') ? process.env.WHISPER_LANGUAGE! : 'fa';
 
     private getThreadCount(): number {
         return cpus().length;
@@ -51,7 +53,7 @@ export class SpeechToTextService {
 
         // قدم ۲: حالا whisper-cli رو روی فایل WAV اجرا کن
         const threads = this.getThreadCount();
-        const transcribeCommand = `${this.whisperBinaryPath} -m ${this.modelPath} -f "${wavPath}" -l tr -t ${threads} --no-timestamps`;
+        const transcribeCommand = `${this.whisperBinaryPath} -m ${this.modelPath} -f "${wavPath}" -l ${this.language} -t ${threads} --no-timestamps`;
         this.logger.debug(`دستور تبدیل صدا به متن: ${transcribeCommand}`);
 
         const { stdout, stderr } = await execAsync(transcribeCommand, {

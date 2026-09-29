@@ -16,6 +16,15 @@ export class CargoListingRepository {
     return this.repository.save(listing);
   }
 
+  /**
+   * کد پیگیری برای بارهایی که از tarabari_backend نیامده‌اند. sequence از
+   * 90000000 شروع می‌شود تا با کدهای tarabari (از 100000) تداخل نداشته باشد.
+   */
+  async nextManualCode(): Promise<string> {
+    const [{ value }] = await this.repository.query(`SELECT nextval('manual_cargo_code_seq') AS value`);
+    return `TRB${value}`;
+  }
+
   findOneForPublisher(id: string, publisherUserId: string): Promise<CargoListing | null> {
     return this.repository.findOne({ where: { id, publisherUserId } });
   }

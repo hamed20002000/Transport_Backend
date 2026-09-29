@@ -11,6 +11,11 @@ import {
 
 import { User } from '../auth/User';
 
+const bigintNumber = {
+  to: (value?: number | null) => value,
+  from: (value?: string | null) => (value === null || value === undefined ? null : Number(value)),
+};
+
 /**
  * فیلتر اعلان بار یک کاربر. هر کاربر می‌تواند چند ردیف داشته باشد (مثلاً
  * «تهران به مشهد» و «هر باری از اصفهان») -- کافی است یکی match شود.
@@ -45,6 +50,13 @@ export class CargoAlertFilter {
 
   @Column('text', { array: true, default: () => "'{}'" })
   vehicleTypes!: string[];
+
+  // بازه‌ی کرایه به تومان؛ null یعنی بدون حد. bigint در pg به‌صورت رشته برمی‌گردد، پس عدد می‌شود.
+  @Column({ type: 'bigint', nullable: true, transformer: bigintNumber })
+  minPrice?: number | null;
+
+  @Column({ type: 'bigint', nullable: true, transformer: bigintNumber })
+  maxPrice?: number | null;
 
   @Column({ type: 'boolean', default: true })
   isActive!: boolean;
