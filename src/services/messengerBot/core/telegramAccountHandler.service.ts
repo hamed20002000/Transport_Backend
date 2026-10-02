@@ -20,30 +20,30 @@ import {
 
 import { AccountType } from 'src/domain/enums/subscription';
 
-import { CommunicationProvider } from 'src/domain/enums/subscription';
+import { communicationProviderOf } from './botPlatform';
 import { SubscriptionOrderStatus } from 'src/domain/enums/subscription';
 import { SubscriptionOrder } from 'src/domain/entities/subscription/SubscriptionOrder';
 
 import {
   TelegramSessionState,
-} from '../../domain/enums/telegram';
+} from '../../../domain/enums/telegram';
 
 import {
   TelegramCallback,
   TelegramCallbackBuilder,
-} from '../../domain/constants/telegram/TelegramCallback';
+} from '../../../domain/constants/telegram/TelegramCallback';
 
 import {
   SubscriptionPlanService,
-} from '../subscription/subscriptionPlan.service';
+} from '../../subscription/subscriptionPlan.service';
 
 import {
   SubscriptionOrderService,
-} from '../subscription/subscriptionorder.service';
+} from '../../subscription/subscriptionorder.service';
 
 import {
   PaymentReceiptService,
-} from '../subscription/paymentreceipt.service';
+} from '../../subscription/paymentreceipt.service';
 
 import {
   TelegramSessionService,
@@ -106,7 +106,7 @@ export class TelegramAccountHandler {
   ): Promise<void> {
     try {
       const order = await this.subscriptionOrderService.findOrderForTracking(
-        CommunicationProvider.Telegram,
+        communicationProviderOf(telegramUserId),
         telegramUserId,
       );
 
@@ -694,8 +694,7 @@ export class TelegramAccountHandler {
         await this.subscriptionOrderService
           .createOrder({
             provider:
-              CommunicationProvider
-                .Telegram,
+              communicationProviderOf(telegramUserId),
 
             providerUserId:
               telegramUserId,
@@ -975,7 +974,7 @@ export class TelegramAccountHandler {
         const pending =
           await this.subscriptionOrderService
             .findOrderForTracking(
-              CommunicationProvider.Telegram,
+              communicationProviderOf(telegramUserId),
               telegramUserId,
             );
 
@@ -1082,8 +1081,7 @@ export class TelegramAccountHandler {
                 : {
                   newOrder: {
                     provider:
-                      CommunicationProvider
-                        .Telegram,
+                      communicationProviderOf(telegramUserId),
 
                     providerUserId:
                       telegramUserId,

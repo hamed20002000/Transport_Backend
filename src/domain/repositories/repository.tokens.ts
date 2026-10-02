@@ -26,5 +26,5 @@ export const RECEIPT_ANALYZER = Symbol(
   'RECEIPT_ANALYZER',
 );
 
-export const TELEGRAM_LINK_REPOSITORY =
-  Symbol('TELEGRAM_LINK_REPOSITORY');
+export const BOT_LINK_REPOSITORY =
+  Symbol('BOT_LINK_REPOSITORY');

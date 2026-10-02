@@ -16,7 +16,15 @@ import {
 import { ChannelSubscriptionService, UserChannel } from './channelSubscription.service';
 import { ChannelServiceError } from './tarabariChannels.client';
 
-const INVITE_LINK = /^https:\/\/(t\.me|telegram\.me|chat\.whatsapp\.com)\/\S+$/i;
+// بررسی دقیق هر پلتفرم در tarabari_backend (channelRegistry) انجام می‌شود.
+const INVITE_LINK = /^https:\/\/(www\.)?(t\.me|telegram\.me|chat\.whatsapp\.com|whatsapp\.com\/channel|ble\.ir|rubika\.ir)\/\S+$/i;
+
+const PLATFORM_NAMES: Record<string, string> = {
+  whatsapp: 'واتس‌اپ',
+  telegram: 'تلگرام',
+  bale: 'بله',
+  rubika: 'روبیکا',
+};
 
 /**
  * ابزارهای agent برای «گروه‌ها و کانال‌ها»ی شرکت (domain company_channels).
@@ -120,7 +128,7 @@ export class CompanyChannelTools implements OnModuleInit {
   }
 
   private name(channel: UserChannel): string {
-    const platform = channel.platform === 'whatsapp' ? 'واتس‌اپ' : 'تلگرام';
+    const platform = PLATFORM_NAMES[channel.platform] ?? channel.platform;
     return `${channel.label || channel.identifier || 'بدون نام'} (${platform})`;
   }
 

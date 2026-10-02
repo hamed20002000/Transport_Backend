@@ -3,15 +3,14 @@ import {
   Injectable,
   Logger,
   OnModuleInit,
-  OnModuleDestroy,
   ServiceUnavailableException,
-  BadRequestException,
 } from '@nestjs/common';
+import { MultiBot } from './multiBot';
+import { BotPlatform } from './botPlatform';
 
 import { ConfigService } from '@nestjs/config';
 import TelegramBot from 'node-telegram-bot-api';
 import { TelegramKeyboardService } from './telegramKeyboard';
-import { TelegramTransport } from './telegramTransport';
 
 import { TelegramAccountHandler } from './telegramAccountHandler.service';
 import { TelegramIdentityService } from './telegramIdentity.service';
@@ -21,7 +20,7 @@ import { TelegramMessagesService } from './telegramMessages.service';
 
 import { AccountType } from 'src/domain/enums/subscription';
 import { MessengerPlatform } from 'src/domain/enums/messenger';
-import { BotReply, ChannelBotFlowService } from '../channel/channelBotFlow.service';
+import { BotReply, ChannelBotFlowService } from '../../channel/channelBotFlow.service';
 import { TelegramSessionState } from 'src/domain/enums/telegram';
 import { createWriteStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
@@ -33,16 +32,15 @@ import {
 
 import {
   TelegramCallback,
-} from '../../domain/constants/telegram/TelegramCallback';
+} from '../../../domain/constants/telegram/TelegramCallback';
 
 @Injectable()
-export class TelegramService implements OnModuleInit, OnModuleDestroy {
+export class MessengerBotService implements OnModuleInit {
   private readonly logger =
-    new Logger(TelegramService.name);
+    new Logger(MessengerBotService.name);
 
+  // ربات همه‌ی پیام‌رسان‌ها با رابط TelegramBot -- MultiBot بر اساس پیشوند شناسه مسیر را انتخاب می‌کند.
   private bot?: TelegramBot;
-  private transport?: TelegramTransport;
-  private ready = false;
 
   constructor(
     private readonly configService:
@@ -66,7 +64,10 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     private readonly telegramAccessService: TelegramAccessService,
     private readonly channelFlow: ChannelBotFlowService,
     private readonly agentBridge: TelegramAgentBridge,
-  ) {}
+    private readonly multiBot: MultiBot = new MultiBot(),
+  ) {
+    this.bot = multiBot as unknown as TelegramBot;
+  }
 
   /*
    * =====================================================
@@ -74,118 +75,38 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
    * =====================================================
    */
 
-   async onModuleInit(): Promise<void> {
-    const token =
-      this.configService.get<string>(
-        'TELEGRAM_BOT_TOKEN',
-      );
-
-    if (!token) {
-      this.logger.warn(
-        'TELEGRAM_BOT_TOKEN is not configured. Telegram bot is disabled.',
-      );
-
-      return;
-    }
-
-    this.transport = new TelegramTransport(this.configService);
-
-    this.bot = new TelegramBot(
-      token,
-      {
-        polling: false,
-      },
-    );
-
-    // Telegram being unreachable must not crash the whole application.
-    await this.bot.setMyCommands([
-      {
-        command: 'start',
-        description: this.messages.get('commands.start'),
-      },
-      {
-        command: 'payment',
-        description: this.messages.get('commands.payment'),
-      },
-    ]).catch((error: unknown) => {
-      this.logger.warn(
-        `Failed to set Telegram bot commands: ${this.getErrorMessage(error)}`,
-      );
+  /**
+   * پیام‌های همه‌ی ربات‌ها (تلگرام، بله، روبیکا) از MultiBot می‌رسد. اتصال و
+   * راه‌اندازی هر پیام‌رسان با سرویس خودش است (telegram/، bale/، rubika/).
+   */
+  onModuleInit(): void {
+    this.multiBot.on('message', (message: TelegramBot.Message) => {
+      void this.handleMessage(message).catch((error: unknown) => {
+        this.logger.error(this.getErrorMessage(error));
+      });
     });
 
-    this.bot.on(
-      'message',
-      message => {
-        void this.handleMessage(
-          message,
-        ).catch(
-          (error: unknown) => {
-            this.logger.error(
-              this.getErrorMessage(
-                error,
-              ),
-            );
-          },
-        );
-      },
-    );
+    this.multiBot.on('callback_query', (query: TelegramBot.CallbackQuery) => {
+      void this.handleCallbackQuery(query).catch((error: unknown) => {
+        this.logger.error(this.getErrorMessage(error));
+      });
+    });
 
-    this.bot.on(
-      'callback_query',
-      query => {
-        void this.handleCallbackQuery(
-          query,
-        ).catch(
-          (error: unknown) => {
-            this.logger.error(
-              this.getErrorMessage(
-                error,
-              ),
-            );
-          },
-        );
-      },
-    );
-
-    this.bot.on(
-      'polling_error',
-      error => {
-        this.logger.error(
-          `Telegram polling error: ${error.message}`,
-        );
-      },
-    );
-
-    try {
-      await this.transport.start(this.bot);
-    } catch (error: unknown) {
-      this.logger.error(
-        `Failed to start Telegram bot: ${this.getErrorMessage(error)}`,
-      );
-
-      return;
-    }
-
-    this.ready = true;
-    this.logger.log(`Telegram bot started in ${this.transport.mode} mode.`);
+    void this.multiBot.setMyCommands([
+      { command: 'start', description: this.messages.get('commands.start') },
+      { command: 'payment', description: this.messages.get('commands.payment') },
+    ]);
   }
 
-  async onModuleDestroy(): Promise<void> {
-    this.ready = false;
-    if (this.bot?.isPolling()) await this.bot.stopPolling();
-    // Keep the remote webhook registered across deployments.
-  }
-
-  async receiveWebhook(update: TelegramBot.Update, secret?: string): Promise<void> {
-    if (!this.transport) throw new ServiceUnavailableException('Telegram bot is disabled.');
-    this.transport.authorize(secret);
-    if (!this.ready) throw new ServiceUnavailableException('Telegram bot is not ready.');
-    if (!update || !Number.isSafeInteger(update.update_id) || update.update_id < 0) {
-      throw new BadRequestException('Invalid Telegram update.');
-    }
-    // Await the existing handlers so failures reach Telegram as a non-2xx response.
+  /** آپدیت webhook تلگرام: منتظر پردازش می‌ماند تا خطا به تلگرام برگردد و دوباره بفرستد. */
+  async handleUpdate(update: TelegramBot.Update): Promise<void> {
     if (update.message) await this.handleMessage(update.message);
     else if (update.callback_query) await this.handleCallbackQuery(update.callback_query);
+  }
+
+  /** آیا ربات این پیام‌رسان راه‌اندازی شده است (برای انتخاب مسیر اعلان). */
+  hasPlatform(platform: BotPlatform): boolean {
+    return this.multiBot.has(platform);
   }
 
   /*
@@ -904,13 +825,14 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
   async editNotification(
     chatId: string,
-    messageId: number,
+    // شناسه‌ی پیام روبیکا عدد نیست.
+    messageId: number | string,
     text: string,
   ): Promise<void> {
     try {
       await this.requireBot().editMessageText(text, {
         chat_id: chatId,
-        message_id: messageId,
+        message_id: messageId as number,
       });
     } catch (error: unknown) {
       // متن از قبل همین بوده -- خطا نیست.
@@ -980,9 +902,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   }
 
   private requireBot(): TelegramBot {
-    if (!this.bot) {
+    if (!this.bot || !this.multiBot.configured) {
       throw new ServiceUnavailableException(
-        'Telegram bot is disabled.',
+        'Messenger bots are disabled.',
       );
     }
 

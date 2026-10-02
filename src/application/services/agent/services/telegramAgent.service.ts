@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { botNamespace } from 'src/services/messengerBot/core/botPlatform';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -7,16 +8,16 @@ import { ConfigService } from '@nestjs/config';
 import type TelegramBot from 'node-telegram-bot-api';
 
 import { RedisService } from 'src/services/redis/redis.service';
-import { TelegramService } from 'src/services/telegram/telegram.service';
+import { MessengerBotService } from 'src/services/messengerBot/core/messengerBot.service';
 import {
   AGENT_CALLBACK_PREFIX,
   TelegramAgentBridge,
   TelegramAgentContext,
   TelegramAgentHandler,
   TelegramAgentVoice,
-} from 'src/services/telegram/telegramAgentBridge';
-import { TelegramIdentityService } from 'src/services/telegram/telegramIdentity.service';
-import { TelegramMessagesService } from 'src/services/telegram/telegramMessages.service';
+} from 'src/services/messengerBot/core/telegramAgentBridge';
+import { TelegramIdentityService } from 'src/services/messengerBot/core/telegramIdentity.service';
+import { TelegramMessagesService } from 'src/services/messengerBot/core/telegramMessages.service';
 import { UserService } from 'src/services/UserService';
 import { TelegramCallback } from 'src/domain/constants/telegram/TelegramCallback';
 import { removeVoiceFiles, VOICE_DIR } from 'src/presentation/controllers/agent/agent-uploads';
@@ -73,7 +74,7 @@ export class TelegramAgentService implements TelegramAgentHandler, AgentChannelR
   constructor(
     private readonly bridge: TelegramAgentBridge,
     private readonly relays: AgentChannelRelays,
-    private readonly telegram: TelegramService,
+    private readonly telegram: MessengerBotService,
     private readonly identity: TelegramIdentityService,
     private readonly messages: TelegramMessagesService,
     private readonly functionCalls: FunctionCallService,
@@ -82,7 +83,7 @@ export class TelegramAgentService implements TelegramAgentHandler, AgentChannelR
     private readonly redis: RedisService,
     config: ConfigService,
   ) {
-    this.botId = config.get<string>('TELEGRAM_BOT_TOKEN', '').split(':')[0];
+    this.botId = botNamespace(config);
   }
 
   onModuleInit(): void {

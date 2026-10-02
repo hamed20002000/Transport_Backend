@@ -11,7 +11,7 @@ import { FunctionCallService } from '../services/functioncall.service';
 import { CondinateService } from '../services/condinate.service';
 import { PendingConfirmationService } from '../services/PendingConfirmationService';
 import { SpeechToTextService } from '../services/Speechtotext.service';
-import { TelegramModule } from 'src/application/module/TelegramModule';
+import { MessengerBotModule } from 'src/application/module/MessengerBotModule';
 import { UserService } from 'src/services/UserService';
 import { AuthModule } from 'src/auth/auth.module';
 import { WhatsappService } from '../services/whatsapp.service';
@@ -27,7 +27,7 @@ import { TelegramAgentService } from '../services/telegramAgent.service';
 @Module({
   imports: [
     ToolRegisterModule,
-    TelegramModule,
+    MessengerBotModule,
     RedisModule,
       forwardRef(() => AuthModule), 
       forwardRef(() => WhatsappModule), 
@@ -62,7 +62,7 @@ import { TelegramAgentService } from '../services/telegramAgent.service';
     CondinateService,
     PendingConfirmationService,
     SpeechToTextService,
-    TelegramModule,
+    MessengerBotModule,
   ],
 
   controllers: [AgentController, AgentChatController],

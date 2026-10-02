@@ -1,11 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import TelegramBot from 'node-telegram-bot-api';
-import { SUBSCRIPTION_REPOSITORY } from '../../domain/repositories/repository.tokens';
-import { ISubscriptionRepository } from '../../domain/repositories/subscription/ISubscriptionRepository';
-import { AccountType } from '../../domain/enums/subscription';
-import { TelegramSessionState } from '../../domain/enums/telegram';
-import { TelegramCallback, TelegramCallbackBuilder } from '../../domain/constants/telegram/TelegramCallback';
-import { SubscriptionPlanService } from '../subscription/subscriptionPlan.service';
+import { SUBSCRIPTION_REPOSITORY } from '../../../domain/repositories/repository.tokens';
+import { ISubscriptionRepository } from '../../../domain/repositories/subscription/ISubscriptionRepository';
+import { AccountType } from '../../../domain/enums/subscription';
+import { TelegramSessionState } from '../../../domain/enums/telegram';
+import { TelegramCallback, TelegramCallbackBuilder } from '../../../domain/constants/telegram/TelegramCallback';
+import { SubscriptionPlanService } from '../../subscription/subscriptionPlan.service';
 import { TelegramIdentityService } from './telegramIdentity.service';
 import { TelegramSessionService } from './telegramSession.service';
 import { TelegramMessagesService } from './telegramMessages.service';

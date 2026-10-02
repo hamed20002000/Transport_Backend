@@ -12,12 +12,16 @@ export type CargoNotificationDelivery = Partial<
   Pick<
     CargoNotification,
     | 'telegramStatus' | 'telegramChatId' | 'telegramMessageId' | 'telegramAttempts' | 'telegramNextRetryAt'
+    | 'baleStatus' | 'baleChatId' | 'baleMessageId' | 'baleAttempts' | 'baleNextRetryAt'
+    | 'rubikaStatus' | 'rubikaChatId' | 'rubikaMessageId' | 'rubikaAttempts' | 'rubikaNextRetryAt'
     | 'whatsappStatus' | 'whatsappMessageKey' | 'whatsappSentAt' | 'whatsappAttempts' | 'whatsappNextRetryAt'
   >
 >;
 
 export type NewCargoNotification = Pick<CargoNotification, 'userId' | 'sourceMessageId' | 'text' | 'payload'> &
-  Partial<Pick<CargoNotification, 'listingId' | 'telegramNextRetryAt' | 'whatsappNextRetryAt'>>;
+  Partial<
+    Pick<CargoNotification, 'listingId' | 'telegramNextRetryAt' | 'baleNextRetryAt' | 'rubikaNextRetryAt' | 'whatsappNextRetryAt'>
+  >;
 
 @Injectable()
 export class CargoNotificationRepository {
@@ -67,6 +71,8 @@ export class CargoNotificationRepository {
     return this.repository.find({
       where: [
         { telegramStatus: NotificationDeliveryStatus.Pending, telegramNextRetryAt: LessThanOrEqual(now), createdAt: recent },
+        { baleStatus: NotificationDeliveryStatus.Pending, baleNextRetryAt: LessThanOrEqual(now), createdAt: recent },
+        { rubikaStatus: NotificationDeliveryStatus.Pending, rubikaNextRetryAt: LessThanOrEqual(now), createdAt: recent },
         { whatsappStatus: NotificationDeliveryStatus.Pending, whatsappNextRetryAt: LessThanOrEqual(now), createdAt: recent },
       ],
       relations: { listing: true },
@@ -85,12 +91,20 @@ export class CargoNotificationRepository {
       { telegramStatus: pending, createdAt: old },
       { telegramStatus: failed, telegramNextRetryAt: null },
     );
+    const bale = await this.repository.update(
+      { baleStatus: pending, createdAt: old },
+      { baleStatus: failed, baleNextRetryAt: null },
+    );
+    const rubika = await this.repository.update(
+      { rubikaStatus: pending, createdAt: old },
+      { rubikaStatus: failed, rubikaNextRetryAt: null },
+    );
     const whatsapp = await this.repository.update(
       { whatsappStatus: pending, createdAt: old },
       { whatsappStatus: failed, whatsappNextRetryAt: null },
     );
 
-    return (telegram.affected ?? 0) + (whatsapp.affected ?? 0);
+    return (telegram.affected ?? 0) + (bale.affected ?? 0) + (rubika.affected ?? 0) + (whatsapp.affected ?? 0);
   }
 
   findPageForUser(

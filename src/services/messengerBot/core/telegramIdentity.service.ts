@@ -1,37 +1,38 @@
 import { ConfigService } from '@nestjs/config';
-import { RedisService } from '../redis/redis.service';
+import { botNamespace, botPlatformOf } from './botPlatform';
+import { RedisService } from '../../redis/redis.service';
 import {
   Inject,
   Injectable,
   ConflictException,
 } from '@nestjs/common';
 
-import { TelegramLink } from '../../domain/entities/agent/TelegramLink';
+import { BotLink } from '../../../domain/entities/agent/BotLink';
 
-import { ITelegramLinkRepository } from '../../domain/repositories/telegram/ITelegramLinkRepository';
+import { IBotLinkRepository } from '../../../domain/repositories/messengerBot/IBotLinkRepository';
 
 import {
-  TELEGRAM_LINK_REPOSITORY,
-} from '../../domain/repositories/repository.tokens';
+  BOT_LINK_REPOSITORY,
+} from '../../../domain/repositories/repository.tokens';
 
 @Injectable()
 export class TelegramIdentityService {
   constructor(
-    @Inject(TELEGRAM_LINK_REPOSITORY)
-    private readonly repository: ITelegramLinkRepository,
+    @Inject(BOT_LINK_REPOSITORY)
+    private readonly repository: IBotLinkRepository,
     private readonly redis: RedisService,
     private readonly config: ConfigService,
   ) {}
 
   async cacheUserId(telegramUserId: string, userId: string): Promise<void> {
-    const botId = this.config.getOrThrow<string>('TELEGRAM_BOT_TOKEN').split(':')[0];
+    const botId = botNamespace(this.config);
     await this.redis.delete(RedisService.key('telegramIdentityRoles', botId, telegramUserId));
     await this.redis.set(RedisService.key('telegramIdentity', botId, telegramUserId), userId, 86400);
   }
 
   /** Menu presentation only; business authorization must still check current permissions. */
   async getMenuRoles(telegramUserId: string): Promise<string[] | null> {
-    const botId = this.config.getOrThrow<string>('TELEGRAM_BOT_TOKEN').split(':')[0];
+    const botId = botNamespace(this.config);
     const key = RedisService.key('telegramIdentityRoles', botId, telegramUserId);
     const roles = await this.redis.getJson<string[]>(key);
     if (roles !== null) return roles;
@@ -50,7 +51,7 @@ export class TelegramIdentityService {
 
   async findByTelegramUserId(
     telegramUserId: string,
-  ): Promise<TelegramLink | null> {
+  ): Promise<BotLink | null> {
     return this.repository.findByTelegramUserId(
       telegramUserId,
     );
@@ -62,12 +63,12 @@ export class TelegramIdentityService {
    * =====================================================
    */
 
+  /** اتصالی از کاربر (تلگرام، بله یا روبیکا) که آخرین بار با آن پیام داده است. */
   async findByUserId(
     userId: string,
-  ): Promise<TelegramLink | null> {
-    return this.repository.findByUserId(
-      userId,
-    );
+  ): Promise<BotLink | null> {
+    const links = await this.repository.findAllByUserId(userId);
+    return links[0] ?? null;
   }
 
   /*
@@ -79,7 +80,7 @@ export class TelegramIdentityService {
   async getUserId(
     telegramUserId: string,
   ): Promise<string | null> {
-    const botId = this.config.getOrThrow<string>('TELEGRAM_BOT_TOKEN').split(':')[0];
+    const botId = botNamespace(this.config);
     try {
       const cached = await this.redis.get(RedisService.key('telegramIdentity', botId, telegramUserId));
       if (cached) return cached;
@@ -120,20 +121,20 @@ export class TelegramIdentityService {
    *
    * IMPORTANT:
    *
-   * This method MUST NOT create TelegramLink.
+   * This method MUST NOT create BotLink.
    *
    * A random Telegram user may send a message to the bot
    * and never use the application again.
    *
-   * TelegramLink represents a real connection between
+   * BotLink represents a real connection between
    * Telegram identity and a User in our system.
    *
    * Therefore:
    *
-   * - Existing TelegramLink -> update metadata
+   * - Existing BotLink -> update metadata
    * - Unknown Telegram user -> do nothing
    *
-   * TelegramLink is created only by linkUser().
+   * BotLink is created only by linkUser().
    */
 
   async touch(params: {
@@ -142,7 +143,7 @@ export class TelegramIdentityService {
     username?: string;
     firstName?: string;
     lastName?: string;
-  }): Promise<TelegramLink | null> {
+  }): Promise<BotLink | null> {
     const link =
       await this.repository.findByTelegramUserId(
         params.telegramUserId,
@@ -182,7 +183,7 @@ export class TelegramIdentityService {
    * =====================================================
    *
    * This is the ONLY place in this service where
-   * TelegramLink can be created.
+   * BotLink can be created.
    *
    * One system User can use:
    *
@@ -191,7 +192,7 @@ export class TelegramIdentityService {
    *  ├── WhatsApp
    *  └── Web/PWA
    *
-   * TelegramLink only maps Telegram identity
+   * BotLink only maps Telegram identity
    * to the existing User.
    */
 
@@ -202,7 +203,7 @@ export class TelegramIdentityService {
     username?: string;
     firstName?: string;
     lastName?: string;
-  }): Promise<TelegramLink> {
+  }): Promise<BotLink> {
     let link =
       await this.repository.findByTelegramUserId(
         params.telegramUserId,
@@ -211,20 +212,21 @@ export class TelegramIdentityService {
     if (link?.userId && link.userId !== params.userId) {
       throw new ConflictException('Telegram account is already linked.');
     }
-    const existing = await this.repository.findByUserId(params.userId);
+    // هر کاربر در هر پیام‌رسان یک اتصال دارد (تلگرام، بله و روبیکا جدا).
+    const existing = await this.repository.findByUserId(params.userId, botPlatformOf(params.telegramUserId));
     if (existing && existing.telegramUserId !== params.telegramUserId) {
-      throw new ConflictException('User is already linked to another Telegram account.');
+      throw new ConflictException('User is already linked to another account on this messenger.');
     }
 
     /*
-     * TelegramLink does not exist yet.
+     * BotLink does not exist yet.
      *
      * Now creation is allowed because
      * we have a real system User.
      */
     if (!link) {
       link =
-        new TelegramLink();
+        new BotLink();
 
       link.telegramUserId =
         params.telegramUserId;

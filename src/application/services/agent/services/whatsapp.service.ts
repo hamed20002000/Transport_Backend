@@ -28,6 +28,11 @@ const execAsync = promisify(exec);
 
 const DEFAULT_SESSION_ID = 'main';
 
+// فاصله‌ی بین اعلان‌های سیستمی (بار، وضعیت عضویت): چند پیام پشت‌سرهم به
+// آدم‌های مختلف در یک ثانیه الگوی کلاسیک اسپم است و شماره را بن می‌کند.
+const NOTIFICATION_MIN_GAP_MS = Number(process.env.WHATSAPP_NOTIFICATION_MIN_GAP_MS) || 4000;
+const NOTIFICATION_JITTER_MS = Number(process.env.WHATSAPP_NOTIFICATION_JITTER_MS) || 4000;
+
 
 // کلمه‌های کنترلی که کاربر در واتس‌اپ می‌نویسد؛ معادل ترکی قبلی هم پذیرفته می‌شود.
 const CANCEL_WORDS = ['لغو', 'انصراف', 'نه', 'iptal', 'vazgeç', 'hayır'];
@@ -45,6 +50,9 @@ const toLatinDigits = (value: string) =>
 export class WhatsappService implements OnModuleInit {
   private readonly logger = new Logger(WhatsappService.name);
   private sock: WASocket | null = null;
+
+  private notificationQueue: Promise<unknown> = Promise.resolve();
+  private lastNotificationAt = 0;
 
   //The key to the last "processing" message of each jid -- 
   //so that we can edit the same message instead of sending a new one (like Telegram's progressbar)
@@ -73,7 +81,7 @@ export class WhatsappService implements OnModuleInit {
   private static readonly SELECTION_PAGE_SIZE = 10;
 
   //Voice-recognized transcripts that are still waiting for user approval -- 
-  // exactly equivalent to pendingTranscriptions in TelegramService
+  // exactly equivalent to pendingTranscriptions in MessengerBotService
   private pendingTranscriptions = new Map<string, string>();
 
   constructor(
@@ -585,7 +593,7 @@ export class WhatsappService implements OnModuleInit {
   ): Promise<{ userid: string } | null> {
     // Delegates the actual check (password hashing/comparison, DB lookup,
     // etc.) to the SAME AuthService used by the web login and by
-    // TelegramService.handleLinkCommand -- so WhatsApp isn't running its own
+    // MessengerBotService.handleLinkCommand -- so WhatsApp isn't running its own
     // separate, potentially inconsistent auth logic. Note the parameter
     // order here ({ password, username }) matches what AuthService.validateUser
     // expects, not necessarily the order this function's own params are in.
@@ -723,7 +731,7 @@ export class WhatsappService implements OnModuleInit {
       // indication something is happening rather than silence.
       await this.sendMessage(jid, '🎤 در حال پردازش پیام صوتی...');
 
-      // Two separate directories, mirroring TelegramService's approach --
+      // Two separate directories, mirroring MessengerBotService's approach --
       // keeps the raw downloaded file and the ffmpeg-converted output from
       // ever colliding or being confused with each other.
       const downloadDir = join(process.cwd(), 'uploads', 'whatsapp-voice', 'downloads');
@@ -987,7 +995,7 @@ export class WhatsappService implements OnModuleInit {
   // where to route an eventual response.
   //
   // Despite the method name saying "Username", it actually looks up by
-  // `userid` -- named this way to mirror TelegramService.getChatIdForUsername,
+  // `userid` -- named this way to mirror MessengerBotService.getChatIdForUsername,
   // whose "userId" parameter is really the same req.user.userid value that
   // flows through AgentGateway.sendToolResult (see the comment on
   // sendYesNoConfirmation below for the same note).
@@ -1294,8 +1302,21 @@ export class WhatsappService implements OnModuleInit {
   // Returns the sent message's key so it can be edited/reacted to later.
   async sendNotification(jid: string, text: string): Promise<proto.IMessageKey | null> {
     if (!this.sock) throw new Error('WhatsApp socket is not connected.');
-    const sent = await this.sendTextWithTimeout(jid, text);
-    return sent?.key ?? null;
+    // اعلان‌ها یکی‌یکی و با فاصله‌ی تصادفی فرستاده می‌شوند (ضد بن).
+    const run = this.notificationQueue.then(async () => {
+      const gap = NOTIFICATION_MIN_GAP_MS + Math.random() * NOTIFICATION_JITTER_MS;
+      const wait = this.lastNotificationAt + gap - Date.now();
+      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+      try {
+        if (!this.sock) throw new Error('WhatsApp socket is not connected.');
+        const sent = await this.sendTextWithTimeout(jid, text);
+        return sent?.key ?? null;
+      } finally {
+        this.lastNotificationAt = Date.now();
+      }
+    });
+    this.notificationQueue = run.catch(() => undefined);
+    return run;
   }
 
   // WhatsApp only honours edits within ~15 minutes of sending; the caller

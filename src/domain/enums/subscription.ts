@@ -8,6 +8,8 @@ export enum CommunicationProvider {
     Telegram = 'TELEGRAM',
     Whatsapp = 'WHATSAPP',
     Web = 'WEB',
+    Bale = 'BALE',
+    Rubika = 'RUBIKA',
 }
 
 export enum SubscriptionStatus {

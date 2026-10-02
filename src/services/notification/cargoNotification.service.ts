@@ -4,20 +4,24 @@ import { CargoDetectedEvent } from '../../domain/constants/cargoEvents';
 import { CargoListing } from '../../domain/entities/notification/CargoListing';
 import { CargoNotification } from '../../domain/entities/notification/CargoNotification';
 import { CargoListingStatus, NotificationDeliveryStatus } from '../../domain/enums/notification';
-import { SUBSCRIPTION_REPOSITORY, TELEGRAM_LINK_REPOSITORY } from '../../domain/repositories/repository.tokens';
+import { SUBSCRIPTION_REPOSITORY, BOT_LINK_REPOSITORY } from '../../domain/repositories/repository.tokens';
 import { ISubscriptionRepository } from '../../domain/repositories/subscription/ISubscriptionRepository';
 import { CargoListingRepository } from '../../infrastructure/repositories/notification/cargoListing.repository';
 import {
+  CargoNotificationDelivery,
   CargoNotificationKind,
   CargoNotificationRepository,
 } from '../../infrastructure/repositories/notification/cargoNotification.repository';
-import { ITelegramLinkRepository } from '../../domain/repositories/telegram/ITelegramLinkRepository';
+import { IBotLinkRepository } from '../../domain/repositories/messengerBot/IBotLinkRepository';
 import { WhatsappService } from '../../application/services/agent/services/whatsapp.service';
-import { TelegramService } from '../telegram/telegram.service';
+import { MessengerBotService } from '../messengerBot/core/messengerBot.service';
 import { CargoAlertFilterService, CargoRouteFields } from './cargoAlertFilter.service';
-import { isPermanentTelegramError, nextDeliveryRetryAt } from './cargoDeliveryRetry';
+import { BOT_DELIVERY_COLUMNS, isPermanentTelegramError, nextDeliveryRetryAt } from './cargoDeliveryRetry';
+import { BOT_PLATFORMS, BotPlatform } from '../messengerBot/core/botPlatform';
 import { buildCargoNotificationText } from './cargoNotificationText';
 import { CARGO_NOTIFICATION_SOCKET_EVENT, NotificationsGateway } from './notifications.gateway';
+
+const BOT_PLATFORM_LABEL_EN: Record<BotPlatform, string> = { telegram: 'Telegram', bale: 'Bale', rubika: 'Rubika' };
 
 // سقف ردیف‌هایی که برای غربال با فیلترها خوانده می‌شوند (جدیدترین‌ها).
 const LIST_SCAN_LIMIT = 1000;
@@ -41,9 +45,9 @@ export class CargoNotificationService {
     private readonly filters: CargoAlertFilterService,
     @Inject(SUBSCRIPTION_REPOSITORY)
     private readonly subscriptions: ISubscriptionRepository,
-    @Inject(TELEGRAM_LINK_REPOSITORY)
-    private readonly telegramLinks: ITelegramLinkRepository,
-    private readonly telegram: TelegramService,
+    @Inject(BOT_LINK_REPOSITORY)
+    private readonly botLinks: IBotLinkRepository,
+    private readonly bots: MessengerBotService,
     @Inject(forwardRef(() => WhatsappService))
     private readonly whatsapp: WhatsappService,
     private readonly gateway: NotificationsGateway,
@@ -115,7 +119,8 @@ export class CargoNotificationService {
   /** ارسال کانال‌هایی که هنوز Pending هستند. بار برداشته‌شده دیگر ارسال نمی‌شود. */
   async deliver(row: CargoNotification): Promise<void> {
     const isOpen = row.listing?.status !== CargoListingStatus.Taken;
-    await this.deliverTelegram(row, isOpen);
+    // هر پیام‌رسانی که کاربر وصل کرده جدا ارسال می‌شود؛ فیلتر بودن یکی جلوی بقیه را نمی‌گیرد.
+    for (const platform of BOT_PLATFORMS) await this.deliverBot(platform, row, isOpen);
     await this.deliverWhatsapp(row, isOpen);
   }
 
@@ -124,39 +129,46 @@ export class CargoNotificationService {
     const isOpen = row.listing?.status !== CargoListingStatus.Taken;
     const due = (nextRetryAt?: Date | null) => !!nextRetryAt && nextRetryAt.getTime() <= now.getTime();
 
-    if (due(row.telegramNextRetryAt)) await this.deliverTelegram(row, isOpen);
+    for (const platform of BOT_PLATFORMS) {
+      if (due(row[BOT_DELIVERY_COLUMNS[platform].nextRetryAt])) await this.deliverBot(platform, row, isOpen);
+    }
     if (due(row.whatsappNextRetryAt)) await this.deliverWhatsapp(row, isOpen);
   }
 
-  private async deliverTelegram(row: CargoNotification, isOpen: boolean): Promise<void> {
-    if (row.telegramStatus !== NotificationDeliveryStatus.Pending) return;
+  /** ارسال با ربات تلگرام، بله یا روبیکا (همه از MessengerBotService / MultiBot). */
+  private async deliverBot(platform: BotPlatform, row: CargoNotification, isOpen: boolean): Promise<void> {
+    const columns = BOT_DELIVERY_COLUMNS[platform];
+    if (row[columns.status] !== NotificationDeliveryStatus.Pending) return;
 
-    const link = isOpen ? await this.telegramLinks.findByUserId(row.userId) : null;
+    const update = (changes: Record<string, unknown>) =>
+      this.notifications.updateDelivery(row.id, changes as CargoNotificationDelivery);
+
+    const link = isOpen && this.bots.hasPlatform(platform)
+      ? await this.botLinks.findByUserId(row.userId, platform)
+      : null;
     if (!link?.chatId) {
-      await this.notifications.updateDelivery(row.id, {
-        telegramStatus: NotificationDeliveryStatus.Skipped,
-        telegramNextRetryAt: null,
-      });
+      await update({ [columns.status]: NotificationDeliveryStatus.Skipped, [columns.nextRetryAt]: null });
       return;
     }
 
-    const attempts = row.telegramAttempts + 1;
+    const attempts = row[columns.attempts] + 1;
     try {
-      const messageId = await this.telegram.sendNotification(link.chatId, row.text);
-      await this.notifications.updateDelivery(row.id, {
-        telegramStatus: NotificationDeliveryStatus.Sent,
-        telegramChatId: link.chatId,
-        telegramMessageId: messageId,
-        telegramAttempts: attempts,
-        telegramNextRetryAt: null,
+      const messageId = await this.bots.sendNotification(link.chatId, row.text);
+      await update({
+        [columns.status]: NotificationDeliveryStatus.Sent,
+        [columns.chatId]: link.chatId,
+        // تلگرام ستون integer دارد؛ شناسه‌ی پیام روبیکا عدد نیست.
+        [columns.messageId]: platform === 'telegram' ? messageId : String(messageId),
+        [columns.attempts]: attempts,
+        [columns.nextRetryAt]: null,
       });
     } catch (error) {
       const retryAt = isPermanentTelegramError(error) ? null : nextDeliveryRetryAt(attempts, row.createdAt);
-      this.logFailure('Telegram', row, attempts, retryAt, error);
-      await this.notifications.updateDelivery(row.id, {
-        telegramStatus: retryAt ? NotificationDeliveryStatus.Pending : NotificationDeliveryStatus.Failed,
-        telegramAttempts: attempts,
-        telegramNextRetryAt: retryAt,
+      this.logFailure(BOT_PLATFORM_LABEL_EN[platform], row, attempts, retryAt, error);
+      await update({
+        [columns.status]: retryAt ? NotificationDeliveryStatus.Pending : NotificationDeliveryStatus.Failed,
+        [columns.attempts]: attempts,
+        [columns.nextRetryAt]: retryAt,
       });
     }
   }

@@ -1,9 +1,10 @@
 import { Injectable } from '@nestjs/common';
+import { botNamespace } from './botPlatform';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'node:crypto';
-import { TelegramSessionState } from '../../domain/enums/telegram';
-import { TelegramSession } from '../../domain/interfaces/telegram.interface';
-import { RedisService } from '../redis/redis.service';
+import { TelegramSessionState } from '../../../domain/enums/telegram';
+import { TelegramSession } from '../../../domain/interfaces/telegram.interface';
+import { RedisService } from '../../redis/redis.service';
 
 @Injectable()
 export class TelegramSessionService {
@@ -15,7 +16,7 @@ export class TelegramSessionService {
     if (!Number.isSafeInteger(this.ttlSeconds) || this.ttlSeconds <= 0) {
       throw new Error('TELEGRAM_SESSION_TTL_SECONDS must be a positive integer.');
     }
-    this.botId = config.get<string>('TELEGRAM_BOT_TOKEN', '').split(':')[0];
+    this.botId = botNamespace(config);
   }
 
   async get(telegramUserId: string): Promise<TelegramSession | null> {

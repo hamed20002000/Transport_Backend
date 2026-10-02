@@ -31,7 +31,7 @@ import { WhatsappModule } from './application/services/agent/appModule/whatsapp.
 
 import { TransportCompanyModule } from './application/module/TransportCompanyModule';
 
-import { TelegramModule } from './application/module/TelegramModule';
+import { MessengerBotModule } from './application/module/MessengerBotModule';
 import { RedisModule } from './application/module/RedisModule';
 import { CargoNotificationModule } from './application/module/CargoNotificationModule';
 
@@ -218,13 +218,13 @@ import { CargoNotificationModule } from './application/module/CargoNotificationM
     TransportCompanyModule,
 
     /*
-     * TelegramModule باید حتماً اینجا باشد.
+     * MessengerBotModule باید حتماً اینجا باشد.
      *
      * با load شدن این Module،
-     * TelegramService ساخته می‌شود و
+     * MessengerBotService ساخته می‌شود و
      * onModuleInit آن اجرا خواهد شد.
      */
-    TelegramModule,
+    MessengerBotModule,
 
     /*
      * خواندن پیام‌های بار از RabbitMQ

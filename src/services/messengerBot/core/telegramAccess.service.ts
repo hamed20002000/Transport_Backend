@@ -1,18 +1,19 @@
 import { Inject, Injectable, ConflictException } from '@nestjs/common';
+import { botNamespace } from './botPlatform';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes, randomInt } from 'node:crypto';
 import TelegramBot from 'node-telegram-bot-api';
-import { USER_REPOSITORY, TELEGRAM_LINK_REPOSITORY } from '../../domain/repositories/repository.tokens';
-import { IUserRepository } from '../../domain/repositories/IUserRepopsitory';
-import { ITelegramLinkRepository } from '../../domain/repositories/telegram/ITelegramLinkRepository';
-import { User } from '../../domain/entities/auth/User';
-import { TelegramLink } from '../../domain/entities/agent/TelegramLink';
-import { RecordStatus } from '../../domain/enums/RecordStatus';
-import { AccountType } from '../../domain/enums/subscription';
-import { TelegramCallback } from '../../domain/constants/telegram/TelegramCallback';
-import { normalizePhoneNumber } from '../../dto/auth/phone-number';
-import { PasswordService } from '../auth/password.service';
-import { RedisService } from '../redis/redis.service';
+import { USER_REPOSITORY, BOT_LINK_REPOSITORY } from '../../../domain/repositories/repository.tokens';
+import { IUserRepository } from '../../../domain/repositories/IUserRepopsitory';
+import { IBotLinkRepository } from '../../../domain/repositories/messengerBot/IBotLinkRepository';
+import { User } from '../../../domain/entities/auth/User';
+import { BotLink } from '../../../domain/entities/agent/BotLink';
+import { RecordStatus } from '../../../domain/enums/RecordStatus';
+import { AccountType } from '../../../domain/enums/subscription';
+import { TelegramCallback } from '../../../domain/constants/telegram/TelegramCallback';
+import { normalizePhoneNumber } from '../../../dto/auth/phone-number';
+import { PasswordService } from '../../auth/password.service';
+import { RedisService } from '../../redis/redis.service';
 import { TelegramIdentityService } from './telegramIdentity.service';
 import { TelegramSessionService } from './telegramSession.service';
 import { TelegramMessagesService } from './telegramMessages.service';
@@ -34,7 +35,7 @@ const PASSWORD_CHARACTERS = 'abcdefghjkmnpqrstuvwxyz23456789';
 export class TelegramAccessService {
   constructor(
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
-    @Inject(TELEGRAM_LINK_REPOSITORY) private readonly links: ITelegramLinkRepository,
+    @Inject(BOT_LINK_REPOSITORY) private readonly links: IBotLinkRepository,
     private readonly passwords: PasswordService,
     private readonly identity: TelegramIdentityService,
     private readonly sessions: TelegramSessionService,
@@ -58,7 +59,7 @@ export class TelegramAccessService {
     if (await this.identity.getUserId(telegramUserId)) {
       return this.handleIdentifiedUser(bot, chatId, telegramUserId, callback);
     }
-    const botId = this.config.getOrThrow<string>('TELEGRAM_BOT_TOKEN').split(':')[0];
+    const botId = botNamespace(this.config);
     const lock = RedisService.key('telegramAccessLock', botId, telegramUserId);
     const owner = randomBytes(16).toString('hex');
     if (!(await this.redis.setIfAbsent(lock, owner, ACCESS_LOCK_TTL_SECONDS))) return true;
@@ -136,7 +137,8 @@ export class TelegramAccessService {
     metadata: TelegramIdentityMetadata,
   ): Promise<void> {
     const { chatId, telegramUserId } = metadata;
-    if (contact.user_id !== Number(metadata.telegramUserId)) {
+    // مقایسه‌ی رشته‌ای: شناسه‌های بله/روبیکا پیشوند دارند (bale:123) و عدد نیستند.
+    if (contact.user_id === undefined || contact.user_id === null || String(contact.user_id) !== metadata.telegramUserId) {
       await bot.sendMessage(chatId, this.messages.get('account.invalidContactOwner'));
       return;
     }
@@ -187,7 +189,7 @@ export class TelegramAccessService {
     });
     const oldLink = await this.links.findByTelegramUserId(telegramUserId);
     if (oldLink?.userId) throw new ConflictException('Telegram account is already linked.');
-    const link = Object.assign(oldLink ?? new TelegramLink(), {
+    const link = Object.assign(oldLink ?? new BotLink(), {
       telegramUserId,
       chatId,
       telegramUsername: metadata.username,

@@ -1,12 +1,12 @@
 import { Body, Controller, Headers, HttpCode, Post } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 import TelegramBot from 'node-telegram-bot-api';
-import { TelegramService } from './telegram.service';
+import { TelegramBotService } from './telegramBot.service';
 
 @ApiExcludeController()
 @Controller('telegram')
 export class TelegramWebhookController {
-  constructor(private readonly telegram: TelegramService) {}
+  constructor(private readonly telegram: TelegramBotService) {}
 
   @Post('webhook')
   @HttpCode(200)

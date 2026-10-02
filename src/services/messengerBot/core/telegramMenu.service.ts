@@ -9,7 +9,7 @@ import { TelegramMessagesService } from './telegramMessages.service';
 import {
   TelegramCallback,
   TelegramCallbackBuilder,
-} from '../../domain/constants/telegram/TelegramCallback';
+} from '../../../domain/constants/telegram/TelegramCallback';
 
 import { AccountType } from 'src/domain/enums/subscription';
 

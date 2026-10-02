@@ -2,7 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
 
-export type ChannelPlatform = 'whatsapp' | 'telegram';
+import type { ChannelPlatform } from '../../domain/constants/channelEvents';
+
+export type { ChannelPlatform };
 
 /** ChannelView در tarabari_backend (channelRegistry.service.ts). */
 export interface MonitoredChannel {

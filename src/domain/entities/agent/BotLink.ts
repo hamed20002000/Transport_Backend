@@ -4,13 +4,19 @@ import {
   Entity,
   Index,
   JoinColumn,
-  OneToOne,
+  ManyToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 
 import { User } from '../auth/User';
+import type { BotPlatform } from '../../../services/messengerBot/core/botPlatform';
 
+/**
+ * اتصال حساب پیام‌رسان (ربات تلگرام، بله یا روبیکا) به کاربر سامانه. هر
+ * کاربر در هر پیام‌رسان حداکثر یک اتصال دارد؛ شناسه‌های بله/روبیکا پیشوند
+ * دارند (bale:…، rubika:…) -- botPlatform.ts.
+ */
 @Entity('TelegramLink')
 @Index(
   'UQ_TelegramLink_TelegramUserId',
@@ -18,11 +24,11 @@ import { User } from '../auth/User';
   { unique: true },
 )
 @Index(
-  'UQ_TelegramLink_UserId',
-  ['userId'],
+  'UQ_TelegramLink_UserId_Platform',
+  ['userId', 'platform'],
   { unique: true },
 )
-export class TelegramLink {
+export class BotLink {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
@@ -40,13 +46,19 @@ export class TelegramLink {
   chatId!: string;
 
   @Column({
+    type: 'varchar',
+    length: 20,
+    default: 'telegram',
+  })
+  platform!: BotPlatform;
+
+  @Column({
     type: 'uuid',
     nullable: true,
-    unique: true,
   })
   userId?: string;
 
-  @OneToOne(
+  @ManyToOne(
     () => User,
     {
       nullable: true,

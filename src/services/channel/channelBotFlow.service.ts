@@ -46,8 +46,8 @@ const Action = {
 } as const;
 
 // callback_data تلگرام حداکثر ۶۴ بایت است؛ پلتفرم با یک حرف ذخیره می‌شود.
-const platformCode: Record<ChannelPlatform, string> = { telegram: 't', whatsapp: 'w' };
-const codePlatform: Record<string, ChannelPlatform> = { t: 'telegram', w: 'whatsapp' };
+const platformCode: Record<ChannelPlatform, string> = { telegram: 't', whatsapp: 'w', bale: 'b', rubika: 'r' };
+const codePlatform: Record<string, ChannelPlatform> = { t: 'telegram', w: 'whatsapp', b: 'bale', r: 'rubika' };
 
 const SESSION_TTL_SECONDS = 15 * 60;
 const CANCEL_WORDS = ['لغو', 'انصراف', 'cancel', 'iptal', '0', '۰'];

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { botNamespace } from './botPlatform';
 import { ConfigService } from '@nestjs/config';
-import { RedisService } from '../redis/redis.service';
+import { RedisService } from '../../redis/redis.service';
 import TelegramBot from 'node-telegram-bot-api';
 
 interface ChatKeyboard {
@@ -25,7 +26,7 @@ export class TelegramKeyboardService {
     if (!Number.isSafeInteger(this.ttlSeconds) || this.ttlSeconds <= 0) {
       throw new Error('TELEGRAM_KEYBOARD_TTL_SECONDS must be a positive integer.');
     }
-    this.botId = config.get<string>('TELEGRAM_BOT_TOKEN', '').split(':')[0];
+    this.botId = botNamespace(config);
   }
 
   /** Keep one main menu and delete superseded operation messages. */
@@ -45,7 +46,6 @@ export class TelegramKeyboardService {
 
 
 
-    if (!this.botId) throw new Error('TELEGRAM_BOT_TOKEN is required for keyboard state.');
 
     const key = RedisService.key('telegramKeyboard', this.botId, chatId);
     // Serialize transitions within this process. Multiple bot workers still need

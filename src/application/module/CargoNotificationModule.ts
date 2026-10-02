@@ -27,7 +27,7 @@ import { ChannelMembershipConsumer } from '../../services/notification/channelMe
 import { WhatsappModule } from '../services/agent/appModule/whatsapp.module';
 import { RabbitMqModule } from './RabbitMqModule';
 import { SubscriptionModule } from './SubscriptionModule';
-import { TelegramModule } from './TelegramModule';
+import { MessengerBotModule } from './MessengerBotModule';
 import { CompanyCargoTools } from '../../services/notification/companyCargoTools';
 import { CompanyFilterTools } from '../../services/notification/companyFilterTools';
 
@@ -47,7 +47,7 @@ import { CompanyFilterTools } from '../../services/notification/companyFilterToo
     }),
     RabbitMqModule,
     SubscriptionModule,
-    TelegramModule,
+    MessengerBotModule,
     WhatsappModule,
   ],
   controllers: [CargoNotificationController, CargoListingController, CargoAlertFilterController],

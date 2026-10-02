@@ -7,22 +7,23 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import { TelegramLink } from '../../../domain/entities/agent/TelegramLink';
-import { ITelegramLinkRepository } from '../../../domain/repositories/telegram/ITelegramLinkRepository';
+import { BotLink } from '../../../domain/entities/agent/BotLink';
+import { IBotLinkRepository } from '../../../domain/repositories/messengerBot/IBotLinkRepository';
+import { BotPlatform, botPlatformOf } from '../../../services/messengerBot/core/botPlatform';
 
 @Injectable()
-export class TelegramLinkRepository
-  implements ITelegramLinkRepository
+export class BotLinkRepository
+  implements IBotLinkRepository
 {
   constructor(
-    @InjectRepository(TelegramLink)
+    @InjectRepository(BotLink)
     private readonly repository:
-      Repository<TelegramLink>,
+      Repository<BotLink>,
   ) {}
 
   async findByTelegramUserId(
     telegramUserId: string,
-  ): Promise<TelegramLink | null> {
+  ): Promise<BotLink | null> {
     return this.repository.findOne({
       where: {
         telegramUserId,
@@ -39,10 +40,12 @@ export class TelegramLinkRepository
 
   async findByUserId(
     userId: string,
-  ): Promise<TelegramLink | null> {
+    platform: BotPlatform = 'telegram',
+  ): Promise<BotLink | null> {
     return this.repository.findOne({
       where: {
         userId,
+        platform,
       },
       relations: {
         user: {
@@ -54,17 +57,22 @@ export class TelegramLinkRepository
     });
   }
 
-  async createUserWithLink(user: User, link: TelegramLink): Promise<TelegramLink> {
+  async findAllByUserId(userId: string): Promise<BotLink[]> {
+    return this.repository.find({ where: { userId }, order: { lastInteractionAt: { direction: 'DESC', nulls: 'LAST' } } });
+  }
+
+  async createUserWithLink(user: User, link: BotLink): Promise<BotLink> {
     return this.repository.manager.transaction(async manager => {
       const saved = await manager.save(User, user);
       link.userId = saved.id;
-      return manager.save(TelegramLink, link);
+      link.platform = botPlatformOf(link.telegramUserId);
+      return manager.save(BotLink, link);
     });
   }
 
   async assignInitialRole(telegramUserId: string, roleName: string): Promise<string> {
     return this.repository.manager.transaction(async manager => {
-      const link = await manager.findOne(TelegramLink, { where: { telegramUserId } });
+      const link = await manager.findOne(BotLink, { where: { telegramUserId } });
       if (!link?.userId) throw new NotFoundException('Telegram account is not linked.');
       const user = await manager.findOne(User, {
         where: { id: link.userId, recordStatus: RecordStatus.Active },
@@ -82,8 +90,9 @@ export class TelegramLinkRepository
   }
 
   async save(
-    entity: TelegramLink,
-  ): Promise<TelegramLink> {
+    entity: BotLink,
+  ): Promise<BotLink> {
+    entity.platform = botPlatformOf(entity.telegramUserId);
     return this.repository.save(
       entity,
     );

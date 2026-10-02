@@ -23,7 +23,7 @@ export interface TelegramAgentHandler {
 }
 
 /**
- * agent در AgentModule است و خودش TelegramModule را import می‌کند؛ برای
+ * agent در AgentModule است و خودش MessengerBotModule را import می‌کند؛ برای
  * اینکه ربات بدون وابستگی چرخشی پیام‌ها را به agent بدهد، agent هنگام
  * راه‌اندازی خودش را اینجا ثبت می‌کند. اگر ثبت نشده باشد ربات مثل قبل
  * پیام «به‌زودی» می‌دهد.

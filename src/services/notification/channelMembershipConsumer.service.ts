@@ -6,7 +6,9 @@ import {
   CHANNEL_MEMBERSHIP_CHANGED,
   CHANNEL_MEMBERSHIP_DLQ,
   CHANNEL_MEMBERSHIP_QUEUE,
+  CHANNEL_PLATFORMS,
   ChannelMembershipChangedEvent,
+  ChannelPlatform,
 } from '../../domain/constants/channelEvents';
 import { ChannelMembershipNotifier } from './channelMembership.service';
 
@@ -72,7 +74,7 @@ export function isChannelMembershipChangedEvent(value: unknown): value is Channe
   return (
     typeof event.eventId === 'string' &&
     typeof event.channelId === 'string' &&
-    (event.platform === 'whatsapp' || event.platform === 'telegram') &&
+    CHANNEL_PLATFORMS.includes(event.platform as ChannelPlatform) &&
     typeof event.status === 'string' &&
     STATUSES.includes(event.status) &&
     Array.isArray(event.ownerUserIds) &&

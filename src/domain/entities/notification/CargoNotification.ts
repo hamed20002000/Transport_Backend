@@ -99,6 +99,37 @@ export class CargoNotification {
   @Column({ type: 'timestamp', nullable: true })
   whatsappNextRetryAt?: Date | null;
 
+  // ربات‌های بله و روبیکا -- مثل تلگرام. شناسه‌ی پیام روبیکا عدد نیست، پس varchar.
+  @Column({ type: 'enum', enum: NotificationDeliveryStatus, default: NotificationDeliveryStatus.Pending })
+  baleStatus!: NotificationDeliveryStatus;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  baleChatId?: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  baleMessageId?: string | null;
+
+  @Column({ type: 'integer', default: 0 })
+  baleAttempts!: number;
+
+  @Column({ type: 'timestamp', nullable: true })
+  baleNextRetryAt?: Date | null;
+
+  @Column({ type: 'enum', enum: NotificationDeliveryStatus, default: NotificationDeliveryStatus.Pending })
+  rubikaStatus!: NotificationDeliveryStatus;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  rubikaChatId?: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  rubikaMessageId?: string | null;
+
+  @Column({ type: 'integer', default: 0 })
+  rubikaAttempts!: number;
+
+  @Column({ type: 'timestamp', nullable: true })
+  rubikaNextRetryAt?: Date | null;
+
   // واتساپ فقط تا ۱۵ دقیقه بعد از ارسال اجازه‌ی ویرایش می‌دهد.
   @Column({ type: 'timestamp', nullable: true })
   whatsappSentAt?: Date | null;

@@ -10,7 +10,7 @@ import { CargoAudienceRepository } from '../../infrastructure/repositories/notif
 import { CargoListingRepository } from '../../infrastructure/repositories/notification/cargoListing.repository';
 import { CargoNotificationRepository } from '../../infrastructure/repositories/notification/cargoNotification.repository';
 import { WhatsappService } from '../../application/services/agent/services/whatsapp.service';
-import { TelegramService } from '../telegram/telegram.service';
+import { MessengerBotService } from '../messengerBot/core/messengerBot.service';
 import { CargoAlertFilterService } from './cargoAlertFilter.service';
 import { CargoNotificationService } from './cargoNotification.service';
 import { buildCargoListingText, buildCargoTakenText, CargoListingFields } from './cargoNotificationText';
@@ -47,7 +47,7 @@ export class CargoListingService {
     private readonly audience: CargoAudienceRepository,
     private readonly filters: CargoAlertFilterService,
     private readonly delivery: CargoNotificationService,
-    private readonly telegram: TelegramService,
+    private readonly bots: MessengerBotService,
     @Inject(forwardRef(() => WhatsappService))
     private readonly whatsapp: WhatsappService,
     private readonly gateway: NotificationsGateway,
@@ -135,6 +135,8 @@ export class CargoListingService {
         text: listing.text,
         payload: this.toView(listing) as unknown as Record<string, unknown>,
         telegramNextRetryAt: safetyRetryAt,
+        baleNextRetryAt: safetyRetryAt,
+        rubikaNextRetryAt: safetyRetryAt,
         whatsappNextRetryAt: safetyRetryAt,
       })),
     );
@@ -202,10 +204,15 @@ export class CargoListingService {
 
       const text = taken ? buildCargoTakenText(row.text) : row.text;
 
-      if (row.telegramChatId && row.telegramMessageId) {
-        await this.tryUpdate('Telegram edit', row, () =>
-          this.telegram.editNotification(row.telegramChatId!, row.telegramMessageId!, text),
-        );
+      // پیام‌های ربات‌ها (تلگرام، بله، روبیکا) -- chatId پیشونددار مسیر را تعیین می‌کند.
+      const botMessages: [string, string | null | undefined, number | string | null | undefined][] = [
+        ['Telegram', row.telegramChatId, row.telegramMessageId],
+        ['Bale', row.baleChatId, row.baleMessageId],
+        ['Rubika', row.rubikaChatId, row.rubikaMessageId],
+      ];
+      for (const [channel, chatId, messageId] of botMessages) {
+        if (!chatId || !messageId) continue;
+        await this.tryUpdate(`${channel} edit`, row, () => this.bots.editNotification(chatId, messageId, text));
       }
 
       if (row.whatsappMessageKey?.remoteJid) {

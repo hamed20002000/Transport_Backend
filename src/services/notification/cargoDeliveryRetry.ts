@@ -29,3 +29,28 @@ export function isPermanentTelegramError(error: unknown): boolean {
   const code = response?.body?.error_code ?? response?.statusCode;
   return code === 400 || code === 403;
 }
+
+/** ستون‌های وضعیت ارسال هر ربات در CargoNotification. */
+export const BOT_DELIVERY_COLUMNS = {
+  telegram: {
+    status: 'telegramStatus',
+    chatId: 'telegramChatId',
+    messageId: 'telegramMessageId',
+    attempts: 'telegramAttempts',
+    nextRetryAt: 'telegramNextRetryAt',
+  },
+  bale: {
+    status: 'baleStatus',
+    chatId: 'baleChatId',
+    messageId: 'baleMessageId',
+    attempts: 'baleAttempts',
+    nextRetryAt: 'baleNextRetryAt',
+  },
+  rubika: {
+    status: 'rubikaStatus',
+    chatId: 'rubikaChatId',
+    messageId: 'rubikaMessageId',
+    attempts: 'rubikaAttempts',
+    nextRetryAt: 'rubikaNextRetryAt',
+  },
+} as const;
