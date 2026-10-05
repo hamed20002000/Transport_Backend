@@ -3,6 +3,7 @@ import { botNamespace } from './botPlatform';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../../redis/redis.service';
 import TelegramBot from 'node-telegram-bot-api';
+import { MultiBot } from './multiBot';
 
 interface ChatKeyboard {
   messageId?: number;
@@ -21,6 +22,7 @@ export class TelegramKeyboardService {
   constructor(
     private readonly redis: RedisService,
     config: ConfigService,
+    private readonly bot: MultiBot,
   ) {
     this.ttlSeconds = Number(config.get('TELEGRAM_KEYBOARD_TTL_SECONDS', 2592000));
     if (!Number.isSafeInteger(this.ttlSeconds) || this.ttlSeconds <= 0) {
@@ -31,7 +33,6 @@ export class TelegramKeyboardService {
 
   /** Keep one main menu and delete superseded operation messages. */
   async sendMessage(
-    bot: TelegramBot,
     chatId: string,
     text: string,
     options?: TelegramBot.SendMessageOptions,
@@ -41,7 +42,7 @@ export class TelegramKeyboardService {
     
 
     //#region ----------- Normal Text Message -------------------------------
-    if (!options?.reply_markup) return bot.sendMessage(chatId, text, options);
+    if (!options?.reply_markup) return this.bot.sendMessage(chatId, text, options);
     //#endregion -------- Normal Text Dont Remove Keyboards-------------------
 
 
@@ -55,7 +56,7 @@ export class TelegramKeyboardService {
       const previousId = current.messageId;
       const previousMainMenuId = current.mainMenu?.message_id;
       // Send first: a failed send must leave the existing menu available.
-      const message = await bot.sendMessage(chatId, text, { ...options });
+      const message = await this.bot.sendMessage(chatId, text, { ...options });
       if (isMainMenu) {
         current.mainMenu = message;
         delete current.mainMenuSignature;
@@ -73,12 +74,12 @@ export class TelegramKeyboardService {
       for (const messageId of obsoleteIds) {
         try {
           if (!isMainMenu && messageId === previousMainMenuId) {
-            await bot.editMessageReplyMarkup(
+            await this.bot.editMessageReplyMarkup(
               { inline_keyboard: [] },
               { chat_id: chatId, message_id: messageId },
             );
           } else {
-            await bot.deleteMessage(chatId, messageId);
+            await this.bot.deleteMessage(chatId, messageId);
           }
         } catch {
           this.logger.warn(`Could not remove previous operation in chat ${chatId}, message ${messageId}.`);
@@ -96,11 +97,10 @@ export class TelegramKeyboardService {
   }
 
   sendMainMenu(
-    bot: TelegramBot,
     chatId: string,
     text: string,
     options: TelegramBot.SendMessageOptions,
   ): Promise<TelegramBot.Message> {
-    return this.sendMessage(bot, chatId, text, options, true);
+    return this.sendMessage(chatId, text, options, true);
   }
 }

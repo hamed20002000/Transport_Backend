@@ -9,6 +9,7 @@ import TelegramBot from 'node-telegram-bot-api';
 
 /** id دکمه‌ی «اشتراک شماره» -- فقط contact رسیده از همین دکمه شماره‌ی خود کاربر حساب می‌شود. */
 const SHARE_PHONE_BUTTON_ID = 'share_phone';
+const PHONE_TEXT = /^\+?\d{10,15}$/;
 
 // پیام‌هایی که بعد از قطعی/ری‌استارت دیر می‌رسند و از این قدیمی‌ترند پردازش نمی‌شوند.
 const MAX_UPDATE_AGE_SECONDS = 120;
@@ -216,15 +217,17 @@ export class RubikaBotClient extends EventEmitter {
       from: this.toUser(chatId),
     };
 
-    if (message.contact_message) {
-      // روبیکا مثل تلگرام user_id صاحب شماره را نمی‌دهد. فقط contact ای که از
-      // دکمه‌ی «اشتراک شماره» آمده (و فوروارد نیست) شماره‌ی خود کاربر است؛
-      // وگرنه user_id خالی می‌ماند و ربات آن را مال کاربر نمی‌داند.
-      const ownNumber = message.aux_data?.button_id === SHARE_PHONE_BUTTON_ID && !message.forwarded_from;
+    // روبیکا مثل تلگرام user_id صاحب شماره را نمی‌دهد. فقط شماره‌ای که از
+    // دکمه‌ی «اشتراک شماره» آمده (و فوروارد نیست) شماره‌ی خود کاربر است؛
+    // وگرنه user_id خالی می‌ماند و ربات آن را مال کاربر نمی‌داند.
+    const ownNumber = message.aux_data?.button_id === SHARE_PHONE_BUTTON_ID && !message.forwarded_from;
+    // دکمه‌ی AskMyPhoneNumber شماره را به شکل text می‌فرستد (مثلاً "989123456789")، نه contact_message.
+    const sharedPhone = ownNumber && !message.contact_message ? message.text?.trim() : undefined;
+    if (message.contact_message || (sharedPhone && PHONE_TEXT.test(sharedPhone))) {
       result.contact = {
-        phone_number: message.contact_message.phone_number,
-        first_name: message.contact_message.first_name ?? '',
-        last_name: message.contact_message.last_name,
+        phone_number: message.contact_message?.phone_number ?? sharedPhone,
+        first_name: message.contact_message?.first_name ?? '',
+        last_name: message.contact_message?.last_name,
         ...(ownNumber ? { user_id: chatId } : {}),
       };
       return result as unknown as TelegramBot.Message;
@@ -367,6 +370,12 @@ export class RubikaBotClient extends EventEmitter {
   // ------------------------------------------------------------------
 
   private async call<T = unknown>(method: string, body: Record<string, unknown>): Promise<T> {
+    // TODO(موقت): بررسی رفرش کیبورد روبیکا -- بعد از بررسی حذف شود.
+    if (method !== 'getUpdates') {
+      this.logger.warn(
+        `Rubika ${method} msg=${String(body.message_id ?? '-')} keypad=${String(body.chat_keypad_type ?? (body.inline_keypad ? 'inline' : '-'))} text=${String(body.text ?? '').slice(0, 30)}`,
+      );
+    }
     const { data } = await this.http.post<{ status?: string; data?: T }>(method, body);
     if (data?.status !== 'OK') throw new RubikaBotApiError(method, String(data?.status ?? 'NO_RESPONSE'));
     return data.data as T;

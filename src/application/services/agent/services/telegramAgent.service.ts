@@ -66,7 +66,7 @@ export class TelegramAgentService implements TelegramAgentHandler, AgentChannelR
   private readonly chats = new Map<string, string>();
   /** chatId -> پیامی که پیشرفت کار در آن ویرایش می‌شود */
   private readonly progressMessages = new Map<string, number>();
-  /** telegramUserId -> متن پیام صوتی که منتظر تأیید کاربر است */
+  /** externalUserId -> متن پیام صوتی که منتظر تأیید کاربر است */
   private readonly pendingTranscripts = new Map<string, string>();
   /** userId -> گزینه‌های سؤالی که agent پرسیده */
   private readonly pendingSelections = new Map<string, { message: string; options: SelectionOption[] }>();
@@ -99,7 +99,7 @@ export class TelegramAgentService implements TelegramAgentHandler, AgentChannelR
     if (!prompt) return;
 
     // پیام جدید یعنی کاربر متن صوتی قبلی را نخواسته
-    this.pendingTranscripts.delete(ctx.telegramUserId);
+    this.pendingTranscripts.delete(ctx.externalUserId);
 
     if (this.functionCalls.hasPendingGenerator(ctx.userId) || this.functionCalls.hasPendingConfirmation(ctx.userId)) {
       await this.telegram.sendAgentMessage(ctx.chatId, this.t('waitingForAnswer'));
@@ -141,7 +141,7 @@ export class TelegramAgentService implements TelegramAgentHandler, AgentChannelR
     }
 
     // مثل واتس‌اپ: متن تشخیص‌داده‌شده اول به کاربر نشان داده می‌شود
-    this.pendingTranscripts.set(ctx.telegramUserId, text);
+    this.pendingTranscripts.set(ctx.externalUserId, text);
     await this.telegram.editAgentMessage(ctx.chatId, statusId, this.t('voiceConfirm', { text }), [
       [
         { text: this.t('buttons.run'), callback_data: Action.VoiceRun },
@@ -162,8 +162,8 @@ export class TelegramAgentService implements TelegramAgentHandler, AgentChannelR
 
     switch (data) {
       case Action.VoiceRun: {
-        const text = this.pendingTranscripts.get(ctx.telegramUserId);
-        this.pendingTranscripts.delete(ctx.telegramUserId);
+        const text = this.pendingTranscripts.get(ctx.externalUserId);
+        this.pendingTranscripts.delete(ctx.externalUserId);
         if (!text) {
           await this.telegram.sendAgentMessage(ctx.chatId, this.t('voiceExpired'));
           return;
@@ -172,7 +172,7 @@ export class TelegramAgentService implements TelegramAgentHandler, AgentChannelR
         return;
       }
       case Action.VoiceCancel:
-        this.pendingTranscripts.delete(ctx.telegramUserId);
+        this.pendingTranscripts.delete(ctx.externalUserId);
         await this.telegram.sendAgentMessage(ctx.chatId, this.t('cancelled'));
         return;
       case Action.ConfirmYes:

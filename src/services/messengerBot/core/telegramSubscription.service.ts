@@ -1,5 +1,4 @@
 import { Inject, Injectable } from '@nestjs/common';
-import TelegramBot from 'node-telegram-bot-api';
 import { SUBSCRIPTION_REPOSITORY } from '../../../domain/repositories/repository.tokens';
 import { ISubscriptionRepository } from '../../../domain/repositories/subscription/ISubscriptionRepository';
 import { AccountType } from '../../../domain/enums/subscription';
@@ -23,24 +22,24 @@ export class TelegramSubscriptionService {
   ) {}
 
   /** Show available plans and return false when a subscription is required. */
-  async ensureActiveSubscription(bot: TelegramBot, chatId: string, telegramUserId: string): Promise<boolean> {
-    const userId = await this.identity.getUserId(telegramUserId);
+  async ensureActiveSubscription(chatId: string, externalUserId: string): Promise<boolean> {
+    const userId = await this.identity.getUserId(externalUserId);
     if (userId && await this.subscriptions.findActiveByUserId(userId)) return true;
-    const roles = await this.identity.getMenuRoles(telegramUserId) ?? [];
+    const roles = await this.identity.getMenuRoles(externalUserId) ?? [];
     const accountType = roles.includes('DRIVER') ? AccountType.Driver
       : roles.includes('COMPANY') || roles.includes('COMPANY_ADMIN') ? AccountType.Company
       : roles.includes('BROKER') ? AccountType.Broker : null;
     const plans = accountType ? await this.plans.findActiveByAccountType(accountType) : [];
     if (accountType) {
-      const session = await this.sessions.get(telegramUserId);
+      const session = await this.sessions.get(externalUserId);
       // Keep receipt upload and tracking available when the user returns to the menu.
       if (![TelegramSessionState.WaitingForReceipt, TelegramSessionState.UnderReview].includes(session?.state as TelegramSessionState)) {
-        await this.sessions.set(telegramUserId, { state: TelegramSessionState.SelectingPlan, accountType });
+        await this.sessions.set(externalUserId, { state: TelegramSessionState.SelectingPlan, accountType });
       } else {
-        await this.sessions.update(telegramUserId, { accountType });
+        await this.sessions.update(externalUserId, { accountType });
       }
     }
-    await this.keyboard.sendMainMenu(bot, chatId,
+    await this.keyboard.sendMainMenu(chatId,
       this.messages.get(plans.length ? 'account.selectPlan' : 'account.noActivePlan'), {
         reply_markup: { inline_keyboard: [
           ...plans.map(plan => [{

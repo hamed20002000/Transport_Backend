@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 
 import { PasswordService } from './auth/password.service';
+import { normalizePhoneNumber } from 'src/dto/auth/phone-number';
 
 import { User } from 'src/domain/entities/auth/User';
 import { RecordStatus } from 'src/domain/enums/RecordStatus';
@@ -134,8 +135,9 @@ export class UserService {
     user.email =
       email?.trim() || undefined;
 
+    // ارقام فارسی/عربی و +98 یکسان ذخیره شوند تا findByMobile پیدایش کند.
     user.mobile =
-      mobile?.trim() || undefined;
+      (mobile ? (normalizePhoneNumber(mobile) as string) : '') || undefined;
 
     user.recordStatus =
       RecordStatus.Active;

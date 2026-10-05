@@ -19,8 +19,8 @@ export class TelegramSessionService {
     this.botId = botNamespace(config);
   }
 
-  async get(telegramUserId: string): Promise<TelegramSession | null> {
-    const key = RedisService.key('telegramSession', this.botId, telegramUserId);
+  async get(externalUserId: string): Promise<TelegramSession | null> {
+    const key = RedisService.key('telegramSession', this.botId, externalUserId);
     const session = await this.redis.getJson<TelegramSession>(key);
     if (session === null) return null;
     // Fixed-deadline sessions (e.g. payment window) must not be extended by reads.
@@ -29,34 +29,34 @@ export class TelegramSessionService {
     return await this.redis.expire(key, this.ttlSeconds) ? session : null;
   }
 
-  async getOrCreate(telegramUserId: string): Promise<TelegramSession> {
-    return await this.get(telegramUserId) ?? await this.reset(telegramUserId);
+  async getOrCreate(externalUserId: string): Promise<TelegramSession> {
+    return await this.get(externalUserId) ?? await this.reset(externalUserId);
   }
 
-  async set(telegramUserId: string, session: TelegramSession): Promise<void> {
+  async set(externalUserId: string, session: TelegramSession): Promise<void> {
     const ttlSeconds = session.expiresAt
       ? Math.ceil((session.expiresAt - Date.now()) / 1000)
       : this.ttlSeconds;
     if (ttlSeconds <= 0) {
-      await this.delete(telegramUserId);
+      await this.delete(externalUserId);
       return;
     }
-    await this.redis.setJson(RedisService.key('telegramSession', this.botId, telegramUserId), session, ttlSeconds);
+    await this.redis.setJson(RedisService.key('telegramSession', this.botId, externalUserId), session, ttlSeconds);
   }
 
   async update(
-    telegramUserId: string,
+    externalUserId: string,
     values: Partial<TelegramSession>,
   ): Promise<TelegramSession> {
-    const session = await this.get(telegramUserId) ?? { state: TelegramSessionState.Idle };
+    const session = await this.get(externalUserId) ?? { state: TelegramSessionState.Idle };
     Object.assign(session, values);
-    await this.set(telegramUserId, session);
+    await this.set(externalUserId, session);
     return session;
   }
 
-  async reset(telegramUserId: string): Promise<TelegramSession> {
+  async reset(externalUserId: string): Promise<TelegramSession> {
     const session: TelegramSession = { state: TelegramSessionState.Idle };
-    await this.set(telegramUserId, session);
+    await this.set(externalUserId, session);
     return session;
   }
 
@@ -65,10 +65,10 @@ export class TelegramSessionService {
    * Returns `locked: true` without running it otherwise.
    */
   async withReceiptLock<T>(
-    telegramUserId: string,
+    externalUserId: string,
     task: () => Promise<T>,
   ): Promise<{ locked: true } | { locked: false; result: T }> {
-    const key = RedisService.key('telegramReceiptLock', this.botId, telegramUserId);
+    const key = RedisService.key('telegramReceiptLock', this.botId, externalUserId);
     const owner = randomBytes(16).toString('hex');
     // Covers download and database write; analysis runs in the background.
     if (!(await this.redis.setIfAbsent(key, owner, 300))) return { locked: true };
@@ -79,8 +79,8 @@ export class TelegramSessionService {
     }
   }
 
-  async delete(telegramUserId: string): Promise<void> {
-    await this.redis.delete(RedisService.key('telegramSession', this.botId, telegramUserId));
+  async delete(externalUserId: string): Promise<void> {
+    await this.redis.delete(RedisService.key('telegramSession', this.botId, externalUserId));
   }
 
 }

@@ -5,7 +5,7 @@ export const AGENT_CALLBACK_PREFIX = 'agent:';
 
 export interface TelegramAgentContext {
   chatId: string;
-  telegramUserId: string;
+  externalUserId: string;
   /** کاربر سامانه؛ فقط بعد از بررسی اتصال حساب و اشتراک فعال ساخته می‌شود. */
   userId: string;
 }

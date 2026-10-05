@@ -21,12 +21,12 @@ export class BotLinkRepository
       Repository<BotLink>,
   ) {}
 
-  async findByTelegramUserId(
-    telegramUserId: string,
+  async findByExternalUserId(
+    externalUserId: string,
   ): Promise<BotLink | null> {
     return this.repository.findOne({
       where: {
-        telegramUserId,
+        externalUserId,
       },
       relations: {
         user: {
@@ -65,14 +65,14 @@ export class BotLinkRepository
     return this.repository.manager.transaction(async manager => {
       const saved = await manager.save(User, user);
       link.userId = saved.id;
-      link.platform = botPlatformOf(link.telegramUserId);
+      link.platform = botPlatformOf(link.externalUserId);
       return manager.save(BotLink, link);
     });
   }
 
-  async assignInitialRole(telegramUserId: string, roleName: string): Promise<string> {
+  async assignInitialRole(externalUserId: string, roleName: string): Promise<string> {
     return this.repository.manager.transaction(async manager => {
-      const link = await manager.findOne(BotLink, { where: { telegramUserId } });
+      const link = await manager.findOne(BotLink, { where: { externalUserId } });
       if (!link?.userId) throw new NotFoundException('Telegram account is not linked.');
       const user = await manager.findOne(User, {
         where: { id: link.userId, recordStatus: RecordStatus.Active },
@@ -92,7 +92,7 @@ export class BotLinkRepository
   async save(
     entity: BotLink,
   ): Promise<BotLink> {
-    entity.platform = botPlatformOf(entity.telegramUserId);
+    entity.platform = botPlatformOf(entity.externalUserId);
     return this.repository.save(
       entity,
     );

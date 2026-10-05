@@ -17,14 +17,9 @@ import type { BotPlatform } from '../../../services/messengerBot/core/botPlatfor
  * کاربر در هر پیام‌رسان حداکثر یک اتصال دارد؛ شناسه‌های بله/روبیکا پیشوند
  * دارند (bale:…، rubika:…) -- botPlatform.ts.
  */
-@Entity('TelegramLink')
+@Entity('BotLink')
 @Index(
-  'UQ_TelegramLink_TelegramUserId',
-  ['telegramUserId'],
-  { unique: true },
-)
-@Index(
-  'UQ_TelegramLink_UserId_Platform',
+  'UQ_BotLink_UserId_Platform',
   ['userId', 'platform'],
   { unique: true },
 )
@@ -32,12 +27,13 @@ export class BotLink {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
+  // شناسه‌ی کاربر در پیام‌رسان (تلگرام: 123، بله: bale:123، روبیکا: rubika:b0…)
   @Column({
     type: 'varchar',
     length: 100,
     unique: true,
   })
-  telegramUserId!: string;
+  externalUserId!: string;
 
   @Column({
     type: 'varchar',
@@ -75,7 +71,7 @@ export class BotLink {
     length: 100,
     nullable: true,
   })
-  telegramUsername?: string;
+  externalUsername?: string;
 
   @Column({
     type: 'varchar',

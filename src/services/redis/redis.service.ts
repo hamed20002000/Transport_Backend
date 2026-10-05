@@ -9,13 +9,22 @@ import { KEY_PREFIXES, RedisKeyParts } from './redis.keys';
 export class RedisService implements OnModuleDestroy {
   /** Central key schema; preserve prefixes so existing Redis data remains usable. */
   static key<K extends keyof RedisKeyParts>(kind: K, ...parts: RedisKeyParts[K]): string {
-    if (parts.some((part) => !part || part.includes(':'))) {
-      throw new Error('Redis key parts must be non-empty and cannot contain colons.');
+    if (parts.some((part) => !part)) {
+      throw new Error('Redis key parts must be non-empty.');
     }
     const identifiers = kind === 'refreshToken'
       ? [createHash('sha256').update(parts[0]).digest('hex')]
-      : parts;
+      : parts.map(RedisService.escapePart);
     return [KEY_PREFIXES[kind], ...identifiers].join(':');
+  }
+
+  /**
+   * شناسه‌های بله/روبیکا پیشوند دارند (bale:…، rubika:…)؛ ':' جداکننده‌ی کلید است
+   * پس escape می‌شود. '%' هم escape می‌شود تا نگاشت یک‌به‌یک بماند؛ بقیه دست
+   * نمی‌خورد تا کلیدهای فعلی (شناسه‌ی عددی تلگرام، uuid) همان قبلی بمانند.
+   */
+  private static escapePart(part: string): string {
+    return part.replace(/%/g, '%25').replace(/:/g, '%3A');
   }
 
   private readonly logger = new Logger(RedisService.name);

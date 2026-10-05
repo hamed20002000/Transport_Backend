@@ -9,7 +9,9 @@ export class TelegramTransport {
   private readonly secret?: string;
 
   constructor(config: ConfigService) {
+
     const mode = config.get<string>('TELEGRAM_BOT_MODE', 'polling');
+    
     if (mode !== 'polling' && mode !== 'webhook') {
       throw new Error('TELEGRAM_BOT_MODE must be polling or webhook.');
     }

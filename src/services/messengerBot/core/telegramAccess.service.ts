@@ -3,6 +3,7 @@ import { botNamespace } from './botPlatform';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes, randomInt } from 'node:crypto';
 import TelegramBot from 'node-telegram-bot-api';
+import { MultiBot } from './multiBot';
 import { USER_REPOSITORY, BOT_LINK_REPOSITORY } from '../../../domain/repositories/repository.tokens';
 import { IUserRepository } from '../../../domain/repositories/IUserRepopsitory';
 import { IBotLinkRepository } from '../../../domain/repositories/messengerBot/IBotLinkRepository';
@@ -20,7 +21,7 @@ import { TelegramMessagesService } from './telegramMessages.service';
 import { TelegramMenuService } from './telegramMenu.service';
 
 interface TelegramIdentityMetadata {
-  telegramUserId: string;
+  externalUserId: string;
   chatId: string;
   username?: string;
   firstName?: string;
@@ -43,39 +44,39 @@ export class TelegramAccessService {
     private readonly config: ConfigService,
     private readonly messages: TelegramMessagesService,
     private readonly menu: TelegramMenuService,
+    private readonly bot: MultiBot,
   ) {}
 
   /** Returns true when account setup handles the update; false continues normal routing. */
   async handle(
-    bot: TelegramBot,
     message: TelegramBot.Message,
     from: TelegramBot.User,
     callback?: string,
   ): Promise<boolean> {
     // Contact requests and Web credentials belong only in the user's private chat.
     if (message.chat.type !== 'private' || message.chat.id !== from.id) return true;
-    const telegramUserId = String(from.id);
+    const externalUserId = String(from.id);
     const chatId = String(message.chat.id);
-    if (await this.identity.getUserId(telegramUserId)) {
-      return this.handleIdentifiedUser(bot, chatId, telegramUserId, callback);
+    if (await this.identity.getUserId(externalUserId)) {
+      return this.handleIdentifiedUser(chatId, externalUserId, callback);
     }
     const botId = botNamespace(this.config);
-    const lock = RedisService.key('telegramAccessLock', botId, telegramUserId);
+    const lock = RedisService.key('telegramAccessLock', botId, externalUserId);
     const owner = randomBytes(16).toString('hex');
     if (!(await this.redis.setIfAbsent(lock, owner, ACCESS_LOCK_TTL_SECONDS))) return true;
     try {
       // A concurrent contact/callback may have completed before we acquired the lock.
-      if (await this.redis.get(RedisService.key('telegramIdentity', botId, telegramUserId))) {
-        return await this.handleIdentifiedUser(bot, chatId, telegramUserId, callback);
+      if (await this.redis.get(RedisService.key('telegramIdentity', botId, externalUserId))) {
+        return await this.handleIdentifiedUser(chatId, externalUserId, callback);
       }
-      await this.handleUnidentifiedUser(bot, message, from, callback);
+      await this.handleUnidentifiedUser(message, from, callback);
       return true;
     } catch (error) {
       if (
         error instanceof ConflictException ||
         (error as { driverError?: { code?: string } })?.driverError?.code === '23505'
       ) {
-        await bot.sendMessage(chatId, this.messages.get('identity.conflict'));
+        await this.bot.sendMessage(chatId, this.messages.get('identity.conflict'));
         return true;
       }
       throw error;
@@ -85,97 +86,93 @@ export class TelegramAccessService {
   }
 
   private async handleIdentifiedUser(
-    bot: TelegramBot,
     chatId: string,
-    telegramUserId: string,
+    externalUserId: string,
     callback?: string,
   ): Promise<boolean> {
-    const roles = await this.identity.getMenuRoles(telegramUserId);
+    const roles = await this.identity.getMenuRoles(externalUserId);
     if (roles?.length) {
       if (!callback?.startsWith(TelegramCallback.RegisterAccountTypePrefix)) return false;
-      await this.menu.showMenuForUser(bot, chatId, telegramUserId);
+      await this.menu.showMenuForUser(chatId, externalUserId);
       return true;
     }
     const accountType = Object.values(AccountType).find(
       type => callback === `${TelegramCallback.RegisterAccountTypePrefix}${type}`,
     );
     if (!accountType) {
-      await this.showAccountTypes(bot, chatId);
+      await this.showAccountTypes(chatId);
       return true;
     }
-    const userId = await this.links.assignInitialRole(telegramUserId, accountType);
-    await this.identity.cacheUserId(telegramUserId, userId);
-    await this.completeAccountSetup(bot, chatId, telegramUserId);
+    const userId = await this.links.assignInitialRole(externalUserId, accountType);
+    await this.identity.cacheUserId(externalUserId, userId);
+    await this.completeAccountSetup(chatId, externalUserId);
     return true;
   }
 
   private async handleUnidentifiedUser(
-    bot: TelegramBot,
     message: TelegramBot.Message,
     from: TelegramBot.User,
     callback?: string,
   ): Promise<void> {
-    const telegramUserId = String(from.id);
+    const externalUserId = String(from.id);
     const chatId = String(message.chat.id);
     const metadata: TelegramIdentityMetadata = {
-      telegramUserId,
+      externalUserId,
       chatId,
       username: from.username,
       firstName: from.first_name,
       lastName: from.last_name,
     };
     if (!callback && message.contact) {
-      await this.handleContact(bot, message.contact, metadata);
+      await this.handleContact(message.contact, metadata);
       return;
     }
-    await this.requestContact(bot, chatId);
+    await this.requestContact(chatId);
   }
 
   private async handleContact(
-    bot: TelegramBot,
     contact: TelegramBot.Contact,
     metadata: TelegramIdentityMetadata,
   ): Promise<void> {
-    const { chatId, telegramUserId } = metadata;
+    const { chatId, externalUserId } = metadata;
     // مقایسه‌ی رشته‌ای: شناسه‌های بله/روبیکا پیشوند دارند (bale:123) و عدد نیستند.
-    if (contact.user_id === undefined || contact.user_id === null || String(contact.user_id) !== metadata.telegramUserId) {
-      await bot.sendMessage(chatId, this.messages.get('account.invalidContactOwner'));
+    if (contact.user_id === undefined || contact.user_id === null || String(contact.user_id) !== metadata.externalUserId) {
+      await this.bot.sendMessage(chatId, this.messages.get('account.invalidContactOwner'));
       return;
     }
     const phone = normalizePhoneNumber(contact.phone_number);
     if (typeof phone !== 'string' || !/^09[0-9]{9}$/.test(phone)) {
-      await bot.sendMessage(chatId, this.messages.get('identity.invalidPhone'));
+      await this.bot.sendMessage(chatId, this.messages.get('identity.invalidPhone'));
       return;
     }
     const user = await this.users.findByMobile(phone);
     if (user) {
-      await this.linkExistingUser(bot, metadata, user);
+      await this.linkExistingUser(metadata, user);
       return;
     }
-    await this.registerNewUser(bot, metadata, phone);
-    await this.showAccountTypes(bot, chatId);
+    await this.registerNewUser(metadata, phone);
+    await this.showAccountTypes(chatId);
   }
 
-  private async linkExistingUser(bot: TelegramBot, metadata: TelegramIdentityMetadata, user: User): Promise<void> {
+  private async linkExistingUser(metadata: TelegramIdentityMetadata, user: User): Promise<void> {
     if (user.recordStatus !== RecordStatus.Active) {
-      await bot.sendMessage(metadata.chatId, this.messages.get('identity.inactive'));
+      await this.bot.sendMessage(metadata.chatId, this.messages.get('identity.inactive'));
       return;
     }
     await this.identity.linkUser({ ...metadata, userId: user.id });
-    const roles = await this.identity.getMenuRoles(metadata.telegramUserId);
+    const roles = await this.identity.getMenuRoles(metadata.externalUserId);
     if (!roles?.length) {
-      await this.showAccountTypes(bot, metadata.chatId);
+      await this.showAccountTypes(metadata.chatId);
       return;
     }
-    await this.completeAccountSetup(bot, metadata.chatId, metadata.telegramUserId);
+    await this.completeAccountSetup(metadata.chatId, metadata.externalUserId);
   }
 
   private async registerNewUser(
-    bot: TelegramBot,
     metadata: TelegramIdentityMetadata,
     phoneNumber: string,
   ): Promise<void> {
-    const { chatId, telegramUserId } = metadata;
+    const { chatId, externalUserId } = metadata;
     const password = Array.from(
       { length: PASSWORD_LENGTH },
       () => PASSWORD_CHARACTERS[randomInt(PASSWORD_CHARACTERS.length)],
@@ -187,30 +184,29 @@ export class TelegramAccessService {
       recordStatus: RecordStatus.Active,
       mustChangePassword: false,
     });
-    const oldLink = await this.links.findByTelegramUserId(telegramUserId);
+    const oldLink = await this.links.findByExternalUserId(externalUserId);
     if (oldLink?.userId) throw new ConflictException('Telegram account is already linked.');
     const link = Object.assign(oldLink ?? new BotLink(), {
-      telegramUserId,
+      externalUserId,
       chatId,
-      telegramUsername: metadata.username,
+      externalUsername: metadata.username,
       firstName: metadata.firstName,
       lastName: metadata.lastName,
       lastInteractionAt: new Date(),
     });
     const saved = await this.links.createUserWithLink(user, link);
-    await this.sendWebCredentials(bot, chatId, user.username, password);
-    await this.identity.cacheUserId(telegramUserId, saved.userId!);
+    await this.sendWebCredentials(chatId, user.username, password);
+    await this.identity.cacheUserId(externalUserId, saved.userId!);
   }
 
   private async sendWebCredentials(
-    bot: TelegramBot,
     chatId: string,
     username: string,
     password: string,
   ): Promise<void> {
     // Send directly: never persist plaintext credentials in keyboard/session state.
     try {
-      await bot.sendMessage(
+      await this.bot.sendMessage(
         chatId,
         this.messages.get('identity.credentials', 'fa', {
           username: username,
@@ -224,14 +220,14 @@ export class TelegramAccessService {
     }
   }
 
-  private async completeAccountSetup(bot: TelegramBot, chatId: string, telegramUserId: string): Promise<void> {
-    await this.sessions.delete(telegramUserId);
-    await bot.sendMessage(chatId, this.messages.get('identity.connected'), { reply_markup: { remove_keyboard: true } });
-    await this.menu.showMenuForUser(bot, chatId, telegramUserId);
+  private async completeAccountSetup(chatId: string, externalUserId: string): Promise<void> {
+    await this.sessions.delete(externalUserId);
+    await this.bot.sendMessage(chatId, this.messages.get('identity.connected'), { reply_markup: { remove_keyboard: true } });
+    await this.menu.showMenuForUser(chatId, externalUserId);
   }
 
-  private async requestContact(bot: TelegramBot, chatId: string): Promise<void> {
-    await bot.sendMessage(chatId, this.messages.get('identity.requestPhone'), {
+  private async requestContact(chatId: string): Promise<void> {
+    await this.bot.sendMessage(chatId, this.messages.get('identity.requestPhone'), {
       reply_markup: {
         keyboard: [[{ text: this.messages.get('identity.sharePhone'), request_contact: true, style: 'success' }]],
         resize_keyboard: true,
@@ -240,8 +236,8 @@ export class TelegramAccessService {
     });
   }
 
-  private async showAccountTypes(bot: TelegramBot, chatId: string): Promise<void> {
-    await bot.sendMessage(chatId, this.messages.get('identity.selectAccountType'), {
+  private async showAccountTypes(chatId: string): Promise<void> {
+    await this.bot.sendMessage(chatId, this.messages.get('identity.selectAccountType'), {
       reply_markup: {
         inline_keyboard: Object.values(AccountType).map((type) => [
           {

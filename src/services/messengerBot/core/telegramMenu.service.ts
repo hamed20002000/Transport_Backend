@@ -1,6 +1,5 @@
 import { TelegramSubscriptionService } from './telegramSubscription.service';
 import { Injectable } from '@nestjs/common';
-import TelegramBot from 'node-telegram-bot-api';
 import { TelegramKeyboardService } from './telegramKeyboard';
 
 import { TelegramIdentityService } from './telegramIdentity.service';
@@ -32,17 +31,16 @@ export class TelegramMenuService {
    */
 
   async showMenuForUser(
-    bot: TelegramBot,
     chatId: string,
-    telegramUserId: string,
+    externalUserId: string,
   ): Promise<void> {
-    const roles = await this.telegramIdentityService.getMenuRoles(telegramUserId);
+    const roles = await this.telegramIdentityService.getMenuRoles(externalUserId);
     if (roles === null) {
-      await this.showGuestMenu(bot, chatId);
+      await this.showGuestMenu(chatId);
       return;
     }
 
-    if (!(await this.ensureActiveSubscription(bot, chatId, telegramUserId))) return;
+    if (!(await this.ensureActiveSubscription(chatId, externalUserId))) return;
 
     /*
      * Driver
@@ -52,7 +50,6 @@ export class TelegramMenuService {
       roles.includes('DRIVER')
     ) {
       await this.showDriverMenu(
-        bot,
         chatId,
       );
 
@@ -70,7 +67,6 @@ export class TelegramMenuService {
       )
     ) {
       await this.showCompanyMenu(
-        bot,
         chatId,
       );
 
@@ -85,7 +81,6 @@ export class TelegramMenuService {
       roles.includes('BROKER')
     ) {
       await this.showBrokerMenu(
-        bot,
         chatId,
       );
 
@@ -98,13 +93,12 @@ export class TelegramMenuService {
      */
 
     await this.showRegisteredMenu(
-      bot,
       chatId,
     );
   }
 
-  ensureActiveSubscription(bot: TelegramBot, chatId: string, telegramUserId: string): Promise<boolean> {
-    return this.telegramSubscriptionService.ensureActiveSubscription(bot, chatId, telegramUserId);
+  ensureActiveSubscription(chatId: string, externalUserId: string): Promise<boolean> {
+    return this.telegramSubscriptionService.ensureActiveSubscription(chatId, externalUserId);
   }
 
   /*
@@ -114,11 +108,9 @@ export class TelegramMenuService {
    */
 
   private async showGuestMenu(
-    bot: TelegramBot,
     chatId: string,
   ): Promise<void> {
-    await this.keyboard.sendMainMenu(bot,
-      chatId,
+    await this.keyboard.sendMainMenu(chatId,
 
       this.messages.get(
         'menu.main.title',
@@ -180,11 +172,9 @@ export class TelegramMenuService {
    */
 
   async showAccountTypes(
-    bot: TelegramBot,
     chatId: string,
   ): Promise<void> {
-    await this.keyboard.sendMessage(bot,
-      chatId,
+    await this.keyboard.sendMessage(chatId,
 
       this.messages.get(
         'account.selectType',
@@ -259,11 +249,9 @@ export class TelegramMenuService {
    */
 
   private async showDriverMenu(
-    bot: TelegramBot,
     chatId: string,
   ): Promise<void> {
-    await this.keyboard.sendMainMenu(bot,
-      chatId,
+    await this.keyboard.sendMainMenu(chatId,
 
       this.messages.get(
         'menu.driver.title',
@@ -356,11 +344,9 @@ export class TelegramMenuService {
    */
 
   private async showCompanyMenu(
-    bot: TelegramBot,
     chatId: string,
   ): Promise<void> {
-    await this.keyboard.sendMainMenu(bot,
-      chatId,
+    await this.keyboard.sendMainMenu(chatId,
 
       this.messages.get(
         'menu.company.title',
@@ -465,11 +451,9 @@ export class TelegramMenuService {
    */
 
   private async showBrokerMenu(
-    bot: TelegramBot,
     chatId: string,
   ): Promise<void> {
-    await this.keyboard.sendMainMenu(bot,
-      chatId,
+    await this.keyboard.sendMainMenu(chatId,
 
       this.messages.get(
         'menu.broker.title',
@@ -550,11 +534,9 @@ export class TelegramMenuService {
    */
 
   private async showRegisteredMenu(
-    bot: TelegramBot,
     chatId: string,
   ): Promise<void> {
-    await this.keyboard.sendMainMenu(bot,
-      chatId,
+    await this.keyboard.sendMainMenu(chatId,
 
       this.messages.get(
         'menu.registered.noSupportedRole',

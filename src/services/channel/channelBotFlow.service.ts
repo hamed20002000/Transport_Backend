@@ -24,7 +24,7 @@ export interface BotReply {
 
 export interface BotContext {
   platform: MessengerPlatform;
-  // شناسه‌ی کاربر در همان پیام‌رسان (telegramUserId یا jid واتساپ)
+  // شناسه‌ی کاربر در همان پیام‌رسان (externalUserId یا jid واتساپ)
   externalUserId: string;
   // User.id همین سرویس، از هویت تأییدشده‌ی پیام‌رسان
   userId: string;

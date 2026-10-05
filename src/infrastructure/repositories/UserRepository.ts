@@ -7,6 +7,7 @@ import { Repository } from 'typeorm';
 
 import { User } from 'src/domain/entities/auth/User';
 import { IUserRepository } from 'src/domain/repositories/IUserRepopsitory';
+import { normalizePhoneNumber } from 'src/dto/auth/phone-number';
 
 @Injectable()
 export class UserRepository
@@ -70,10 +71,13 @@ export class UserRepository
   }
 
   findByMobile(mobile: string): Promise<User | null> {
-    const national = mobile.substring(1);
+    const normalized = normalizePhoneNumber(mobile) as string;
+    const national = normalized.substring(1);
+    // ردیف‌های قدیمی ممکن است با ارقام فارسی ذخیره شده باشند.
+    const persian = normalized.replace(/\d/g, (digit) => '۰۱۲۳۴۵۶۷۸۹'[Number(digit)]);
     return this.repository.findOne({ where: [
-      { mobile }, { mobile: `+98${national}` }, { mobile: `98${national}` },
-      { mobile: `0098${national}` },
+      { mobile: normalized }, { mobile: `+98${national}` }, { mobile: `98${national}` },
+      { mobile: `0098${national}` }, { mobile: persian },
     ] });
   }
 

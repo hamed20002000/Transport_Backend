@@ -24,19 +24,19 @@ export class TelegramIdentityService {
     private readonly config: ConfigService,
   ) {}
 
-  async cacheUserId(telegramUserId: string, userId: string): Promise<void> {
+  async cacheUserId(externalUserId: string, userId: string): Promise<void> {
     const botId = botNamespace(this.config);
-    await this.redis.delete(RedisService.key('telegramIdentityRoles', botId, telegramUserId));
-    await this.redis.set(RedisService.key('telegramIdentity', botId, telegramUserId), userId, 86400);
+    await this.redis.delete(RedisService.key('telegramIdentityRoles', botId, externalUserId));
+    await this.redis.set(RedisService.key('telegramIdentity', botId, externalUserId), userId, 86400);
   }
 
   /** Menu presentation only; business authorization must still check current permissions. */
-  async getMenuRoles(telegramUserId: string): Promise<string[] | null> {
+  async getMenuRoles(externalUserId: string): Promise<string[] | null> {
     const botId = botNamespace(this.config);
-    const key = RedisService.key('telegramIdentityRoles', botId, telegramUserId);
+    const key = RedisService.key('telegramIdentityRoles', botId, externalUserId);
     const roles = await this.redis.getJson<string[]>(key);
     if (roles !== null) return roles;
-    const link = await this.repository.findByTelegramUserId(telegramUserId);
+    const link = await this.repository.findByExternalUserId(externalUserId);
     if (!link?.userId || !link.user) return null;
     const names = link.user.userRoles?.filter(item => item.role != null).map(item => item.role.name) ?? [];
     await this.redis.setJson(key, names, 86400);
@@ -49,11 +49,11 @@ export class TelegramIdentityService {
    * =====================================================
    */
 
-  async findByTelegramUserId(
-    telegramUserId: string,
+  async findByExternalUserId(
+    externalUserId: string,
   ): Promise<BotLink | null> {
-    return this.repository.findByTelegramUserId(
-      telegramUserId,
+    return this.repository.findByExternalUserId(
+      externalUserId,
     );
   }
 
@@ -78,22 +78,22 @@ export class TelegramIdentityService {
    */
 
   async getUserId(
-    telegramUserId: string,
+    externalUserId: string,
   ): Promise<string | null> {
     const botId = botNamespace(this.config);
     try {
-      const cached = await this.redis.get(RedisService.key('telegramIdentity', botId, telegramUserId));
+      const cached = await this.redis.get(RedisService.key('telegramIdentity', botId, externalUserId));
       if (cached) return cached;
     } catch {
       // Redis unavailable: fall back to the database.
     }
-    const link = await this.repository.findByTelegramUserId(telegramUserId);
+    const link = await this.repository.findByExternalUserId(externalUserId);
     if (link?.userId) {
       try {
-        await this.cacheUserId(telegramUserId, link.userId);
+        await this.cacheUserId(externalUserId, link.userId);
         if (link.user) {
           const roles = link.user.userRoles?.filter(item => item.role != null).map(item => item.role.name) ?? [];
-          await this.redis.setJson(RedisService.key('telegramIdentityRoles', botId, telegramUserId), roles, 86400);
+          await this.redis.setJson(RedisService.key('telegramIdentityRoles', botId, externalUserId), roles, 86400);
         }
       } catch {
         // Caching is best-effort; the database result is still valid.
@@ -109,9 +109,9 @@ export class TelegramIdentityService {
    */
 
   async isRegistered(
-    telegramUserId: string,
+    externalUserId: string,
   ): Promise<boolean> {
-    return Boolean(await this.getUserId(telegramUserId));
+    return Boolean(await this.getUserId(externalUserId));
   }
 
   /*
@@ -138,15 +138,15 @@ export class TelegramIdentityService {
    */
 
   async touch(params: {
-    telegramUserId: string;
+    externalUserId: string;
     chatId: string;
     username?: string;
     firstName?: string;
     lastName?: string;
   }): Promise<BotLink | null> {
     const link =
-      await this.repository.findByTelegramUserId(
-        params.telegramUserId,
+      await this.repository.findByExternalUserId(
+        params.externalUserId,
       );
 
     /*
@@ -160,7 +160,7 @@ export class TelegramIdentityService {
     link.chatId =
       params.chatId;
 
-    link.telegramUsername =
+    link.externalUsername =
       params.username;
 
     link.firstName =
@@ -197,7 +197,7 @@ export class TelegramIdentityService {
    */
 
   async linkUser(params: {
-    telegramUserId: string;
+    externalUserId: string;
     chatId: string;
     userId: string;
     username?: string;
@@ -205,16 +205,16 @@ export class TelegramIdentityService {
     lastName?: string;
   }): Promise<BotLink> {
     let link =
-      await this.repository.findByTelegramUserId(
-        params.telegramUserId,
+      await this.repository.findByExternalUserId(
+        params.externalUserId,
       );
 
     if (link?.userId && link.userId !== params.userId) {
       throw new ConflictException('Telegram account is already linked.');
     }
     // هر کاربر در هر پیام‌رسان یک اتصال دارد (تلگرام، بله و روبیکا جدا).
-    const existing = await this.repository.findByUserId(params.userId, botPlatformOf(params.telegramUserId));
-    if (existing && existing.telegramUserId !== params.telegramUserId) {
+    const existing = await this.repository.findByUserId(params.userId, botPlatformOf(params.externalUserId));
+    if (existing && existing.externalUserId !== params.externalUserId) {
       throw new ConflictException('User is already linked to another account on this messenger.');
     }
 
@@ -228,8 +228,8 @@ export class TelegramIdentityService {
       link =
         new BotLink();
 
-      link.telegramUserId =
-        params.telegramUserId;
+      link.externalUserId =
+        params.externalUserId;
     }
 
     link.userId =
@@ -238,7 +238,7 @@ export class TelegramIdentityService {
     link.chatId =
       params.chatId;
 
-    link.telegramUsername =
+    link.externalUsername =
       params.username;
 
     link.firstName =
@@ -251,7 +251,7 @@ export class TelegramIdentityService {
       new Date();
 
     const saved = await this.repository.save(link);
-    await this.cacheUserId(params.telegramUserId, params.userId);
+    await this.cacheUserId(params.externalUserId, params.userId);
     return saved;
   }
 }

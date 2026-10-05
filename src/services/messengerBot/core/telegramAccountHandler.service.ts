@@ -8,6 +8,7 @@ import {
 } from '@nestjs/config';
 
 import TelegramBot from 'node-telegram-bot-api';
+import { MultiBot } from './multiBot';
 import { TelegramKeyboardService } from './telegramKeyboard';
 
 import {
@@ -91,6 +92,7 @@ export class TelegramAccountHandler {
       TelegramMessagesService,
     private readonly keyboard: TelegramKeyboardService,
     private readonly telegramIdentityService: TelegramIdentityService,
+    private readonly bot: MultiBot,
   ) {}
 
   /** How long the user has to pay and upload the receipt after choosing a plan. */
@@ -100,14 +102,13 @@ export class TelegramAccountHandler {
   }
 
   async showPurchaseStatus(
-    bot: TelegramBot,
     chatId: string,
-    telegramUserId: string,
+    externalUserId: string,
   ): Promise<void> {
     try {
       const order = await this.subscriptionOrderService.findOrderForTracking(
-        communicationProviderOf(telegramUserId),
-        telegramUserId,
+        communicationProviderOf(externalUserId),
+        externalUserId,
       );
 
       // A saved payment takes precedence over an outdated channel session.
@@ -116,24 +117,24 @@ export class TelegramAccountHandler {
         SubscriptionOrderStatus.ReceiptSubmitted,
         SubscriptionOrderStatus.UnderReview,
       ].includes(order.status)) {
-        await this.showOrderStatus(bot, chatId, telegramUserId, order);
+        await this.showOrderStatus(chatId, externalUserId, order);
         return;
       }
 
-      const session = await this.telegramSessionService.get(telegramUserId);
+      const session = await this.telegramSessionService.get(externalUserId);
       switch (session?.state) {
         case TelegramSessionState.SelectingAccountType:
-          await this.telegramMenuService.showAccountTypes(bot, chatId);
+          await this.telegramMenuService.showAccountTypes(chatId);
           return;
         case TelegramSessionState.SelectingPlan:
           if (session.accountType) {
-            await this.showPlans(bot, chatId, session.accountType);
+            await this.showPlans(chatId, session.accountType);
             return;
           }
           break;
         case TelegramSessionState.WaitingForPhone:
           if (session.accountType && session.subscriptionPlanId) {
-            await this.selectPlan(bot, chatId, telegramUserId, session.subscriptionPlanId);
+            await this.selectPlan(chatId, externalUserId, session.subscriptionPlanId);
             return;
           }
           break;
@@ -142,9 +143,9 @@ export class TelegramAccountHandler {
           if (!session.orderId && session.subscriptionPlanId) {
             const plan = await this.subscriptionPlanService.findById(session.subscriptionPlanId);
             if (plan) {
-              await this.keyboard.sendMessage(bot, chatId, this.messages.get('payment.waitingForReceipt'));
+              await this.keyboard.sendMessage(chatId, this.messages.get('payment.waitingForReceipt'));
               await this.sendPaymentInformation(
-                bot, chatId, plan.price, plan.currency,
+                chatId, plan.price, plan.currency,
                 session.expiresAt ? (session.expiresAt - Date.now()) / 1000 : undefined,
               );
               return;
@@ -154,11 +155,11 @@ export class TelegramAccountHandler {
       }
 
       if (order) {
-        await this.showOrderStatus(bot, chatId, telegramUserId, order);
+        await this.showOrderStatus(chatId, externalUserId, order);
         return;
       }
 
-      await this.keyboard.sendMessage(bot,chatId, this.messages.get('payment.noPurchase'), {
+      await this.keyboard.sendMessage(chatId, this.messages.get('payment.noPurchase'), {
         reply_markup: {
           inline_keyboard: [
             [{
@@ -171,30 +172,29 @@ export class TelegramAccountHandler {
       });
     } catch (error: unknown) {
       this.logger.error(`Could not track purchase: ${this.getErrorMessage(error)}`);
-      await this.keyboard.sendMessage(bot,chatId, this.messages.get('errors.loadPaymentStatusFailed'), {
+      await this.keyboard.sendMessage(chatId, this.messages.get('errors.loadPaymentStatusFailed'), {
         reply_markup: this.paymentStatusKeyboard(),
       });
     }
   }
 
   private async showOrderStatus(
-    bot: TelegramBot,
     chatId: string,
-    telegramUserId: string,
+    externalUserId: string,
     order: SubscriptionOrder,
   ): Promise<void> {
     if (order.status === SubscriptionOrderStatus.WaitingForReceipt) {
-      await this.telegramSessionService.set(telegramUserId, {
+      await this.telegramSessionService.set(externalUserId, {
         state: TelegramSessionState.WaitingForReceipt,
         orderId: order.id,
         accountType: order.accountType,
         subscriptionPlanId: order.subscriptionPlanId,
         phoneNumber: order.phoneNumber,
       });
-      await this.keyboard.sendMessage(bot,chatId, this.messages.get('payment.waitingForReceipt'), {
+      await this.keyboard.sendMessage(chatId, this.messages.get('payment.waitingForReceipt'), {
         reply_markup: { remove_keyboard: true },
       });
-      await this.sendPaymentInformation(bot, chatId, order.amount, order.currency);
+      await this.sendPaymentInformation(chatId, order.amount, order.currency);
       return;
     }
 
@@ -202,7 +202,7 @@ export class TelegramAccountHandler {
     switch (order.status) {
       case SubscriptionOrderStatus.ReceiptSubmitted:
       case SubscriptionOrderStatus.UnderReview:
-        await this.telegramSessionService.set(telegramUserId, {
+        await this.telegramSessionService.set(externalUserId, {
           state: TelegramSessionState.UnderReview,
           orderId: order.id,
         });
@@ -221,7 +221,7 @@ export class TelegramAccountHandler {
         throw new Error(`Unsupported subscription order status: ${order.status}`);
     }
 
-    await this.keyboard.sendMessage(bot,chatId, this.messages.get(messageKey), {
+    await this.keyboard.sendMessage(chatId, this.messages.get(messageKey), {
       reply_markup: this.paymentStatusKeyboard(),
     });
 
@@ -230,7 +230,7 @@ export class TelegramAccountHandler {
       SubscriptionOrderStatus.Rejected,
       SubscriptionOrderStatus.Cancelled,
     ].includes(order.status)) {
-      await this.telegramSessionService.reset(telegramUserId);
+      await this.telegramSessionService.reset(externalUserId);
     }
   }
 
@@ -256,16 +256,15 @@ export class TelegramAccountHandler {
    */
 
   async startBuyAccount(
-    bot: TelegramBot,
     chatId: string,
-    telegramUserId: string,
+    externalUserId: string,
   ): Promise<void> {
     await this.telegramSessionService.reset(
-      telegramUserId,
+      externalUserId,
     );
 
     await this.telegramSessionService.update(
-      telegramUserId,
+      externalUserId,
       {
         state:
           TelegramSessionState
@@ -275,7 +274,6 @@ export class TelegramAccountHandler {
 
     await this.telegramMenuService
       .showAccountTypes(
-        bot,
         chatId,
       );
   }
@@ -287,13 +285,12 @@ export class TelegramAccountHandler {
    */
 
   async selectAccountType(
-    bot: TelegramBot,
     chatId: string,
-    telegramUserId: string,
+    externalUserId: string,
     accountType: AccountType,
   ): Promise<void> {
     await this.telegramSessionService.update(
-      telegramUserId,
+      externalUserId,
       {
         state:
           TelegramSessionState
@@ -304,7 +301,6 @@ export class TelegramAccountHandler {
     );
 
     await this.showPlans(
-      bot,
       chatId,
       accountType,
     );
@@ -317,7 +313,6 @@ export class TelegramAccountHandler {
    */
 
   private async showPlans(
-    bot: TelegramBot,
     chatId: string,
     accountType: AccountType,
   ): Promise<void> {
@@ -332,8 +327,7 @@ export class TelegramAccountHandler {
         !plans ||
         plans.length === 0
       ) {
-        await this.keyboard.sendMessage(bot,
-          chatId,
+        await this.keyboard.sendMessage(chatId,
           this.messages.get(
             'account.noActivePlan',
           ),
@@ -400,8 +394,7 @@ export class TelegramAccountHandler {
         },
       ]);
 
-      await this.keyboard.sendMessage(bot,
-        chatId,
+      await this.keyboard.sendMessage(chatId,
 
         this.messages.get(
           'account.selectPlan',
@@ -419,8 +412,7 @@ export class TelegramAccountHandler {
         `Could not load subscription plans: ${this.getErrorMessage(error)}`,
       );
 
-      await this.keyboard.sendMessage(bot,
-        chatId,
+      await this.keyboard.sendMessage(chatId,
         this.messages.get(
           'errors.loadPlansFailed',
         ),
@@ -435,27 +427,25 @@ export class TelegramAccountHandler {
    */
 
   async selectPlan(
-    bot: TelegramBot,
     chatId: string,
-    telegramUserId: string,
+    externalUserId: string,
     planId: string,
   ): Promise<void> {
     try {
       const session =
         await this.telegramSessionService
           .getOrCreate(
-            telegramUserId,
+            externalUserId,
           );
 
       if (
         !session.accountType
       ) {
         await this.telegramSessionService.reset(
-          telegramUserId,
+          externalUserId,
         );
 
-        await this.keyboard.sendMessage(bot,
-          chatId,
+        await this.keyboard.sendMessage(chatId,
           this.messages.get(
             'account.invalidPurchaseSession',
           ),
@@ -463,9 +453,8 @@ export class TelegramAccountHandler {
 
         await this.telegramMenuService
           .showMenuForUser(
-            bot,
             chatId,
-            telegramUserId,
+            externalUserId,
           );
 
         return;
@@ -478,8 +467,7 @@ export class TelegramAccountHandler {
           );
 
       if (!plan) {
-        await this.keyboard.sendMessage(bot,
-          chatId,
+        await this.keyboard.sendMessage(chatId,
           this.messages.get(
             'account.planNotFound',
           ),
@@ -492,8 +480,7 @@ export class TelegramAccountHandler {
         plan.accountType !==
         session.accountType
       ) {
-        await this.keyboard.sendMessage(bot,
-          chatId,
+        await this.keyboard.sendMessage(chatId,
           this.messages.get(
             'account.planNotValidForAccountType',
           ),
@@ -508,8 +495,8 @@ export class TelegramAccountHandler {
        */
       const link =
         await this.telegramIdentityService
-          .findByTelegramUserId(
-            telegramUserId,
+          .findByExternalUserId(
+            externalUserId,
           );
 
       const phoneNumber =
@@ -517,11 +504,10 @@ export class TelegramAccountHandler {
 
       if (!phoneNumber) {
         await this.telegramSessionService.reset(
-          telegramUserId,
+          externalUserId,
         );
 
-        await this.keyboard.sendMessage(bot,
-          chatId,
+        await this.keyboard.sendMessage(chatId,
           this.messages.get(
             'account.invalidPurchaseSession',
           ),
@@ -539,7 +525,7 @@ export class TelegramAccountHandler {
         this.paymentTimeoutSeconds;
 
       await this.telegramSessionService.set(
-        telegramUserId,
+        externalUserId,
         {
           state:
             TelegramSessionState
@@ -559,7 +545,6 @@ export class TelegramAccountHandler {
       );
 
       await this.sendPaymentInformation(
-        bot,
         chatId,
         plan.price,
         plan.currency,
@@ -570,8 +555,7 @@ export class TelegramAccountHandler {
         `Could not select subscription plan: ${this.getErrorMessage(error)}`,
       );
 
-      await this.keyboard.sendMessage(bot,
-        chatId,
+      await this.keyboard.sendMessage(chatId,
         this.messages.get(
           'errors.selectPlanFailed',
         ),
@@ -586,7 +570,6 @@ export class TelegramAccountHandler {
    */
 
   async handleContact(
-    bot: TelegramBot,
     message: TelegramBot.Message,
   ): Promise<boolean> {
     const from =
@@ -602,7 +585,7 @@ export class TelegramAccountHandler {
       return false;
     }
 
-    const telegramUserId =
+    const externalUserId =
       from.id.toString();
 
     const chatId =
@@ -610,7 +593,7 @@ export class TelegramAccountHandler {
 
     const session =
       await this.telegramSessionService.get(
-        telegramUserId,
+        externalUserId,
       );
 
     if (
@@ -634,8 +617,7 @@ export class TelegramAccountHandler {
       contact.user_id !==
         from.id
     ) {
-      await this.keyboard.sendMessage(bot,
-        chatId,
+      await this.keyboard.sendMessage(chatId,
         this.messages.get(
           'account.invalidContactOwner',
         ),
@@ -663,11 +645,10 @@ export class TelegramAccountHandler {
       !session.subscriptionPlanId
     ) {
       await this.telegramSessionService.reset(
-        telegramUserId,
+        externalUserId,
       );
 
-      await this.keyboard.sendMessage(bot,
-        chatId,
+      await this.keyboard.sendMessage(chatId,
         this.messages.get(
           'account.invalidPurchaseSession',
         ),
@@ -681,9 +662,8 @@ export class TelegramAccountHandler {
 
       await this.telegramMenuService
         .showMenuForUser(
-          bot,
           chatId,
-          telegramUserId,
+          externalUserId,
         );
 
       return true;
@@ -694,10 +674,10 @@ export class TelegramAccountHandler {
         await this.subscriptionOrderService
           .createOrder({
             provider:
-              communicationProviderOf(telegramUserId),
+              communicationProviderOf(externalUserId),
 
             providerUserId:
-              telegramUserId,
+              externalUserId,
 
             phoneNumber,
 
@@ -709,7 +689,7 @@ export class TelegramAccountHandler {
           });
 
       await this.telegramSessionService.update(
-        telegramUserId,
+        externalUserId,
         {
           state:
             TelegramSessionState
@@ -727,8 +707,7 @@ export class TelegramAccountHandler {
         },
       );
 
-      await this.keyboard.sendMessage(bot,
-        chatId,
+      await this.keyboard.sendMessage(chatId,
         this.messages.get(
           'account.phoneReceived',
         ),
@@ -741,7 +720,6 @@ export class TelegramAccountHandler {
       );
 
       await this.sendPaymentInformation(
-        bot,
         chatId,
         order.amount,
         order.currency,
@@ -753,8 +731,7 @@ export class TelegramAccountHandler {
         `Could not create subscription order: ${this.getErrorMessage(error)}`,
       );
 
-      await this.keyboard.sendMessage(bot,
-        chatId,
+      await this.keyboard.sendMessage(chatId,
         this.messages.get(
           'errors.createOrderFailed',
         ),
@@ -777,7 +754,6 @@ export class TelegramAccountHandler {
    */
 
   private async sendPaymentInformation(
-    bot: TelegramBot,
     chatId: string,
     amount: string,
     currency: string,
@@ -808,8 +784,7 @@ export class TelegramAccountHandler {
         'CARD_OWNER',
       );
 
-    await this.keyboard.sendMessage(bot,
-      chatId,
+    await this.keyboard.sendMessage(chatId,
 
       this.messages.get(
         'payment.information',
@@ -829,8 +804,7 @@ export class TelegramAccountHandler {
       ) + deadline,
     );
 
-    await this.keyboard.sendMessage(bot,
-      chatId,
+    await this.keyboard.sendMessage(chatId,
       this.messages.get(
         'payment.receiptRequired',
       ),
@@ -855,7 +829,6 @@ export class TelegramAccountHandler {
    */
 
   async handleReceipt(
-    bot: TelegramBot,
     message: TelegramBot.Message,
   ): Promise<boolean> {
     const from =
@@ -865,7 +838,7 @@ export class TelegramAccountHandler {
       return false;
     }
 
-    const telegramUserId =
+    const externalUserId =
       from.id.toString();
 
     const chatId =
@@ -873,7 +846,7 @@ export class TelegramAccountHandler {
 
     const session =
       await this.telegramSessionService.get(
-        telegramUserId,
+        externalUserId,
       );
 
     if (
@@ -895,8 +868,7 @@ export class TelegramAccountHandler {
       );
 
     if (!fileId) {
-      await this.keyboard.sendMessage(bot,
-        chatId,
+      await this.keyboard.sendMessage(chatId,
         this.messages.get(
           'payment.receiptInvalid',
         ),
@@ -908,19 +880,17 @@ export class TelegramAccountHandler {
     const outcome =
       await this.telegramSessionService
         .withReceiptLock(
-          telegramUserId,
+          externalUserId,
           () =>
             this.processReceipt(
-              bot,
               chatId,
-              telegramUserId,
+              externalUserId,
               fileId,
             ),
         );
 
     if (outcome.locked) {
-      await this.keyboard.sendMessage(bot,
-        chatId,
+      await this.keyboard.sendMessage(chatId,
         this.messages.get(
           'payment.receiptProcessing',
         ),
@@ -935,15 +905,14 @@ export class TelegramAccountHandler {
    * back to back cannot create two orders.
    */
   private async processReceipt(
-    bot: TelegramBot,
     chatId: string,
-    telegramUserId: string,
+    externalUserId: string,
     fileId: string,
   ): Promise<void> {
     // Re-read: another photo may have completed while we waited.
     const session =
       await this.telegramSessionService.get(
-        telegramUserId,
+        externalUserId,
       );
 
     if (
@@ -953,9 +922,8 @@ export class TelegramAccountHandler {
           .WaitingForReceipt
     ) {
       await this.showPurchaseStatus(
-        bot,
         chatId,
-        telegramUserId,
+        externalUserId,
       );
 
       return;
@@ -974,8 +942,8 @@ export class TelegramAccountHandler {
         const pending =
           await this.subscriptionOrderService
             .findOrderForTracking(
-              communicationProviderOf(telegramUserId),
-              telegramUserId,
+              communicationProviderOf(externalUserId),
+              externalUserId,
             );
 
         if (
@@ -986,9 +954,8 @@ export class TelegramAccountHandler {
           ].includes(pending.status)
         ) {
           await this.showOrderStatus(
-            bot,
             chatId,
-            telegramUserId,
+            externalUserId,
             pending,
           );
 
@@ -1013,11 +980,10 @@ export class TelegramAccountHandler {
         )
       ) {
         await this.telegramSessionService.reset(
-          telegramUserId,
+          externalUserId,
         );
 
-        await this.keyboard.sendMessage(bot,
-          chatId,
+        await this.keyboard.sendMessage(chatId,
           this.messages.get(
             'account.invalidPurchaseSession',
           ),
@@ -1025,16 +991,14 @@ export class TelegramAccountHandler {
 
         await this.telegramMenuService
           .showMenuForUser(
-            bot,
             chatId,
-            telegramUserId,
+            externalUserId,
           );
 
         return;
       }
 
-      await this.keyboard.sendMessage(bot,
-        chatId,
+      await this.keyboard.sendMessage(chatId,
         this.messages.get(
           'payment.receiptReceived',
         ),
@@ -1063,7 +1027,7 @@ export class TelegramAccountHandler {
       );
 
       const downloadedFilePath =
-        await bot.downloadFile(
+        await this.bot.downloadFile(
           fileId,
           uploadDirectory,
         );
@@ -1081,10 +1045,10 @@ export class TelegramAccountHandler {
                 : {
                   newOrder: {
                     provider:
-                      communicationProviderOf(telegramUserId),
+                      communicationProviderOf(externalUserId),
 
                     providerUserId:
-                      telegramUserId,
+                      externalUserId,
 
                     phoneNumber:
                       session.phoneNumber!,
@@ -1106,7 +1070,7 @@ export class TelegramAccountHandler {
           });
 
       await this.telegramSessionService.update(
-        telegramUserId,
+        externalUserId,
         {
           state:
             TelegramSessionState
@@ -1121,8 +1085,7 @@ export class TelegramAccountHandler {
         },
       );
 
-      await this.keyboard.sendMessage(bot,
-        chatId,
+      await this.keyboard.sendMessage(chatId,
         this.messages.get(
           'payment.underReview',
         ),
@@ -1150,8 +1113,7 @@ export class TelegramAccountHandler {
         `Could not submit payment receipt: ${this.getErrorMessage(error)}`,
       );
 
-      await this.keyboard.sendMessage(bot,
-        chatId,
+      await this.keyboard.sendMessage(chatId,
         this.messages.get(
           'errors.submitReceiptFailed',
         ),
@@ -1166,9 +1128,8 @@ export class TelegramAccountHandler {
    */
 
   async cancelPurchase(
-    bot: TelegramBot,
     chatId: string,
-    telegramUserId: string,
+    externalUserId: string,
   ): Promise<void> {
     /*
      * At the moment only the channel session
@@ -1180,11 +1141,10 @@ export class TelegramAccountHandler {
      */
 
     await this.telegramSessionService.reset(
-      telegramUserId,
+      externalUserId,
     );
 
-    await this.keyboard.sendMessage(bot,
-      chatId,
+    await this.keyboard.sendMessage(chatId,
       this.messages.get(
         'account.buyCancelled',
       ),
@@ -1198,9 +1158,8 @@ export class TelegramAccountHandler {
 
     await this.telegramMenuService
       .showMenuForUser(
-        bot,
         chatId,
-        telegramUserId,
+        externalUserId,
       );
   }
 
