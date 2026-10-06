@@ -413,6 +413,24 @@
         },
         "required": []
       }
+    },
+    {
+      "name": "get_my_subscription",
+      "description": "وضعیت اشتراک کاربر: نام پلن فعال، تاریخ پایان و چند روز مانده؛ یا اینکه اشتراک فعالی ندارد.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "get_payment_status",
+      "description": "وضعیت آخرین خرید اشتراک کاربر: پلن، مبلغ، تاریخ و اینکه منتظر رسید است، در حال بررسی است، تأیید شده یا رد شده (با دلیل).",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
     }
   ]
 }

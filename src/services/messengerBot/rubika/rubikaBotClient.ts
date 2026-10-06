@@ -49,6 +49,12 @@ interface RubikaUpdate {
   new_message?: RubikaMessage;
 }
 
+/** محل ذخیره‌ی offset تا بعد از ری‌استارت آپدیت‌های قبلی دوباره پردازش نشوند. */
+export interface RubikaOffsetStore {
+  load(): Promise<string | null>;
+  save(offsetId: string): Promise<void>;
+}
+
 interface RubikaInlineMessage {
   sender_id?: string;
   text?: string;
@@ -96,6 +102,7 @@ export class RubikaBotClient extends EventEmitter {
     token: string,
     private readonly webhookUrl?: string,
     baseUrl = 'https://botapi.rubika.ir/v3',
+    private readonly offsetStore?: RubikaOffsetStore,
   ) {
     super();
     this.http = axios.create({ baseURL: `${baseUrl}/${token}/`, timeout: 15_000 });
@@ -116,6 +123,10 @@ export class RubikaBotClient extends EventEmitter {
       }
       return;
     }
+    this.offsetId = (await this.offsetStore?.load().catch((error: Error) => {
+      this.logger.warn(`Could not load Rubika poll offset: ${error.message}`);
+      return null;
+    })) ?? undefined;
     this.polling = true;
     void this.pollLoop();
   }
@@ -129,14 +140,26 @@ export class RubikaBotClient extends EventEmitter {
   }
 
   private async pollLoop(): Promise<void> {
+    // بدون offset ذخیره‌شده، اولین دسته فقط صف قدیمی روبیکاست: «شروع ربات»های قدیمی دوباره /start حساب نشوند.
+    let backlog = !this.offsetId;
     while (this.polling) {
       try {
         const data = await this.call<{ updates?: RubikaUpdate[]; next_offset_id?: string }>('getUpdates', {
           ...(this.offsetId ? { offset_id: this.offsetId } : {}),
           limit: 100,
         });
-        for (const update of data.updates ?? []) this.handleUpdate(update);
-        if (data.next_offset_id) this.offsetId = data.next_offset_id;
+        // offset قبل از پردازش ذخیره می‌شود: با ری‌استارت وسط کار، پیام‌ها دوباره پردازش نمی‌شوند.
+        if (data.next_offset_id && data.next_offset_id !== this.offsetId) {
+          this.offsetId = data.next_offset_id;
+          await this.offsetStore?.save(data.next_offset_id).catch((error: Error) =>
+            this.logger.warn(`Could not save Rubika poll offset: ${error.message}`),
+          );
+        }
+        for (const update of data.updates ?? []) {
+          if (backlog && update.type === 'StartedBot') continue;
+          this.handleUpdate(update);
+        }
+        backlog = false;
         await sleep(POLL_INTERVAL_MS);
       } catch (error) {
         this.emit('polling_error', error);

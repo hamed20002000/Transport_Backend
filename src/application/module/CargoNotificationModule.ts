@@ -28,6 +28,9 @@ import { WhatsappModule } from '../services/agent/appModule/whatsapp.module';
 import { RabbitMqModule } from './RabbitMqModule';
 import { SubscriptionModule } from './SubscriptionModule';
 import { MessengerBotModule } from './MessengerBotModule';
+import { RedisModule } from './RedisModule';
+import { UserModule } from './UserModule';
+import { CargoDialog } from '../../services/notification/cargoDialog';
 import { CompanyCargoTools } from '../../services/notification/companyCargoTools';
 import { CompanyFilterTools } from '../../services/notification/companyFilterTools';
 
@@ -49,6 +52,8 @@ import { CompanyFilterTools } from '../../services/notification/companyFilterToo
     SubscriptionModule,
     MessengerBotModule,
     WhatsappModule,
+    RedisModule,
+    UserModule,
   ],
   controllers: [CargoNotificationController, CargoListingController, CargoAlertFilterController],
   providers: [
@@ -67,6 +72,8 @@ import { CompanyFilterTools } from '../../services/notification/companyFilterToo
     // ابزارهای agent برای بارها و فیلترهای شرکت
     CompanyCargoTools,
     CompanyFilterTools,
+    // دکمه‌های بار در ربات‌ها؛ خودش را در BotDialogRegistry ثبت می‌کند
+    CargoDialog,
   ],
 })
 export class CargoNotificationModule {}

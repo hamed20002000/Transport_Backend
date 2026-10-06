@@ -1,4 +1,4 @@
-import { TelegramAccessService } from './telegramAccess.service';
+import { BotAccessService } from './botAccess.service';
 import {
   Injectable,
   Logger,
@@ -10,29 +10,32 @@ import { BotPlatform } from './botPlatform';
 
 import { ConfigService } from '@nestjs/config';
 import TelegramBot from 'node-telegram-bot-api';
-import { TelegramKeyboardService } from './telegramKeyboard';
+import { BotKeyboardService } from './botKeyboard';
 
-import { TelegramAccountHandler } from './telegramAccountHandler.service';
-import { TelegramIdentityService } from './telegramIdentity.service';
-import { TelegramMenuService } from './telegramMenu.service';
-import { TelegramSessionService } from './telegramSession.service';
-import { TelegramMessagesService } from './telegramMessages.service';
+import { BotAccountHandler } from './botAccountHandler.service';
+import { BotIdentityService } from './botIdentity.service';
+import { BotMenuService } from './botMenu.service';
+import { BotSessionService } from './botSession.service';
+import { BotMessagesService } from './botMessages.service';
 
 import { AccountType } from 'src/domain/enums/subscription';
 import { MessengerPlatform } from 'src/domain/enums/messenger';
-import { BotReply, ChannelBotFlowService } from '../../channel/channelBotFlow.service';
-import { TelegramSessionState } from 'src/domain/enums/telegram';
+import { CompanyChannelsDialog } from '../../channel/companyChannelsDialog';
+import { BotSessionState } from 'src/domain/enums/botSession';
 import { createWriteStream } from 'node:fs';
+import { findMenuButton } from './menuTextMatch';
+import { actionRows, BotDialog, BotDialogRegistry, BotReply } from './botDialog';
+import { SubscriptionStatusService } from '../../subscription/subscriptionStatus.service';
 import { pipeline } from 'node:stream/promises';
 import {
   AGENT_CALLBACK_PREFIX,
-  TelegramAgentBridge,
-  TelegramAgentContext,
-} from './telegramAgentBridge';
+  BotAgentBridge,
+  BotAgentContext,
+} from './botAgentBridge';
 
 import {
-  TelegramCallback,
-} from '../../../domain/constants/telegram/TelegramCallback';
+  BotCallback,
+} from '../../../domain/constants/bot/BotCallback';
 
 @Injectable()
 export class MessengerBotService implements OnModuleInit {
@@ -43,26 +46,28 @@ export class MessengerBotService implements OnModuleInit {
     private readonly configService:
       ConfigService,
 
-    private readonly telegramAccountHandler:
-      TelegramAccountHandler,
+    private readonly botAccountHandler:
+      BotAccountHandler,
 
-    private readonly telegramIdentityService:
-      TelegramIdentityService,
+    private readonly botIdentityService:
+      BotIdentityService,
 
-    private readonly telegramMenuService:
-      TelegramMenuService,
+    private readonly botMenuService:
+      BotMenuService,
 
-    private readonly telegramSessionService:
-      TelegramSessionService,
+    private readonly botSessionService:
+      BotSessionService,
 
     private readonly messages:
-      TelegramMessagesService,
-    private readonly keyboard: TelegramKeyboardService,
-    private readonly telegramAccessService: TelegramAccessService,
-    private readonly channelFlow: ChannelBotFlowService,
-    private readonly agentBridge: TelegramAgentBridge,
+      BotMessagesService,
+    private readonly keyboard: BotKeyboardService,
+    private readonly botAccessService: BotAccessService,
+    private readonly channelsDialog: CompanyChannelsDialog,
+    private readonly agentBridge: BotAgentBridge,
     // ربات همه‌ی پیام‌رسان‌ها -- بر اساس پیشوند شناسه پیام‌رسان درست را انتخاب می‌کند.
     private readonly multiBot: MultiBot,
+    private readonly dialogs: BotDialogRegistry,
+    private readonly subscriptionStatus: SubscriptionStatusService,
   ) {}
 
   /*
@@ -128,7 +133,9 @@ export class MessengerBotService implements OnModuleInit {
     const chatId =
       message.chat.id.toString();
 
-    if (await this.telegramAccessService.handle(message, from)) return;
+    this.keyboard.clearCallbackMessage(chatId);
+
+    if (await this.botAccessService.handle(message, from)) return;
 
     /*
      * =====================================================
@@ -148,30 +155,12 @@ export class MessengerBotService implements OnModuleInit {
     }
 
     if (command === '/payment') {
-      await this.telegramAccountHandler.showPurchaseStatus(
+      await this.botAccountHandler.showPurchaseStatus(
         chatId,
         externalUserId,
       );
 
       return;
-    }
-
-    /*
-     * =====================================================
-     * Contact
-     * =====================================================
-     */
-
-    if (message.contact) {
-      const handled =
-        await this.telegramAccountHandler
-          .handleContact(
-            message,
-          );
-
-      if (handled) {
-        return;
-      }
     }
 
     /*
@@ -187,7 +176,7 @@ export class MessengerBotService implements OnModuleInit {
       )
     ) {
       const handled =
-        await this.telegramAccountHandler
+        await this.botAccountHandler
           .handleReceipt(
             message,
           );
@@ -197,10 +186,16 @@ export class MessengerBotService implements OnModuleInit {
       }
     }
 
-    if (!(await this.telegramMenuService.ensureActiveSubscription(chatId, externalUserId))) return;
+    if (!(await this.botMenuService.ensureActiveSubscription(chatId, externalUserId))) return;
 
+    // جواب فرم‌ها قبل از تطابق منو: «۲۰» برای وزن بار نباید «گزینه ۲۰» حساب شود.
     // لینک گروه/کانال بعد از «افزودن لینک» در بخش گروه‌ها و کانال‌ها
     if (message.text && await this.handleChannelText(chatId, externalUserId, message.text)) return;
+    // مرحله‌های گفتگوهای ثبت‌شده (مثل فرم ثبت بار)
+    if (message.text && await this.handleDialogText(chatId, externalUserId, message.text)) return;
+
+    // «گزینه ۲» یا متن دقیق یک دکمه = زدن همان دکمه؛ بقیه به agent
+    if (message.text && !command?.startsWith('/') && await this.selectMenuByText(chatId, externalUserId, message.text)) return;
 
     /*
      * =====================================================
@@ -225,35 +220,13 @@ export class MessengerBotService implements OnModuleInit {
     }
 
     if (voice) {
-      await this.sendMessage(
-        chatId,
-
-        this.messages.get(
-          'agent.voicePending',
-        ),
-
-        this.mainMenuKeyboard(),
-      );
+      await this.sendNotice(chatId, this.messages.get('agent.voicePending'));
 
       return;
     }
 
-    /*
-     * =====================================================
-     * Normal Text (agent disabled or unknown /command)
-     * =====================================================
-     */
-
     if (message.text) {
-      await this.sendMessage(
-        chatId,
-
-        this.messages.get(
-          'errors.unknownMessage',
-        ),
-
-        this.mainMenuKeyboard(),
-      );
+      await this.sendNotice(chatId, this.messages.get('errors.unknownMessage'));
 
       return;
     }
@@ -264,15 +237,7 @@ export class MessengerBotService implements OnModuleInit {
      * =====================================================
      */
 
-    await this.sendMessage(
-      chatId,
-
-      this.messages.get(
-        'errors.unsupportedMessage',
-      ),
-
-      this.mainMenuKeyboard(),
-    );
+    await this.sendNotice(chatId, this.messages.get('errors.unsupportedMessage'));
   }
 
   /*
@@ -281,8 +246,48 @@ export class MessengerBotService implements OnModuleInit {
    * =====================================================
    */
 
+  /**
+   * اگر متن (تایپ‌شده یا تبدیل‌شده از ویس) شماره‌ی گزینه یا متن دقیق یکی از
+   * دکمه‌های منوی فعلی باشد، همان دکمه را اجرا می‌کند و true برمی‌گرداند؛
+   * بقیه‌ی پیام‌ها به agent و ابزارهایش می‌رود (findMenuButton). وسط گفتگو با
+   * agent انتخاب منو انجام نمی‌شود.
+   */
+  async selectMenuByText(
+    chatId: string,
+    externalUserId: string,
+    text: string,
+  ): Promise<boolean> {
+    const menu = await this.keyboard.getMenuButtons(chatId);
+    if (!menu) return false;
+
+    const button = findMenuButton(text, menu.buttons);
+    if (!button) return false;
+
+    const agent = this.agentBridge.current;
+    if (agent) {
+      const ctx = await this.agentContext(chatId, externalUserId);
+      if (ctx && agent.isAwaitingAnswer(ctx)) return false;
+    }
+
+    await this.handleCallbackQuery({
+      id: `text:${Date.now()}`,
+      from: { id: externalUserId, is_bot: false, first_name: '' } as unknown as TelegramBot.User,
+      chat_instance: chatId,
+      data: button.data,
+      message: {
+        message_id: menu.messageId,
+        date: Math.floor(Date.now() / 1000),
+        chat: { id: chatId, type: 'private' } as unknown as TelegramBot.Chat,
+      },
+    }, true);
+    return true;
+  }
+
   private async handleCallbackQuery(
     query: TelegramBot.CallbackQuery,
+    // از متن/ویس آمده، نه زدن دکمه: callback واقعی‌ای برای جواب دادن نیست و پیام
+    // کاربر زیر منوست، پس منوی بعدی پیام جدید است نه ویرایش منوی بالا.
+    fromText = false,
   ): Promise<void> {
 
     const from =
@@ -298,23 +303,28 @@ export class MessengerBotService implements OnModuleInit {
       return;
     }
 
-    /*
-     * Telegram spinner را متوقف می‌کنیم.
-     */
+    if (!fromText) {
+      // منوی بعدی همین پیام را ویرایش می‌کند تا پیام‌ها در چت زیاد نشوند.
+      this.keyboard.useCallbackMessage(chatId, query.message!.message_id);
 
-    try {
-      await this.multiBot.answerCallbackQuery(
-        query.id,
-      );
-    } catch (error: unknown) {
-      this.logger.warn(
-        `answerCallbackQuery failed: ${this.getErrorMessage(
-          error,
-        )}`,
-      );
+      /*
+       * Telegram spinner را متوقف می‌کنیم.
+       */
+
+      try {
+        await this.multiBot.answerCallbackQuery(
+          query.id,
+        );
+      } catch (error: unknown) {
+        this.logger.warn(
+          `answerCallbackQuery failed: ${this.getErrorMessage(
+            error,
+          )}`,
+        );
+      }
     }
 
-    if (query.message && await this.telegramAccessService.handle(query.message, from, query.data ?? '')) return;
+    if (query.message && await this.botAccessService.handle(query.message, from, query.data ?? '')) return;
 
     const data =
       query.data;
@@ -331,15 +341,15 @@ export class MessengerBotService implements OnModuleInit {
 
     if (
       data ===
-      TelegramCallback.MainMenu
+      BotCallback.MainMenu
     ) {
       await this.openMainMenu(chatId, externalUserId);
 
       return;
     }
 
-    if (data === TelegramCallback.PaymentStatus) {
-      await this.telegramAccountHandler.showPurchaseStatus(
+    if (data === BotCallback.PaymentStatus) {
+      await this.botAccountHandler.showPurchaseStatus(
         chatId,
         externalUserId,
       );
@@ -355,9 +365,9 @@ export class MessengerBotService implements OnModuleInit {
 
     if (
       data ===
-      TelegramCallback.BuyAccount
+      BotCallback.BuyAccount
     ) {
-      await this.telegramAccountHandler
+      await this.botAccountHandler
         .startBuyAccount(
           chatId,
           externalUserId,
@@ -374,13 +384,13 @@ export class MessengerBotService implements OnModuleInit {
 
     if (
       data.startsWith(
-        TelegramCallback
+        BotCallback
           .AccountTypePrefix,
       )
     ) {
       const rawAccountType =
         data.substring(
-          TelegramCallback
+          BotCallback
             .AccountTypePrefix
             .length,
         );
@@ -402,7 +412,7 @@ export class MessengerBotService implements OnModuleInit {
         return;
       }
 
-      await this.telegramAccountHandler
+      await this.botAccountHandler
         .selectAccountType(
           chatId,
           externalUserId,
@@ -420,12 +430,12 @@ export class MessengerBotService implements OnModuleInit {
 
     if (
       data.startsWith(
-        TelegramCallback.PlanPrefix,
+        BotCallback.PlanPrefix,
       )
     ) {
       const planId =
         data.substring(
-          TelegramCallback
+          BotCallback
             .PlanPrefix
             .length,
         );
@@ -442,7 +452,7 @@ export class MessengerBotService implements OnModuleInit {
         return;
       }
 
-      await this.telegramAccountHandler
+      await this.botAccountHandler
         .selectPlan(
           chatId,
           externalUserId,
@@ -460,9 +470,9 @@ export class MessengerBotService implements OnModuleInit {
 
     if (
       data ===
-      TelegramCallback.CancelPurchase
+      BotCallback.CancelPurchase
     ) {
-      await this.telegramAccountHandler
+      await this.botAccountHandler
         .cancelPurchase(
           chatId,
           externalUserId,
@@ -479,17 +489,10 @@ export class MessengerBotService implements OnModuleInit {
 
     if (
       data ===
-      TelegramCallback.RenewSubscription
+      BotCallback.RenewSubscription
     ) {
-      await this.sendMessage(
-        chatId,
-
-        this.messages.get(
-          'subscription.renewPending',
-        ),
-
-        this.mainMenuKeyboard(),
-      );
+      // تمدید همان خرید است؛ اشتراک جدید از پایان اشتراک فعلی شروع می‌شود.
+      await this.botAccountHandler.startBuyAccount(chatId, externalUserId);
 
       return;
     }
@@ -502,17 +505,9 @@ export class MessengerBotService implements OnModuleInit {
 
     if (
       data ===
-      TelegramCallback.MySubscription
+      BotCallback.MySubscription
     ) {
-      await this.sendMessage(
-        chatId,
-
-        this.messages.get(
-          'subscription.mySubscriptionPending',
-        ),
-
-        this.mainMenuKeyboard(),
-      );
+      await this.showMySubscription(chatId, externalUserId);
 
       return;
     }
@@ -525,7 +520,7 @@ export class MessengerBotService implements OnModuleInit {
 
     if (
       data ===
-      TelegramCallback.Support
+      BotCallback.Support
     ) {
       await this.sendMessage(
         chatId,
@@ -546,7 +541,7 @@ export class MessengerBotService implements OnModuleInit {
      * =====================================================
      */
 
-    if (!(await this.telegramMenuService.ensureActiveSubscription(chatId, externalUserId))) return;
+    if (!(await this.botMenuService.ensureActiveSubscription(chatId, externalUserId))) return;
 
     if (data.startsWith(AGENT_CALLBACK_PREFIX)) {
       const agent = this.agentBridge.current;
@@ -560,21 +555,17 @@ export class MessengerBotService implements OnModuleInit {
       return;
     }
 
-    if (
-      data ===
-      TelegramCallback.DriverSearchLoads
-    ) {
-      await this.sendFeaturePending(
-        chatId,
-        'menu.driver.searchLoads',
-      );
+    // گفتگوهای ثبت‌شده (بارهای شرکت، ثبت بار، پیدا کردن بار)
+    const dialog = this.dialogs.resolve(data);
+    if (dialog) {
+      await this.handleDialogAction(chatId, externalUserId, dialog.dialog, dialog.action);
 
       return;
     }
 
     if (
       data ===
-      TelegramCallback.DriverLoadRequests
+      BotCallback.DriverLoadRequests
     ) {
       await this.sendFeaturePending(
         chatId,
@@ -586,7 +577,7 @@ export class MessengerBotService implements OnModuleInit {
 
     if (
       data ===
-      TelegramCallback.DriverActiveTrip
+      BotCallback.DriverActiveTrip
     ) {
       await this.sendFeaturePending(
         chatId,
@@ -598,7 +589,7 @@ export class MessengerBotService implements OnModuleInit {
 
     if (
       data ===
-      TelegramCallback.DriverReturnLoads
+      BotCallback.DriverReturnLoads
     ) {
       await this.sendFeaturePending(
         chatId,
@@ -615,8 +606,8 @@ export class MessengerBotService implements OnModuleInit {
      */
 
     if (
-      data === TelegramCallback.CompanyChannels ||
-      this.channelFlow.isAction(data)
+      data === BotCallback.CompanyChannels ||
+      this.channelsDialog.isAction(data)
     ) {
       await this.handleChannelAction(chatId, externalUserId, data);
 
@@ -625,31 +616,7 @@ export class MessengerBotService implements OnModuleInit {
 
     if (
       data ===
-      TelegramCallback.CompanyCreateLoad
-    ) {
-      await this.sendFeaturePending(
-        chatId,
-        'menu.company.createLoad',
-      );
-
-      return;
-    }
-
-    if (
-      data ===
-      TelegramCallback.CompanyLoads
-    ) {
-      await this.sendFeaturePending(
-        chatId,
-        'menu.company.loads',
-      );
-
-      return;
-    }
-
-    if (
-      data ===
-      TelegramCallback.CompanyDriverRequests
+      BotCallback.CompanyDriverRequests
     ) {
       await this.sendFeaturePending(
         chatId,
@@ -661,7 +628,7 @@ export class MessengerBotService implements OnModuleInit {
 
     if (
       data ===
-      TelegramCallback.CompanyActiveTrips
+      BotCallback.CompanyActiveTrips
     ) {
       await this.sendFeaturePending(
         chatId,
@@ -679,7 +646,7 @@ export class MessengerBotService implements OnModuleInit {
 
     if (
       data ===
-      TelegramCallback.BrokerSearchLoads
+      BotCallback.BrokerSearchLoads
     ) {
       await this.sendFeaturePending(
         chatId,
@@ -691,7 +658,7 @@ export class MessengerBotService implements OnModuleInit {
 
     if (
       data ===
-      TelegramCallback.BrokerLoads
+      BotCallback.BrokerLoads
     ) {
       await this.sendFeaturePending(
         chatId,
@@ -703,7 +670,7 @@ export class MessengerBotService implements OnModuleInit {
 
     if (
       data ===
-      TelegramCallback.BrokerDrivers
+      BotCallback.BrokerDrivers
     ) {
       await this.sendFeaturePending(
         chatId,
@@ -720,7 +687,7 @@ export class MessengerBotService implements OnModuleInit {
      */
 
     this.logger.warn(
-      `Unknown Telegram callback: ${data}`,
+      `Unknown bot callback: ${data}`,
     );
 
     await this.sendMessage(
@@ -781,9 +748,36 @@ export class MessengerBotService implements OnModuleInit {
       ),
     );
 
-    await this.telegramSessionService.delete(
+    await this.botSessionService.delete(
       providerUserId,
     );
+  }
+
+  /** تأیید خرید برای کاربری که از قبل حساب داشت (رمز جدیدی ساخته نشده). خطای ارسال را پنهان نمی‌کند. */
+  async sendSubscriptionActivated(
+    providerUserId: string,
+    accountType: AccountType,
+    expireAt: Date,
+  ): Promise<void> {
+    await this.requireBot().sendMessage(
+      providerUserId,
+      this.messages.get('subscription.activated', 'fa', {
+        accountType: this.getAccountTypeTitle(accountType),
+        expireAt: this.formatDate(expireAt),
+      }),
+    );
+    await this.botSessionService.delete(providerUserId);
+  }
+
+  async sendSubscriptionRejected(
+    providerUserId: string,
+    reason: string,
+  ): Promise<void> {
+    await this.requireBot().sendMessage(
+      providerUserId,
+      this.messages.get('subscription.rejected', 'fa', { reason }),
+    );
+    await this.botSessionService.delete(providerUserId);
   }
 
   /*
@@ -831,12 +825,12 @@ export class MessengerBotService implements OnModuleInit {
    * AI Agent
    * =====================================================
    *
-   * پیام‌های agent مستقیم با bot فرستاده می‌شوند نه TelegramKeyboardService؛
+   * پیام‌های agent مستقیم با bot فرستاده می‌شوند نه BotKeyboardService؛
    * آن سرویس پیام عملیات قبلی را پاک می‌کند و پیام پیشرفت agent را از بین می‌برد.
    */
 
-  private async agentContext(chatId: string, externalUserId: string): Promise<TelegramAgentContext | null> {
-    const userId = await this.telegramIdentityService.getUserId(externalUserId);
+  private async agentContext(chatId: string, externalUserId: string): Promise<BotAgentContext | null> {
+    const userId = await this.botIdentityService.getUserId(externalUserId);
     return userId ? { chatId, externalUserId, userId } : null;
   }
 
@@ -932,40 +926,89 @@ export class MessengerBotService implements OnModuleInit {
 
   /*
    * =====================================================
-   * Channels (shared flow with WhatsApp)
+   * Channels (shared dialog with WhatsApp)
    * =====================================================
    */
 
   private async handleChannelAction(chatId: string, externalUserId: string, data: string): Promise<void> {
-    const userId = await this.telegramIdentityService.getUserId(externalUserId);
+    const userId = await this.botIdentityService.getUserId(externalUserId);
     if (!userId) {
       await this.openMainMenu(chatId, externalUserId);
       return;
     }
-    const ctx = { platform: MessengerPlatform.Telegram, externalUserId: externalUserId, userId };
-    const reply = data === TelegramCallback.CompanyChannels
-      ? await this.channelFlow.open(ctx)
-      : await this.channelFlow.handleAction(ctx, data);
-    if (reply) await this.sendChannelReply(chatId, externalUserId, reply);
+    const ctx = { platform: MessengerPlatform.Bot, externalUserId: externalUserId, userId };
+    const reply = data === BotCallback.CompanyChannels
+      ? await this.channelsDialog.open(ctx)
+      : await this.channelsDialog.handleAction(ctx, data);
+    if (reply) await this.sendDialogReply(chatId, externalUserId, reply);
   }
 
   /** true اگر پیام مربوط به بخش گروه‌ها و کانال‌ها بود و پاسخ داده شد. */
   private async handleChannelText(chatId: string, externalUserId: string, text: string): Promise<boolean> {
-    if (!(await this.channelFlow.hasSession({ platform: MessengerPlatform.Telegram, externalUserId: externalUserId }))) {
+    if (!(await this.channelsDialog.hasSession({ platform: MessengerPlatform.Bot, externalUserId: externalUserId }))) {
       return false;
     }
-    const userId = await this.telegramIdentityService.getUserId(externalUserId);
+    const userId = await this.botIdentityService.getUserId(externalUserId);
     if (!userId) return false;
-    const reply = await this.channelFlow.handleText(
-      { platform: MessengerPlatform.Telegram, externalUserId: externalUserId, userId },
+    const reply = await this.channelsDialog.handleText(
+      { platform: MessengerPlatform.Bot, externalUserId: externalUserId, userId },
       text,
     );
     if (!reply) return false;
-    await this.sendChannelReply(chatId, externalUserId, reply);
+    await this.sendDialogReply(chatId, externalUserId, reply);
     return true;
   }
 
-  private async sendChannelReply(chatId: string, externalUserId: string, reply: BotReply): Promise<void> {
+  private async handleDialogAction(chatId: string, externalUserId: string, dialog: BotDialog, action: string): Promise<void> {
+    const userId = await this.botIdentityService.getUserId(externalUserId);
+    if (!userId) {
+      await this.openMainMenu(chatId, externalUserId);
+      return;
+    }
+    const reply = await dialog.handleAction({ platform: MessengerPlatform.Bot, externalUserId, userId }, action);
+    if (reply) await this.sendDialogReply(chatId, externalUserId, reply);
+  }
+
+  /** true اگر یکی از گفتگوهای ثبت‌شده منتظر این متن بود و جواب داد. */
+  private async handleDialogText(chatId: string, externalUserId: string, text: string): Promise<boolean> {
+    const session = { platform: MessengerPlatform.Bot, externalUserId };
+    for (const dialog of this.dialogs.all()) {
+      if (!(await dialog.hasSession(session))) continue;
+      const userId = await this.botIdentityService.getUserId(externalUserId);
+      if (!userId) return false;
+      const reply = await dialog.handleText({ ...session, userId }, text);
+      if (!reply) continue;
+      await this.sendDialogReply(chatId, externalUserId, reply);
+      return true;
+    }
+    return false;
+  }
+
+  /** وضعیت اشتراک و آخرین خرید؛ همان متنی که agent برای «اشتراکم چیه» می‌دهد. */
+  private async showMySubscription(chatId: string, externalUserId: string): Promise<void> {
+    const userId = await this.botIdentityService.getUserId(externalUserId);
+    if (!userId) {
+      await this.openMainMenu(chatId, externalUserId);
+      return;
+    }
+    const [subscription, order] = await Promise.all([
+      this.subscriptionStatus.describeSubscription(userId),
+      this.subscriptionStatus.describeLatestOrder(userId),
+    ]);
+    await this.sendMessage(chatId, `💳 ${subscription.text}
+
+${order.text}`, {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: this.messages.get('menu.main.renewSubscription'), callback_data: BotCallback.RenewSubscription }],
+          [{ text: this.messages.get('menu.common.paymentStatus'), callback_data: BotCallback.PaymentStatus }],
+          [{ text: this.messages.get('menu.common.mainMenu'), callback_data: BotCallback.MainMenu }],
+        ],
+      },
+    });
+  }
+
+  private async sendDialogReply(chatId: string, externalUserId: string, reply: BotReply): Promise<void> {
     // بازگشت: منوی اصلی تلگرام جای پیام «خارج شدید» را می‌گیرد.
     if (reply.closed === 'exit') {
       await this.openMainMenu(chatId, externalUserId);
@@ -974,8 +1017,8 @@ export class MessengerBotService implements OnModuleInit {
     await this.sendMessage(chatId, reply.text, {
       reply_markup: {
         inline_keyboard: reply.actions.length
-          ? reply.actions.map((action) => [{ text: action.label, callback_data: action.id }])
-          : [[{ text: this.messages.get('menu.common.mainMenu'), callback_data: TelegramCallback.MainMenu }]],
+          ? actionRows(reply.actions).map((row) => row.map((action) => ({ text: action.label, callback_data: action.id })))
+          : [[{ text: this.messages.get('menu.common.mainMenu'), callback_data: BotCallback.MainMenu }]],
       },
     });
   }
@@ -984,26 +1027,18 @@ export class MessengerBotService implements OnModuleInit {
     chatId: string,
     externalUserId: string,
   ): Promise<void> {
-    const state = (await this.telegramSessionService.get(externalUserId))?.state;
+    const state = (await this.botSessionService.get(externalUserId))?.state;
     switch (state) {
-      case TelegramSessionState.SelectingAccountType:
-      case TelegramSessionState.SelectingPlan:
-      case TelegramSessionState.WaitingForPhone:
-      case TelegramSessionState.WaitingForReceipt:
-      case TelegramSessionState.UnderReview:
+      case BotSessionState.SelectingAccountType:
+      case BotSessionState.SelectingPlan:
+      case BotSessionState.WaitingForReceipt:
+      case BotSessionState.UnderReview:
         break;
       default:
-        await this.telegramSessionService.reset(externalUserId);
+        await this.botSessionService.reset(externalUserId);
     }
 
-    if (state === TelegramSessionState.WaitingForPhone) {
-      await this.keyboard.sendMessage(chatId,
-        this.messages.get('account.continueFromMenu'),
-        { reply_markup: { remove_keyboard: true } },
-      );
-    }
-
-    await this.telegramMenuService.showMenuForUser(chatId, externalUserId);
+    await this.botMenuService.showMenuForUser(chatId, externalUserId);
   }
 
   private mainMenuKeyboard():
@@ -1019,7 +1054,7 @@ export class MessengerBotService implements OnModuleInit {
                 ),
 
               callback_data:
-                TelegramCallback.MainMenu,
+                BotCallback.MainMenu,
             },
           ],
         ],
@@ -1032,6 +1067,16 @@ export class MessengerBotService implements OnModuleInit {
    * Send Message
    * =====================================================
    */
+
+  /**
+   * جواب به پیامی که کاربر فرستاده (نه به دکمه): اگر منویی جلوی کاربر هست
+   * بدون دکمه می‌رود تا آن منو پاک نشود و کاربر همان‌جا ادامه دهد؛ اگر منویی
+   * نیست، دکمه‌ی منوی اصلی می‌گیرد تا کاربر راهی برای ادامه داشته باشد.
+   */
+  private async sendNotice(chatId: string, text: string): Promise<void> {
+    const menu = await this.keyboard.getMenuButtons(chatId).catch(() => null);
+    await this.sendMessage(chatId, text, menu ? undefined : this.mainMenuKeyboard());
+  }
 
   private async sendMessage(
     chatId: string,
@@ -1047,7 +1092,7 @@ export class MessengerBotService implements OnModuleInit {
       );
     } catch (error: unknown) {
       this.logger.error(
-        `Telegram sendMessage failed: ${this.getErrorMessage(
+        `Bot sendMessage failed: ${this.getErrorMessage(
           error,
         )}`,
       );

@@ -10,7 +10,9 @@ export const KEY_PREFIXES = {
   telegramReceiptLock: 'telegram:receipt-lock:v1',
   telegramKeyboard: 'telegram:keyboard:v1',
   telegramAgentSession: 'telegram:agent-session:v1',
-  messengerChannelFlow: 'messenger:channel-flow:v1',
+  companyChannelsDialog: 'messenger:channel-flow:v1',
+  cargoDialog: 'messenger:cargo-flow:v1',
+  rubikaPollOffset: 'rubika:poll-offset:v1',
 } as const;
 
 export type RedisKeyParts = {
@@ -18,12 +20,14 @@ export type RedisKeyParts = {
   registrationLock: [phone: string];
   registrationCooldown: [phone: string];
   refreshToken: [token: string];
-  telegramIdentity: [botId: string, userId: string];
-  telegramIdentityRoles: [botId: string, userId: string];
-  telegramAccessLock: [botId: string, userId: string];
-  telegramSession: [botId: string, userId: string];
-  telegramReceiptLock: [botId: string, userId: string];
-  telegramKeyboard: [botId: string, chatId: string];
-  telegramAgentSession: [botId: string, userId: string];
-  messengerChannelFlow: [platform: string, externalUserId: string];
+  telegramIdentity: [namespace: string, userId: string];
+  telegramIdentityRoles: [namespace: string, userId: string];
+  telegramAccessLock: [namespace: string, userId: string];
+  telegramSession: [namespace: string, userId: string];
+  telegramReceiptLock: [namespace: string, userId: string];
+  telegramKeyboard: [namespace: string, chatId: string];
+  telegramAgentSession: [namespace: string, userId: string];
+  companyChannelsDialog: [platform: string, externalUserId: string];
+  cargoDialog: [platform: string, externalUserId: string];
+  rubikaPollOffset: [tokenHash: string];
 };

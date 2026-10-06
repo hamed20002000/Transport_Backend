@@ -101,5 +101,22 @@
     "confirmNo": "نه",
     "notSaved": "اطلاعات ثبت نشد.",
     "saved": "اطلاعات ثبت شد:\n{summary}"
+  },
+  "subscription": {
+    "active": "اشتراک «{plan}» شما فعال است.\nاعتبار تا: {expireAt} ({days} روز مانده)",
+    "none": "اشتراک فعالی ندارید.",
+    "noneFree": "اشتراک فعالی ندارید؛ فعلاً استفاده از سامانه بدون اشتراک آزاد است.",
+    "noneFreeUntil": "اشتراک فعالی ندارید؛ استفاده از سامانه تا {freeUntil} بدون اشتراک آزاد است.",
+    "noPurchase": "هنوز خریدی ثبت نکرده‌اید.",
+    "order": "آخرین خرید: «{plan}» — {amount} {currency}\nتاریخ: {date}\nوضعیت: {status}",
+    "rejectionReason": "دلیل: {reason}",
+    "status": {
+      "WAITING_FOR_RECEIPT": "منتظر ارسال رسید پرداخت",
+      "RECEIPT_SUBMITTED": "رسید ثبت شده و در انتظار بررسی است",
+      "UNDER_REVIEW": "رسید در حال بررسی است",
+      "APPROVED": "پرداخت تأیید شد و اشتراک فعال شد",
+      "REJECTED": "رسید پرداخت تأیید نشد",
+      "CANCELLED": "خرید لغو شد"
+    }
   }
 }

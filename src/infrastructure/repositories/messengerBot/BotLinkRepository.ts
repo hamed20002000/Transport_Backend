@@ -73,7 +73,7 @@ export class BotLinkRepository
   async assignInitialRole(externalUserId: string, roleName: string): Promise<string> {
     return this.repository.manager.transaction(async manager => {
       const link = await manager.findOne(BotLink, { where: { externalUserId } });
-      if (!link?.userId) throw new NotFoundException('Telegram account is not linked.');
+      if (!link?.userId) throw new NotFoundException('Messenger account is not linked.');
       const user = await manager.findOne(User, {
         where: { id: link.userId, recordStatus: RecordStatus.Active },
         lock: { mode: 'pessimistic_write' },

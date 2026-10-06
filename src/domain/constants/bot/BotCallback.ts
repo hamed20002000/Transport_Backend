@@ -1,4 +1,4 @@
-export const TelegramCallback = {
+export const BotCallback = {
   MainMenu: 'main_menu',
 
   BuyAccount: 'buy_account',
@@ -29,22 +29,22 @@ export const TelegramCallback = {
   RequestLoadPrefix: 'request_load:',
 } as const;
 
-export const TelegramCallbackBuilder = {
+export const BotCallbackBuilder = {
   accountType(
     accountType: string,
   ): string {
-    return `${TelegramCallback.AccountTypePrefix}${accountType}`;
+    return `${BotCallback.AccountTypePrefix}${accountType}`;
   },
 
   plan(
     planId: string,
   ): string {
-    return `${TelegramCallback.PlanPrefix}${planId}`;
+    return `${BotCallback.PlanPrefix}${planId}`;
   },
 
   requestLoad(
     loadId: string,
   ): string {
-    return `${TelegramCallback.RequestLoadPrefix}${loadId}`;
+    return `${BotCallback.RequestLoadPrefix}${loadId}`;
   },
 };

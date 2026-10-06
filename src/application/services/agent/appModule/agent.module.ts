@@ -22,7 +22,7 @@ import { WhatsappModule } from './whatsapp.module';
 import { UserModule } from 'src/application/module/UserModule';
 import { RedisModule } from 'src/application/module/RedisModule';
 import { AgentChannelRelays } from '../agentChannelRelays';
-import { TelegramAgentService } from '../services/telegramAgent.service';
+import { BotAgentService } from '../services/botAgent.service';
 
 @Module({
   imports: [
@@ -51,7 +51,7 @@ import { TelegramAgentService } from '../services/telegramAgent.service';
     PendingConfirmationService,
     SpeechToTextService,
     AgentChannelRelays,
-    TelegramAgentService,
+    BotAgentService,
   ],
   exports: [
     AgentSqlService,

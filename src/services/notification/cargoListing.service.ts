@@ -13,6 +13,7 @@ import { WhatsappService } from '../../application/services/agent/services/whats
 import { MessengerBotService } from '../messengerBot/core/messengerBot.service';
 import { CargoAlertFilterService } from './cargoAlertFilter.service';
 import { CargoNotificationService } from './cargoNotification.service';
+import { SubscriptionPolicyService } from '../subscription/subscriptionPolicy.service';
 import { buildCargoListingText, buildCargoTakenText, CargoListingFields } from './cargoNotificationText';
 import {
   CARGO_NOTIFICATION_SOCKET_EVENT,
@@ -51,6 +52,7 @@ export class CargoListingService {
     @Inject(forwardRef(() => WhatsappService))
     private readonly whatsapp: WhatsappService,
     private readonly gateway: NotificationsGateway,
+    private readonly policy: SubscriptionPolicyService,
   ) {}
 
   /** نمونه‌ی پیشنهادی برای انتشار؛ شرکت می‌تواند قبل از ارسال ویرایشش کند. */
@@ -123,7 +125,7 @@ export class CargoListingService {
       }),
     );
 
-    const drivers = (await this.audience.findSubscribedDriverIds()).filter((id) => id !== userId);
+    const drivers = (await this.audience.findDriverIds(await this.policy.isRequired())).filter((id) => id !== userId);
     const recipients = await this.filters.filterInterestedUsers(drivers, listing);
 
     const safetyRetryAt = new Date(Date.now() + PUBLISH_SAFETY_RETRY_MS);
@@ -183,6 +185,16 @@ export class CargoListingService {
   async listMine(userId: string, options: { status?: CargoListingStatus; page: number; pageSize: number }) {
     const [items, total] = await this.listings.findPageForPublisher(userId, {
       status: options.status,
+      skip: (options.page - 1) * options.pageSize,
+      take: options.pageSize,
+    });
+
+    return { items: items.map((listing) => this.toView(listing)), total, page: options.page, pageSize: options.pageSize };
+  }
+
+  /** بارهای باز همه‌ی شرکت‌ها برای راننده؛ متن هر بار همان پیامی است که برای راننده‌ها فرستاده شد. */
+  async listOpen(options: { page: number; pageSize: number }) {
+    const [items, total] = await this.listings.findOpenPage({
       skip: (options.page - 1) * options.pageSize,
       take: options.pageSize,
     });

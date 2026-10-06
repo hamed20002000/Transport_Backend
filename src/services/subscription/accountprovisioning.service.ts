@@ -4,12 +4,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource, EntityManager, MoreThan } from 'typeorm';
 import { randomInt } from 'crypto';
 
 import { User } from 'src/domain/entities/auth/User';
 import { Role } from 'src/domain/entities/auth/Role';
 import { UserRole } from 'src/domain/entities/auth/UserRole';
+import { BotLink } from 'src/domain/entities/agent/BotLink';
 
 import { Subscription } from 'src/domain/entities/subscription/Subscription';
 import { SubscriptionOrder } from 'src/domain/entities/subscription/SubscriptionOrder';
@@ -29,7 +30,13 @@ export interface AccountProvisioningResult {
 
   username: string;
 
-  temporaryPassword: string;
+  accountType: AccountType;
+
+  /** شناسه‌ی کاربر در رباتی که خرید از آن انجام شد (برای ارسال نتیجه). */
+  providerUserId: string;
+
+  /** فقط وقتی کاربر جدید ساخته شده؛ هرگز در دیتابیس ذخیره نمی‌شود. */
+  temporaryPassword?: string;
 
   subscriptionId: string;
 
@@ -200,38 +207,18 @@ export class AccountProvisioningService {
 
         /*
          * -------------------------------------------------
-         * 7. Username = normalized phone number
+         * 7. Resolve the buyer
+         *
+         * خریدار معمولاً قبلاً با ارسال شماره در ربات ثبت شده:
+         * اول اتصال همان ربات، بعد کاربر با همان شماره؛ فقط
+         * اگر هیچ‌کدام نبود کاربر جدید ساخته می‌شود. اشتراک به
+         * userId وصل است پس در همه‌ی ربات‌ها معتبر است.
          * -------------------------------------------------
          */
 
         const username = this.normalizePhone(
           order.phoneNumber,
         );
-
-        /*
-         * -------------------------------------------------
-         * 8. Check existing user
-         * -------------------------------------------------
-         */
-
-        const existingUser =
-          await manager.findOne(User, {
-            where: {
-              username,
-            },
-          });
-
-        if (existingUser) {
-          throw new ConflictException(
-            'A user with this phone number already exists',
-          );
-        }
-
-        /*
-         * -------------------------------------------------
-         * 9. Determine role
-         * -------------------------------------------------
-         */
 
         const roleName = this.getRoleName(
           order.accountType,
@@ -254,59 +241,59 @@ export class AccountProvisioningService {
           );
         }
 
-        /*
-         * -------------------------------------------------
-         * 10. Generate temporary password
-         * -------------------------------------------------
-         */
-
-        const temporaryPassword =
-          this.generateTemporaryPassword();
-
-        const passwordHash =
-          await this.passwordService.hashPassword(
-            temporaryPassword,
-          );
-
-        /*
-         * -------------------------------------------------
-         * 11. Create User
-         * -------------------------------------------------
-         */
-
-        const user = manager.create(User, {
-          username,
-          passwordHash,
-
-          mobile: username,
-
-          recordStatus:
-            RecordStatus.Active,
-
-          mustChangePassword: true,
+        const link = await manager.findOne(BotLink, {
+          where: { externalUserId: order.providerUserId },
         });
 
-        const savedUser =
-          await manager.save(User, user);
+        let savedUser: User | null = link?.userId
+          ? await manager.findOne(User, { where: { id: link.userId } })
+          : null;
 
-        /*
-         * -------------------------------------------------
-         * 12. Assign Role
-         * -------------------------------------------------
-         */
+        savedUser ??= await manager.findOne(User, {
+          where: [{ mobile: username }, { username }],
+        });
 
-        const userRole = manager.create(
-          UserRole,
-          {
-            userId: savedUser.id,
-            roleId: role.id,
-          },
-        );
+        let temporaryPassword: string | undefined;
 
-        await manager.save(
-          UserRole,
-          userRole,
-        );
+        if (savedUser) {
+          if (savedUser.recordStatus !== RecordStatus.Active) {
+            throw new BadRequestException(
+              'The buyer account is inactive',
+            );
+          }
+        } else {
+          temporaryPassword =
+            this.generateTemporaryPassword();
+
+          savedUser = await manager.save(
+            User,
+            manager.create(User, {
+              username,
+              passwordHash:
+                await this.passwordService.hashPassword(
+                  temporaryPassword,
+                ),
+              mobile: username,
+              recordStatus:
+                RecordStatus.Active,
+              mustChangePassword: true,
+            }),
+          );
+        }
+
+        const hasRole = await manager.findOne(UserRole, {
+          where: { userId: savedUser.id, roleId: role.id },
+        });
+
+        if (!hasRole) {
+          await manager.save(
+            UserRole,
+            manager.create(UserRole, {
+              userId: savedUser.id,
+              roleId: role.id,
+            }),
+          );
+        }
 
         /*
          * -------------------------------------------------
@@ -340,7 +327,22 @@ export class AccountProvisioningService {
          * -------------------------------------------------
          */
 
-        const startAt = new Date();
+        // تمدید: اشتراک جدید از پایان اشتراک فعال فعلی شروع می‌شود.
+        const current = await manager.findOne(
+          Subscription,
+          {
+            where: {
+              userId: savedUser.id,
+              status: SubscriptionStatus.Active,
+              expireAt: MoreThan(new Date()),
+            },
+            order: { expireAt: 'DESC' },
+          },
+        );
+
+        const startAt = current
+          ? new Date(current.expireAt)
+          : new Date();
 
         const expireAt =
           this.calculateExpireDate(
@@ -437,6 +439,12 @@ export class AccountProvisioningService {
 
           username:
             savedUser.username,
+
+          accountType:
+            order.accountType,
+
+          providerUserId:
+            order.providerUserId,
 
           temporaryPassword,
 

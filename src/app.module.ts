@@ -34,6 +34,7 @@ import { TransportCompanyModule } from './application/module/TransportCompanyMod
 import { MessengerBotModule } from './application/module/MessengerBotModule';
 import { RedisModule } from './application/module/RedisModule';
 import { CargoNotificationModule } from './application/module/CargoNotificationModule';
+import { SubscriptionAdminModule } from './application/module/SubscriptionAdminModule';
 
 @Module({
   imports: [
@@ -231,6 +232,7 @@ import { CargoNotificationModule } from './application/module/CargoNotificationM
      * و اطلاع‌رسانی به کاربرها (وب، تلگرام، واتساپ).
      */
     CargoNotificationModule,
+    SubscriptionAdminModule,
   ],
 
   controllers: [],

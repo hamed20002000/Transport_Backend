@@ -17,6 +17,15 @@ export class SubscriptionRepository implements ISubscriptionRepository {
     });
   }
 
+  findActiveWithPlanByUserId(userId: string): Promise<Subscription | null> {
+    const now = new Date();
+    return this.repository.findOne({
+      where: { userId, status: SubscriptionStatus.Active, startAt: LessThanOrEqual(now), expireAt: MoreThan(now) },
+      relations: { subscriptionPlan: true },
+      order: { expireAt: 'DESC' },
+    });
+  }
+
   save(subscription: Subscription): Promise<Subscription> {
     return this.repository.save(subscription);
   }

@@ -1,8 +1,9 @@
-import { TelegramSubscriptionService } from '../../services/messengerBot/core/telegramSubscription.service';
+import { BotSubscriptionService } from '../../services/messengerBot/core/botSubscription.service';
 import { UserModule } from './UserModule';
-import { TelegramAccessService } from '../../services/messengerBot/core/telegramAccess.service';
+import { BotAccessService } from '../../services/messengerBot/core/botAccess.service';
 import { RedisModule } from './RedisModule';
-import { TelegramKeyboardService } from '../../services/messengerBot/core/telegramKeyboard';
+import { BotKeyboardService } from '../../services/messengerBot/core/botKeyboard';
+import { BotDialogRegistry } from '../../services/messengerBot/core/botDialog';
 import { TelegramWebhookController } from '../../services/messengerBot/telegram/telegramWebhook.controller';
 import { RubikaWebhookController } from '../../services/messengerBot/rubika/rubikaWebhook.controller';
 import { Module } from '@nestjs/common';
@@ -14,19 +15,19 @@ import { BotLinkRepository } from '../../infrastructure/repositories/messengerBo
 
 import { BOT_LINK_REPOSITORY } from '../../domain/repositories/repository.tokens';
 
-import { TelegramSessionService } from 'src/services/messengerBot/core/telegramSession.service';
+import { BotSessionService } from 'src/services/messengerBot/core/botSession.service';
 
-import { TelegramIdentityService } from 'src/services/messengerBot/core/telegramIdentity.service';
+import { BotIdentityService } from 'src/services/messengerBot/core/botIdentity.service';
 
-import { TelegramMenuService } from 'src/services/messengerBot/core/telegramMenu.service';
+import { BotMenuService } from 'src/services/messengerBot/core/botMenu.service';
 
-import { TelegramAccountHandler } from 'src/services/messengerBot/core/telegramAccountHandler.service';
+import { BotAccountHandler } from 'src/services/messengerBot/core/botAccountHandler.service';
 
-import { TelegramMessagesService } from 'src/services/messengerBot/core/telegramMessages.service';
+import { BotMessagesService } from 'src/services/messengerBot/core/botMessages.service';
 
 import { MessengerBotService } from 'src/services/messengerBot/core/messengerBot.service';
 
-import { TelegramAgentBridge } from 'src/services/messengerBot/core/telegramAgentBridge';
+import { BotAgentBridge } from 'src/services/messengerBot/core/botAgentBridge';
 
 import { MultiBot } from 'src/services/messengerBot/core/multiBot';
 
@@ -54,9 +55,10 @@ import { ChannelModule } from './ChannelModule';
   controllers: [TelegramWebhookController, RubikaWebhookController],
 
   providers: [
-    TelegramSubscriptionService,
-    TelegramAccessService,
-    TelegramKeyboardService,
+    BotSubscriptionService,
+    BotAccessService,
+    BotKeyboardService,
+    BotDialogRegistry,
     BotLinkRepository,
 
     {
@@ -67,19 +69,19 @@ import { ChannelModule } from './ChannelModule';
         BotLinkRepository,
     },
 
-    TelegramSessionService,
+    BotSessionService,
 
-    TelegramIdentityService,
+    BotIdentityService,
 
-    TelegramMessagesService,
+    BotMessagesService,
 
-    TelegramMenuService,
+    BotMenuService,
 
-    TelegramAccountHandler,
+    BotAccountHandler,
 
     MessengerBotService,
 
-    TelegramAgentBridge,
+    BotAgentBridge,
 
     // ربات هر پیام‌رسان جدا؛ همه در MultiBot ثبت می‌شوند و منطق MessengerBotService را مشترک دارند.
     MultiBot,
@@ -94,19 +96,21 @@ import { ChannelModule } from './ChannelModule';
   exports: [
     BOT_LINK_REPOSITORY,
 
-    TelegramIdentityService,
+    BotIdentityService,
 
-    TelegramMenuService,
+    BotMenuService,
 
-    TelegramSessionService,
+    BotSessionService,
 
-    TelegramAccountHandler,
+    BotAccountHandler,
 
-    TelegramMessagesService,
+    BotMessagesService,
 
     MessengerBotService,
 
-    TelegramAgentBridge,
+    BotAgentBridge,
+
+    BotDialogRegistry,
   ],
 })
 export class MessengerBotModule {}

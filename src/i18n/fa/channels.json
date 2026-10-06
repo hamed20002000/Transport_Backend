@@ -3,14 +3,16 @@
   "title": "🔗 گروه‌ها و کانال‌های شما",
   "intro": "بارهایی که در این گروه‌ها و کانال‌ها آگهی شوند برای شما فرستاده می‌شوند.",
   "empty": "هنوز گروه یا کانالی ثبت نکرده‌اید.",
-  "item": "{index}) {icon} {name}\n    {platform}{type} · {status}",
+  "count": "{count} گروه/کانال — برای جزئیات و حذف روی هرکدام بزنید:",
   "platform": {
     "telegram": "تلگرام",
-    "whatsapp": "واتساپ"
+    "whatsapp": "واتساپ",
+    "bale": "بله",
+    "rubika": "روبیکا"
   },
-  "type": {
-    "group": " · گروه",
-    "channel": " · کانال"
+  "typeName": {
+    "group": "گروه",
+    "channel": "کانال"
   },
   "status": {
     "active": "فعال",
@@ -20,12 +22,21 @@
     "queued": "در صف عضویت"
   },
   "unnamed": "بدون نام",
+  "details": {
+    "platform": "پیام‌رسان: {platform}",
+    "type": "نوع: {type}",
+    "status": "وضعیت: {status}",
+    "identifier": "شناسه: {identifier}",
+    "createdAt": "ثبت: {date}",
+    "error": "خطا: {error}"
+  },
   "actions": {
     "add": "➕ افزودن لینک",
-    "remove": "🗑 حذف {name}",
     "confirmRemove": "✅ بله، حذف شود",
     "cancel": "↩️ انصراف",
-    "back": "🔙 بازگشت به منو"
+    "back": "🔙 بازگشت به منو",
+    "removeShort": "🗑 حذف",
+    "backToList": "↩️ برگشت به لیست"
   },
   "askLink": "لینک گروه یا کانال واتساپ یا تلگرام را بفرستید.\n\nنمونه‌ها:\nhttps://chat.whatsapp.com/…\nhttps://whatsapp.com/channel/…\nhttps://t.me/username\nhttps://t.me/+invite\n@username",
   "confirmRemove": "«{name}» از لیست شما حذف شود؟\nدیگر باری از آن برای شما فرستاده نمی‌شود.",

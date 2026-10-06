@@ -13,7 +13,7 @@ import {
   ToolGenerator,
   ToolParam,
 } from 'src/application/services/agent/tools/toolKit';
-import { ChannelSubscriptionService, UserChannel } from './channelSubscription.service';
+import { CompanyChannelsService, UserChannel } from './companyChannels.service';
 import { ChannelServiceError } from './tarabariChannels.client';
 
 // بررسی دقیق هر پلتفرم در tarabari_backend (channelRegistry) انجام می‌شود.
@@ -28,14 +28,14 @@ const PLATFORM_NAMES: Record<string, string> = {
 
 /**
  * ابزارهای agent برای «گروه‌ها و کانال‌ها»ی شرکت (domain company_channels).
- * همان ChannelSubscriptionService که وب، تلگرام و واتس‌اپ استفاده می‌کنند.
+ * همان CompanyChannelsService که وب، تلگرام و واتس‌اپ استفاده می‌کنند.
  */
 @Injectable()
 export class CompanyChannelTools implements OnModuleInit {
   constructor(
     private readonly toolRegister: ToolRegister,
     private readonly history: ContextManager,
-    private readonly channels: ChannelSubscriptionService,
+    private readonly channels: CompanyChannelsService,
   ) {}
 
   onModuleInit() {

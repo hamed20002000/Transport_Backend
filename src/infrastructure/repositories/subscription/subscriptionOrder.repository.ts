@@ -68,6 +68,24 @@ export class SubscriptionOrderRepository
       .getOne();
   }
 
+  async findLatestByUserId(
+    userId: string,
+  ): Promise<SubscriptionOrder | null> {
+    return this.repository
+      .createQueryBuilder('order')
+      .leftJoinAndSelect('order.subscriptionPlan', 'plan')
+      .leftJoinAndSelect('order.receipts', 'receipt')
+      // سفارش با شناسه‌ی پیام‌رسان ثبت می‌شود؛ اتصال‌های BotLink آن را به کاربر می‌رسانند.
+      .where(
+        'order.providerUserId IN (SELECT link."externalUserId" FROM "BotLink" link WHERE link."userId" = :userId)',
+        { userId },
+      )
+      .orWhere('order.createdUserId = :userId', { userId })
+      .orderBy('order.createdAt', 'DESC')
+      .addOrderBy('receipt.createdAt', 'DESC')
+      .getOne();
+  }
+
   async findLatestByProviderUser(
     provider: CommunicationProvider,
     providerUserId: string,

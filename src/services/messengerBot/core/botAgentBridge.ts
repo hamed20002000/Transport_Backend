@@ -3,23 +3,25 @@ import { Injectable } from '@nestjs/common';
 /** همه callback_dataهای agent با این پیشوند شروع می‌شوند. */
 export const AGENT_CALLBACK_PREFIX = 'agent:';
 
-export interface TelegramAgentContext {
+export interface BotAgentContext {
   chatId: string;
   externalUserId: string;
   /** کاربر سامانه؛ فقط بعد از بررسی اتصال حساب و اشتراک فعال ساخته می‌شود. */
   userId: string;
 }
 
-export interface TelegramAgentVoice {
+export interface BotAgentVoice {
   fileId: string;
   fileSize?: number;
   duration: number;
 }
 
-export interface TelegramAgentHandler {
-  handleText(ctx: TelegramAgentContext, text: string): Promise<void>;
-  handleVoice(ctx: TelegramAgentContext, voice: TelegramAgentVoice): Promise<void>;
-  handleCallback(ctx: TelegramAgentContext, data: string, messageId?: number): Promise<void>;
+export interface BotAgentHandler {
+  handleText(ctx: BotAgentContext, text: string): Promise<void>;
+  handleVoice(ctx: BotAgentContext, voice: BotAgentVoice): Promise<void>;
+  handleCallback(ctx: BotAgentContext, data: string, messageId?: number): Promise<void>;
+  /** agent منتظر جواب کاربر است؛ متن او جواب agent است، نه انتخاب منو. */
+  isAwaitingAnswer(ctx: BotAgentContext): boolean;
 }
 
 /**
@@ -29,14 +31,14 @@ export interface TelegramAgentHandler {
  * پیام «به‌زودی» می‌دهد.
  */
 @Injectable()
-export class TelegramAgentBridge {
-  private handler?: TelegramAgentHandler;
+export class BotAgentBridge {
+  private handler?: BotAgentHandler;
 
-  register(handler: TelegramAgentHandler): void {
+  register(handler: BotAgentHandler): void {
     this.handler = handler;
   }
 
-  get current(): TelegramAgentHandler | undefined {
+  get current(): BotAgentHandler | undefined {
     return this.handler;
   }
 }

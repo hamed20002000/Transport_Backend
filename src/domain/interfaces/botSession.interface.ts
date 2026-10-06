@@ -1,9 +1,9 @@
 import { AccountType } from "../enums/subscription";
-import { TelegramSessionState } from "../enums/telegram";
+import { BotSessionState } from "../enums/botSession";
 
 
-export interface TelegramSession {
-  state: TelegramSessionState;
+export interface BotSession {
+  state: BotSessionState;
 
   accountType?: AccountType;
 
@@ -15,13 +15,13 @@ export interface TelegramSession {
 
   pendingOperationId?: string;
 
-  pendingOptions?: TelegramPendingOption[];
+  pendingOptions?: BotPendingOption[];
 
   /** Epoch ms; when set, the session expires at this fixed time instead of sliding. */
   expiresAt?: number;
 }
 
-export interface TelegramPendingOption {
+export interface BotPendingOption {
   id: string;
   title: string;
 }

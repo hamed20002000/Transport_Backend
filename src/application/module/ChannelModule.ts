@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 
-import { ChannelBotFlowService } from '../../services/channel/channelBotFlow.service';
-import { ChannelSubscriptionService } from '../../services/channel/channelSubscription.service';
+import { CompanyChannelsDialog } from '../../services/channel/companyChannelsDialog';
+import { CompanyChannelsService } from '../../services/channel/companyChannels.service';
 import { TarabariChannelsClient } from '../../services/channel/tarabariChannels.client';
 import { RedisModule } from './RedisModule';
 import { SubscriptionModule } from './SubscriptionModule';
@@ -14,7 +14,7 @@ import { CompanyChannelTools } from '../../services/channel/companyChannelTools'
  */
 @Module({
   imports: [RedisModule, SubscriptionModule, UserModule],
-  providers: [TarabariChannelsClient, ChannelSubscriptionService, ChannelBotFlowService, CompanyChannelTools],
-  exports: [ChannelSubscriptionService, ChannelBotFlowService],
+  providers: [TarabariChannelsClient, CompanyChannelsService, CompanyChannelsDialog, CompanyChannelTools],
+  exports: [CompanyChannelsService, CompanyChannelsDialog],
 })
 export class ChannelModule {}

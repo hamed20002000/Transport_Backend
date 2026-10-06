@@ -7,9 +7,12 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
+import { RedisService } from '../../redis/redis.service';
 import { MultiBot } from '../core/multiBot';
 import { RubikaBotClient } from './rubikaBotClient';
+
+const OFFSET_TTL_SECONDS = 30 * 24 * 3600;
 
 export type RubikaWebhookBody = Parameters<RubikaBotClient['handleWebhook']>[0];
 
@@ -29,6 +32,7 @@ export class RubikaBotService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly config: ConfigService,
     private readonly multiBot: MultiBot,
+    private readonly redis: RedisService,
   ) {}
 
   onModuleInit(): void {
@@ -45,9 +49,16 @@ export class RubikaBotService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    // کلید Redis از hash توکن ساخته می‌شود تا خود توکن در Redis نرود.
+    const offsetKey = RedisService.key('rubikaPollOffset', createHash('sha256').update(token).digest('hex').slice(0, 16));
     const client = new RubikaBotClient(
       token,
       webhookBase ? `${webhookBase.replace(/\/+$/, '')}/${this.webhookSecret}` : undefined,
+      undefined,
+      {
+        load: () => this.redis.get(offsetKey),
+        save: (offsetId) => this.redis.set(offsetKey, offsetId, OFFSET_TTL_SECONDS),
+      },
     );
     this.client = client;
     this.multiBot.register('rubika', client);

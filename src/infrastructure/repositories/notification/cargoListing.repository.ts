@@ -50,6 +50,16 @@ export class CargoListingRepository {
     });
   }
 
+  /** بارهای هنوز برداشته‌نشده‌ی همه‌ی شرکت‌ها، جدیدترین اول (برای «پیدا کردن بار» راننده). */
+  findOpenPage(options: { skip: number; take: number }): Promise<[CargoListing[], number]> {
+    return this.repository.findAndCount({
+      where: { status: CargoListingStatus.Open },
+      order: { createdAt: 'DESC' },
+      skip: options.skip,
+      take: options.take,
+    });
+  }
+
   /**
    * فقط اگر وضعیت واقعاً عوض شود true برمی‌گرداند. شرط روی وضعیت قبلی باعث
    * می‌شود دو کلیک همزمان فقط یک بار پیام‌ها را ویرایش کنند.

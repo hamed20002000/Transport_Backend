@@ -2,26 +2,26 @@ import { Injectable } from '@nestjs/common';
 import { botNamespace } from './botPlatform';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'node:crypto';
-import { TelegramSessionState } from '../../../domain/enums/telegram';
-import { TelegramSession } from '../../../domain/interfaces/telegram.interface';
+import { BotSessionState } from '../../../domain/enums/botSession';
+import { BotSession } from '../../../domain/interfaces/botSession.interface';
 import { RedisService } from '../../redis/redis.service';
 
 @Injectable()
-export class TelegramSessionService {
+export class BotSessionService {
   private readonly ttlSeconds: number;
-  private readonly botId: string;
+  private readonly namespace: string;
 
   constructor(private readonly redis: RedisService, config: ConfigService) {
     this.ttlSeconds = Number(config.get('TELEGRAM_SESSION_TTL_SECONDS', 86400));
     if (!Number.isSafeInteger(this.ttlSeconds) || this.ttlSeconds <= 0) {
       throw new Error('TELEGRAM_SESSION_TTL_SECONDS must be a positive integer.');
     }
-    this.botId = botNamespace(config);
+    this.namespace = botNamespace(config);
   }
 
-  async get(externalUserId: string): Promise<TelegramSession | null> {
-    const key = RedisService.key('telegramSession', this.botId, externalUserId);
-    const session = await this.redis.getJson<TelegramSession>(key);
+  async get(externalUserId: string): Promise<BotSession | null> {
+    const key = RedisService.key('telegramSession', this.namespace, externalUserId);
+    const session = await this.redis.getJson<BotSession>(key);
     if (session === null) return null;
     // Fixed-deadline sessions (e.g. payment window) must not be extended by reads.
     if (session.expiresAt) return session;
@@ -29,11 +29,11 @@ export class TelegramSessionService {
     return await this.redis.expire(key, this.ttlSeconds) ? session : null;
   }
 
-  async getOrCreate(externalUserId: string): Promise<TelegramSession> {
+  async getOrCreate(externalUserId: string): Promise<BotSession> {
     return await this.get(externalUserId) ?? await this.reset(externalUserId);
   }
 
-  async set(externalUserId: string, session: TelegramSession): Promise<void> {
+  async set(externalUserId: string, session: BotSession): Promise<void> {
     const ttlSeconds = session.expiresAt
       ? Math.ceil((session.expiresAt - Date.now()) / 1000)
       : this.ttlSeconds;
@@ -41,21 +41,21 @@ export class TelegramSessionService {
       await this.delete(externalUserId);
       return;
     }
-    await this.redis.setJson(RedisService.key('telegramSession', this.botId, externalUserId), session, ttlSeconds);
+    await this.redis.setJson(RedisService.key('telegramSession', this.namespace, externalUserId), session, ttlSeconds);
   }
 
   async update(
     externalUserId: string,
-    values: Partial<TelegramSession>,
-  ): Promise<TelegramSession> {
-    const session = await this.get(externalUserId) ?? { state: TelegramSessionState.Idle };
+    values: Partial<BotSession>,
+  ): Promise<BotSession> {
+    const session = await this.get(externalUserId) ?? { state: BotSessionState.Idle };
     Object.assign(session, values);
     await this.set(externalUserId, session);
     return session;
   }
 
-  async reset(externalUserId: string): Promise<TelegramSession> {
-    const session: TelegramSession = { state: TelegramSessionState.Idle };
+  async reset(externalUserId: string): Promise<BotSession> {
+    const session: BotSession = { state: BotSessionState.Idle };
     await this.set(externalUserId, session);
     return session;
   }
@@ -68,7 +68,7 @@ export class TelegramSessionService {
     externalUserId: string,
     task: () => Promise<T>,
   ): Promise<{ locked: true } | { locked: false; result: T }> {
-    const key = RedisService.key('telegramReceiptLock', this.botId, externalUserId);
+    const key = RedisService.key('telegramReceiptLock', this.namespace, externalUserId);
     const owner = randomBytes(16).toString('hex');
     // Covers download and database write; analysis runs in the background.
     if (!(await this.redis.setIfAbsent(key, owner, 300))) return { locked: true };
@@ -80,7 +80,7 @@ export class TelegramSessionService {
   }
 
   async delete(externalUserId: string): Promise<void> {
-    await this.redis.delete(RedisService.key('telegramSession', this.botId, externalUserId));
+    await this.redis.delete(RedisService.key('telegramSession', this.namespace, externalUserId));
   }
 
 }

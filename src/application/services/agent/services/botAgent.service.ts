@@ -11,15 +11,15 @@ import { RedisService } from 'src/services/redis/redis.service';
 import { MessengerBotService } from 'src/services/messengerBot/core/messengerBot.service';
 import {
   AGENT_CALLBACK_PREFIX,
-  TelegramAgentBridge,
-  TelegramAgentContext,
-  TelegramAgentHandler,
-  TelegramAgentVoice,
-} from 'src/services/messengerBot/core/telegramAgentBridge';
-import { TelegramIdentityService } from 'src/services/messengerBot/core/telegramIdentity.service';
-import { TelegramMessagesService } from 'src/services/messengerBot/core/telegramMessages.service';
+  BotAgentBridge,
+  BotAgentContext,
+  BotAgentHandler,
+  BotAgentVoice,
+} from 'src/services/messengerBot/core/botAgentBridge';
+import { BotIdentityService } from 'src/services/messengerBot/core/botIdentity.service';
+import { BotMessagesService } from 'src/services/messengerBot/core/botMessages.service';
 import { UserService } from 'src/services/UserService';
-import { TelegramCallback } from 'src/domain/constants/telegram/TelegramCallback';
+import { BotCallback } from 'src/domain/constants/bot/BotCallback';
 import { removeVoiceFiles, VOICE_DIR } from 'src/presentation/controllers/agent/agent-uploads';
 
 import { AgentChannelRelay, AgentChannelRelays } from '../agentChannelRelays';
@@ -58,9 +58,9 @@ const Action = {
  * همین process نگه داشته می‌شوند.
  */
 @Injectable()
-export class TelegramAgentService implements TelegramAgentHandler, AgentChannelRelay, OnModuleInit {
-  private readonly logger = new Logger(TelegramAgentService.name);
-  private readonly botId: string;
+export class BotAgentService implements BotAgentHandler, AgentChannelRelay, OnModuleInit {
+  private readonly logger = new Logger(BotAgentService.name);
+  private readonly namespace: string;
 
   /** userId -> chatId؛ برای جواب دادن بدون رفتن به دیتابیس. */
   private readonly chats = new Map<string, string>();
@@ -72,18 +72,18 @@ export class TelegramAgentService implements TelegramAgentHandler, AgentChannelR
   private readonly pendingSelections = new Map<string, { message: string; options: SelectionOption[] }>();
 
   constructor(
-    private readonly bridge: TelegramAgentBridge,
+    private readonly bridge: BotAgentBridge,
     private readonly relays: AgentChannelRelays,
     private readonly telegram: MessengerBotService,
-    private readonly identity: TelegramIdentityService,
-    private readonly messages: TelegramMessagesService,
+    private readonly identity: BotIdentityService,
+    private readonly messages: BotMessagesService,
     private readonly functionCalls: FunctionCallService,
     private readonly speechToText: SpeechToTextService,
     private readonly users: UserService,
     private readonly redis: RedisService,
     config: ConfigService,
   ) {
-    this.botId = botNamespace(config);
+    this.namespace = botNamespace(config);
   }
 
   onModuleInit(): void {
@@ -93,7 +93,7 @@ export class TelegramAgentService implements TelegramAgentHandler, AgentChannelR
 
   //#region Incoming (from the bot) -----------------------------------------
 
-  async handleText(ctx: TelegramAgentContext, text: string): Promise<void> {
+  async handleText(ctx: BotAgentContext, text: string): Promise<void> {
     this.chats.set(ctx.userId, ctx.chatId);
     const prompt = text.trim();
     if (!prompt) return;
@@ -109,7 +109,11 @@ export class TelegramAgentService implements TelegramAgentHandler, AgentChannelR
     await this.run(ctx, prompt);
   }
 
-  async handleVoice(ctx: TelegramAgentContext, voice: TelegramAgentVoice): Promise<void> {
+  isAwaitingAnswer(ctx: BotAgentContext): boolean {
+    return this.functionCalls.hasPendingGenerator(ctx.userId) || this.functionCalls.hasPendingConfirmation(ctx.userId);
+  }
+
+  async handleVoice(ctx: BotAgentContext, voice: BotAgentVoice): Promise<void> {
     this.chats.set(ctx.userId, ctx.chatId);
 
     if (voice.duration > MAX_VOICE_SECONDS || (voice.fileSize ?? 0) > MAX_VOICE_BYTES) {
@@ -128,7 +132,7 @@ export class TelegramAgentService implements TelegramAgentHandler, AgentChannelR
       await this.telegram.downloadAgentFile(voice.fileId, path);
       text = (await this.speechToText.transcribeFile(path)).trim();
     } catch (error) {
-      this.logger.error(`Telegram voice transcription failed for ${ctx.userId}`, error as Error);
+      this.logger.error(`Bot voice transcription failed for ${ctx.userId}`, error as Error);
       await this.telegram.editAgentMessage(ctx.chatId, statusId, this.t('voiceFailed'));
       return;
     } finally {
@@ -137,6 +141,12 @@ export class TelegramAgentService implements TelegramAgentHandler, AgentChannelR
 
     if (!text) {
       await this.telegram.editAgentMessage(ctx.chatId, statusId, this.t('voiceEmpty'));
+      return;
+    }
+
+    // اسم یکی از دکمه‌های منو را گفته: همان دکمه اجرا می‌شود، بدون تأیید متن.
+    if (await this.telegram.selectMenuByText(ctx.chatId, ctx.externalUserId, text)) {
+      await this.telegram.editAgentMessage(ctx.chatId, statusId, this.t('voiceMenuSelected', { text }));
       return;
     }
 
@@ -150,7 +160,7 @@ export class TelegramAgentService implements TelegramAgentHandler, AgentChannelR
     ]);
   }
 
-  async handleCallback(ctx: TelegramAgentContext, data: string, messageId?: number): Promise<void> {
+  async handleCallback(ctx: BotAgentContext, data: string, messageId?: number): Promise<void> {
     this.chats.set(ctx.userId, ctx.chatId);
 
     // صفحه‌بندی همان پیام را عوض می‌کند؛ بقیه دکمه‌ها یک‌بار مصرف‌اند.
@@ -242,7 +252,7 @@ export class TelegramAgentService implements TelegramAgentHandler, AgentChannelR
     const buttons: Button[][] = [
       [
         { text: this.t('buttons.newChat'), callback_data: Action.NewChat },
-        { text: this.messages.get('menu.common.mainMenu'), callback_data: TelegramCallback.MainMenu },
+        { text: this.messages.get('menu.common.mainMenu'), callback_data: BotCallback.MainMenu },
       ],
     ];
     const progressId = this.progressMessages.get(chatId);
@@ -262,7 +272,7 @@ export class TelegramAgentService implements TelegramAgentHandler, AgentChannelR
 
   //#region Helpers ---------------------------------------------------------
 
-  private async run(ctx: TelegramAgentContext, prompt: string): Promise<void> {
+  private async run(ctx: BotAgentContext, prompt: string): Promise<void> {
     const user = await this.users.getByUserId(ctx.userId);
     const request: AgentRequest = { user: { userId: ctx.userId, username: user.username } };
     const sessionId = await this.sessionOf(ctx.userId);
@@ -273,10 +283,10 @@ export class TelegramAgentService implements TelegramAgentHandler, AgentChannelR
     // مثل وب و واتس‌اپ: نتیجه بعداً از AgentGateway می‌رسد.
     this.functionCalls
       .RunFunctionCalling(prompt, request, [], sessionId, 'telegram')
-      .catch((error) => this.logger.error(`RunFunctionCalling failed (Telegram): ${ctx.userId}`, error as Error));
+      .catch((error) => this.logger.error(`RunFunctionCalling failed (bot): ${ctx.userId}`, error as Error));
   }
 
-  private async answerGenerator(ctx: TelegramAgentContext, value: unknown, cancelled: boolean): Promise<void> {
+  private async answerGenerator(ctx: BotAgentContext, value: unknown, cancelled: boolean): Promise<void> {
     if (!this.functionCalls.hasPendingGenerator(ctx.userId)) {
       await this.telegram.sendAgentMessage(ctx.chatId, this.t('selectionExpired'));
       return;
@@ -367,7 +377,7 @@ export class TelegramAgentService implements TelegramAgentHandler, AgentChannelR
   }
 
   private sessionKey(userId: string): string {
-    return RedisService.key('telegramAgentSession', this.botId, userId);
+    return RedisService.key('telegramAgentSession', this.namespace, userId);
   }
 
   /** گفتگوی جاری کاربر؛ تا «گفتگوی جدید» یا انقضا، context قبلی حفظ می‌شود. */

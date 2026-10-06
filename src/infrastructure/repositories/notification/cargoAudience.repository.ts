@@ -21,20 +21,23 @@ export interface PublisherContact {
 export class CargoAudienceRepository {
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
-  /** راننده‌های فعال با اشتراک فعال. */
-  async findSubscribedDriverIds(now = new Date()): Promise<string[]> {
-    const rows = await this.dataSource
+  /** راننده‌های فعال؛ با requireSubscription فقط آن‌هایی که اشتراک فعال دارند. */
+  async findDriverIds(requireSubscription: boolean, now = new Date()): Promise<string[]> {
+    const query = this.dataSource
       .getRepository(User)
       .createQueryBuilder('user')
       .select('DISTINCT user.id', 'id')
       .innerJoin('user.userRoles', 'userRole')
-      .innerJoin('userRole.role', 'role', 'role.name = :driver AND role.recordStatus = :active')
-      .innerJoin(
+      .innerJoin('userRole.role', 'role', 'role.name = :driver AND role.recordStatus = :active');
+    if (requireSubscription) {
+      query.innerJoin(
         'Subscription',
         'subscription',
         'subscription.userId = user.id AND subscription.status = :subscriptionActive ' +
           'AND subscription.startAt <= :now AND subscription.expireAt > :now',
-      )
+      );
+    }
+    const rows = await query
       .where('user.recordStatus = :active')
       .setParameters({
         driver: DRIVER_ROLE,

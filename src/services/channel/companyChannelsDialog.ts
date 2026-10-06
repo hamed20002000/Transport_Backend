@@ -2,35 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { I18nService } from 'nestjs-i18n';
 
 import { MessengerPlatform } from 'src/domain/enums/messenger';
+import { BotAction, BotContext, BotReply } from '../messengerBot/core/botDialog';
 import { RedisService } from '../redis/redis.service';
-import { ChannelSubscriptionService, UserChannel } from './channelSubscription.service';
+import { CompanyChannelsService, UserChannel } from './companyChannels.service';
 import { ChannelPlatform, ChannelServiceError } from './tarabariChannels.client';
 
-/** یک گزینه؛ تلگرام آن را دکمه (callback_data = id) و واتساپ آیتم شماره‌دار نشان می‌دهد. */
-export interface BotAction {
-  id: string;
-  label: string;
-}
-
-/**
- * پاسخ مستقل از پلتفرم. `closed`: کاربر از این بخش بیرون رفت ('exit' = خودش
- * بازگشت را زد، 'denied' = دسترسی ندارد و متن باید نمایش داده شود).
- */
-export interface BotReply {
-  text: string;
-  actions: BotAction[];
-  closed?: 'exit' | 'denied';
-}
-
-export interface BotContext {
-  platform: MessengerPlatform;
-  // شناسه‌ی کاربر در همان پیام‌رسان (externalUserId یا jid واتساپ)
-  externalUserId: string;
-  // User.id همین سرویس، از هویت تأییدشده‌ی پیام‌رسان
-  userId: string;
-}
-
-interface FlowSession {
+interface DialogSession {
   awaitingLink: boolean;
   // گزینه‌های آخرین پیام، برای انتخاب با شماره در واتساپ
   actions: string[];
@@ -38,23 +15,34 @@ interface FlowSession {
 
 const PREFIX = 'ch:';
 const Action = {
-  List: `${PREFIX}list`,
+  MyChannels: `${PREFIX}list`,
+  Details: `${PREFIX}v:`, // + platformCode:channelId
   Add: `${PREFIX}add`,
   Remove: `${PREFIX}rm:`,
   ConfirmRemove: `${PREFIX}rmy:`,
   Close: `${PREFIX}close`,
 } as const;
 
+// متن پیام فقط ایموجی قبول می‌کند (نه لوگو)؛ نزدیک به رنگ/شکل هر پیام‌رسان.
+// Record باعث می‌شود پیام‌رسان جدید بدون ایموجی کامپایل نشود.
+const platformIcon: Record<ChannelPlatform, string> = { telegram: '✈️', whatsapp: '🟢', bale: '🔵', rubika: '🟣' };
+
 // callback_data تلگرام حداکثر ۶۴ بایت است؛ پلتفرم با یک حرف ذخیره می‌شود.
 const platformCode: Record<ChannelPlatform, string> = { telegram: 't', whatsapp: 'w', bale: 'b', rubika: 'r' };
 const codePlatform: Record<string, ChannelPlatform> = { t: 'telegram', w: 'whatsapp', b: 'bale', r: 'rubika' };
+
+// کانال‌ها در ربات‌ها دوتایی در هر ردیف؛ اسم بلند دکمه را از دو ستون بیرون می‌زند.
+const CHANNELS_PER_ROW = 2;
+const MAX_BUTTON_NAME = 22;
 
 const SESSION_TTL_SECONDS = 15 * 60;
 const CANCEL_WORDS = ['لغو', 'انصراف', 'cancel', 'iptal', '0', '۰'];
 const TRIGGER_WORDS = ['کانال', 'کانالها', 'کانال‌ها', 'گروه', 'گروهها', 'گروه‌ها', 'channels', '/channels'];
 
 const latinDigits = (value: string) =>
-  value.replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+  value
+    .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
 
 /**
  * گفتگوی «گروه‌ها و کانال‌های من» برای همه‌ی پیام‌رسان‌ها. خروجی فقط متن و
@@ -62,9 +50,9 @@ const latinDigits = (value: string) =>
  * هم‌زمان در تلگرام و واتساپ دیده می‌شود.
  */
 @Injectable()
-export class ChannelBotFlowService {
+export class CompanyChannelsDialog {
   constructor(
-    private readonly channels: ChannelSubscriptionService,
+    private readonly channels: CompanyChannelsService,
     private readonly redis: RedisService,
     private readonly i18n: I18nService,
   ) {}
@@ -84,7 +72,7 @@ export class ChannelBotFlowService {
 
   async open(ctx: BotContext): Promise<BotReply> {
     const denied = await this.denied(ctx);
-    return denied ?? this.listView(ctx);
+    return denied ?? this.myChannelsView(ctx);
   }
 
   /** null یعنی این گزینه مال این بخش نیست. */
@@ -99,33 +87,37 @@ export class ChannelBotFlowService {
     const denied = await this.denied(ctx);
     if (denied) return denied;
 
-    if (id === Action.List) return this.listView(ctx);
+    if (id === Action.MyChannels) return this.myChannelsView(ctx);
 
     if (id === Action.Add) {
-      const actions = [{ id: Action.List, label: this.t('actions.cancel') }];
+      const actions = [{ id: Action.MyChannels, label: this.t('actions.cancel') }];
       await this.saveSession(ctx, { awaitingLink: true, actions: actions.map((a) => a.id) });
       return { text: this.t('askLink'), actions };
     }
 
     const target = this.parseTarget(id);
-    if (!target) return this.listView(ctx);
+    if (!target) return this.myChannelsView(ctx);
 
-    const channel = (await this.safeList(ctx.userId))?.find((c) => c.id === target.id && c.platform === target.platform);
-    if (!channel) return this.listView(ctx, this.t('notFound'));
+    const channel = (await this.safeList(ctx.userId))?.find(
+      (c) => c.id === target.id && c.platform === target.platform,
+    );
+    if (!channel) return this.myChannelsView(ctx, this.t('notFound'));
     const name = this.channelName(channel);
 
-    if (target.confirmed) {
+    if (target.kind === 'details') return this.detailsView(ctx, channel);
+
+    if (target.kind === 'confirmRemove') {
       try {
         await this.channels.remove(ctx.userId, channel.platform, channel.id);
-        return this.listView(ctx, this.t('removed', { name }));
+        return this.myChannelsView(ctx, this.t('removed', { name }));
       } catch (error) {
-        return this.listView(ctx, this.errorText(error));
+        return this.myChannelsView(ctx, this.errorText(error));
       }
     }
 
     const actions = [
-      { id: `${Action.ConfirmRemove}${platformCode[channel.platform]}:${channel.id}`, label: this.t('actions.confirmRemove') },
-      { id: Action.List, label: this.t('actions.cancel') },
+      { id: this.channelAction(Action.ConfirmRemove, channel), label: this.t('actions.confirmRemove'), row: 0 },
+      { id: this.channelAction(Action.Details, channel), label: this.t('actions.cancel'), row: 0 },
     ];
     await this.saveSession(ctx, { awaitingLink: false, actions: actions.map((a) => a.id) });
     return { text: this.t('confirmRemove', { name }), actions };
@@ -141,7 +133,7 @@ export class ChannelBotFlowService {
     const value = text.trim();
 
     if (CANCEL_WORDS.includes(value.toLowerCase())) {
-      return session.awaitingLink ? this.listView(ctx) : this.handleAction(ctx, Action.Close);
+      return session.awaitingLink ? this.myChannelsView(ctx) : this.handleAction(ctx, Action.Close);
     }
 
     if (session.awaitingLink) {
@@ -149,14 +141,19 @@ export class ChannelBotFlowService {
       if (denied) return denied;
       try {
         const result = await this.channels.add(ctx.userId, value);
-        const notice = [this.t(result.created ? 'created' : 'alreadyRegistered'), result.warning].filter(Boolean).join('\n');
-        return this.listView(ctx, notice);
+        const notice = [this.t(result.created ? 'created' : 'alreadyRegistered'), result.warning]
+          .filter(Boolean)
+          .join('\n');
+        return this.myChannelsView(ctx, notice);
       } catch (error) {
         // لینک نامعتبر: همچنان منتظر لینک می‌مانیم تا کاربر دوباره بفرستد.
         if (error instanceof ChannelServiceError && error.kind === 'invalid') {
-          return { text: `${this.errorText(error)}\n\n${this.t('askLink')}`, actions: [{ id: Action.List, label: this.t('actions.cancel') }] };
+          return {
+            text: `${this.errorText(error)}\n\n${this.t('askLink')}`,
+            actions: [{ id: Action.MyChannels, label: this.t('actions.cancel') }],
+          };
         }
-        return this.listView(ctx, this.errorText(error));
+        return this.myChannelsView(ctx, this.errorText(error));
       }
     }
 
@@ -177,9 +174,14 @@ export class ChannelBotFlowService {
 
   // ------------------------------------------------------------------
 
-  private async listView(ctx: BotContext, notice?: string): Promise<BotReply> {
+  /**
+   * لیست گروه‌ها و کانال‌هایی که این کاربر ثبت کرده: راهنمای آیکون‌ها بالای
+   * لیست، هر کانال یک دکمه («آیکون اسم · فعال») دوتایی در هر ردیف؛ کلیک روی
+   * هر کدام جزئیات و حذف را نشان می‌دهد.
+   */
+  private async myChannelsView(ctx: BotContext, notice?: string): Promise<BotReply> {
     const channels = await this.safeList(ctx.userId);
-    const actions: BotAction[] = [{ id: Action.Add, label: this.t('actions.add') }];
+    const actions: BotAction[] = [];
 
     let body: string;
     if (channels === null) {
@@ -187,37 +189,84 @@ export class ChannelBotFlowService {
     } else if (!channels.length) {
       body = this.t('empty');
     } else {
-      body = channels
-        .map((channel, index) =>
-          this.t('item', {
-            index: index + 1,
-            icon: channel.platform === 'telegram' ? '✈️' : '💬',
-            name: this.channelName(channel),
-            platform: this.t(`platform.${channel.platform}`),
-            type: channel.type ? this.t(`type.${channel.type}`) : '',
-            status: this.t(`status.${this.status(channel)}`),
-          }),
-        )
-        .join('\n\n');
-      for (const channel of channels) {
+      body = `${this.legend()}
+
+${this.t('count', { count: channels.length })}`;
+      channels.forEach((channel, index) => {
+        const status = this.t(this.status(channel) === 'active' ? 'status.active' : 'status.inactive');
         actions.push({
-          id: `${Action.Remove}${platformCode[channel.platform]}:${channel.id}`,
-          label: this.t('actions.remove', { name: this.channelName(channel) }),
+          id: this.channelAction(Action.Details, channel),
+          label: `${this.icon(channel)} ${this.shortName(channel)} · ${status}`,
+          row: Math.floor(index / CHANNELS_PER_ROW),
         });
-      }
+      });
     }
-    actions.push({ id: Action.Close, label: this.t('actions.back') });
+    const footerRow = Math.ceil((channels?.length ?? 0) / CHANNELS_PER_ROW);
+    actions.push(
+      { id: Action.Add, label: this.t('actions.add'), row: footerRow },
+      { id: Action.Close, label: this.t('actions.back'), row: footerRow },
+    );
 
     await this.saveSession(ctx, { awaitingLink: false, actions: actions.map((a) => a.id) });
     const text = [notice, `${this.t('title')}\n${this.t('intro')}`, body].filter(Boolean).join('\n\n');
     return { text, actions };
   }
 
+  /** جزئیات یک گروه/کانال با دکمه‌ی حذف. */
+  private async detailsView(ctx: BotContext, channel: UserChannel): Promise<BotReply> {
+    const lines = [
+      `${this.icon(channel)} ${this.channelName(channel)}`,
+      this.t('details.platform', { platform: this.t(`platform.${channel.platform}`) }),
+      channel.type ? this.t('details.type', { type: this.t(`typeName.${channel.type}`) }) : '',
+      this.t('details.status', { status: this.t(`status.${this.status(channel)}`) }),
+      channel.identifier ? this.t('details.identifier', { identifier: channel.identifier }) : '',
+      this.t('details.createdAt', { date: this.date(channel.createdAt) }),
+      channel.lastError && !channel.isMember ? this.t('details.error', { error: channel.lastError }) : '',
+    ];
+    const actions: BotAction[] = [
+      { id: this.channelAction(Action.Remove, channel), label: this.t('actions.removeShort'), row: 0 },
+      { id: Action.MyChannels, label: this.t('actions.backToList'), row: 0 },
+    ];
+    await this.saveSession(ctx, { awaitingLink: false, actions: actions.map((a) => a.id) });
+    return { text: lines.filter(Boolean).join('\n'), actions };
+  }
+
+  /** راهنمای آیکون‌ها، تا کاربر بداند هر آیکون مال کدام پیام‌رسان است. */
+  private legend(): string {
+    return (Object.keys(platformIcon) as ChannelPlatform[])
+      .map((platform) => `${platformIcon[platform]} ${this.t(`platform.${platform}`)}`)
+      .join('   ');
+  }
+
+  private icon(channel: UserChannel): string {
+    return platformIcon[channel.platform] ?? '💬';
+  }
+
+  private shortName(channel: UserChannel): string {
+    const name = this.channelName(channel);
+    return name.length > MAX_BUTTON_NAME ? `${name.slice(0, MAX_BUTTON_NAME - 1)}…` : name;
+  }
+
+  private channelAction(prefix: string, channel: UserChannel): string {
+    return `${prefix}${platformCode[channel.platform]}:${channel.id}`;
+  }
+
+  private date(value: string): string {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime())
+      ? value
+      : new Intl.DateTimeFormat('fa-IR', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+  }
+
   private async denied(ctx: BotContext): Promise<BotReply | null> {
     const access = await this.channels.checkAccess(ctx.userId);
     if (access === 'ok') return null;
     await this.clearSession(ctx);
-    return { text: this.t(access === 'notCompany' ? 'onlyCompany' : 'needSubscription'), actions: [], closed: 'denied' };
+    return {
+      text: this.t(access === 'notCompany' ? 'onlyCompany' : 'needSubscription'),
+      actions: [],
+      closed: 'denied',
+    };
   }
 
   private async safeList(userId: string): Promise<UserChannel[] | null> {
@@ -228,12 +277,19 @@ export class ChannelBotFlowService {
     }
   }
 
-  private parseTarget(id: string): { platform: ChannelPlatform; id: string; confirmed: boolean } | null {
-    const confirmed = id.startsWith(Action.ConfirmRemove);
-    if (!confirmed && !id.startsWith(Action.Remove)) return null;
-    const [code, channelId] = id.slice((confirmed ? Action.ConfirmRemove : Action.Remove).length).split(':');
+  private parseTarget(
+    id: string,
+  ): { platform: ChannelPlatform; id: string; kind: 'details' | 'remove' | 'confirmRemove' } | null {
+    const kinds = [
+      [Action.ConfirmRemove, 'confirmRemove'],
+      [Action.Remove, 'remove'],
+      [Action.Details, 'details'],
+    ] as const;
+    const match = kinds.find(([prefix]) => id.startsWith(prefix));
+    if (!match) return null;
+    const [code, channelId] = id.slice(match[0].length).split(':');
     const platform = codePlatform[code];
-    return platform && channelId ? { platform, id: channelId, confirmed } : null;
+    return platform && channelId ? { platform, id: channelId, kind: match[1] } : null;
   }
 
   private status(channel: UserChannel): string {
@@ -260,14 +316,14 @@ export class ChannelBotFlowService {
   }
 
   private sessionKey(ctx: Pick<BotContext, 'platform' | 'externalUserId'>): string {
-    return RedisService.key('messengerChannelFlow', ctx.platform, ctx.externalUserId);
+    return RedisService.key('companyChannelsDialog', ctx.platform, ctx.externalUserId);
   }
 
-  private getSession(ctx: Pick<BotContext, 'platform' | 'externalUserId'>): Promise<FlowSession | null> {
-    return this.redis.getJson<FlowSession>(this.sessionKey(ctx));
+  private getSession(ctx: Pick<BotContext, 'platform' | 'externalUserId'>): Promise<DialogSession | null> {
+    return this.redis.getJson<DialogSession>(this.sessionKey(ctx));
   }
 
-  private saveSession(ctx: BotContext, session: FlowSession): Promise<void> {
+  private saveSession(ctx: BotContext, session: DialogSession): Promise<void> {
     return this.redis.setJson(this.sessionKey(ctx), session, SESSION_TTL_SECONDS);
   }
 

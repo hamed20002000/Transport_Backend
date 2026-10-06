@@ -22,7 +22,7 @@ import { AuthService } from 'src/auth/auth.service';
 import { SpeechToTextService } from './Speechtotext.service';
 import { PendingConfirmationService } from './PendingConfirmationService';
 import { MessengerPlatform } from 'src/domain/enums/messenger';
-import { ChannelBotFlowService } from 'src/services/channel/channelBotFlow.service';
+import { CompanyChannelsDialog } from 'src/services/channel/companyChannelsDialog';
 
 const execAsync = promisify(exec);
 
@@ -96,7 +96,7 @@ export class WhatsappService implements OnModuleInit {
     private readonly authService: AuthService,
     private readonly speechToTextService: SpeechToTextService,
     private readonly pendingConfirmationService: PendingConfirmationService,
-    private readonly channelFlow: ChannelBotFlowService,
+    private readonly channelsDialog: CompanyChannelsDialog,
   ) { }
 
   async onModuleInit() {
@@ -423,11 +423,11 @@ export class WhatsappService implements OnModuleInit {
   private async handleChannelMessage(jid: string, userid: string, text: string): Promise<boolean> {
     // userid (uuid) به‌جای jid، چون jid ممکن است ':' داشته باشد که در کلید Redis مجاز نیست.
     const ctx = { platform: MessengerPlatform.Whatsapp, externalUserId: userid, userId: userid };
-    const reply = this.channelFlow.isTrigger(text)
-      ? await this.channelFlow.open(ctx)
-      : await this.channelFlow.handleText(ctx, text);
+    const reply = this.channelsDialog.isTrigger(text)
+      ? await this.channelsDialog.open(ctx)
+      : await this.channelsDialog.handleText(ctx, text);
     if (!reply) return false;
-    await this.sendMessage(jid, this.channelFlow.renderNumbered(reply));
+    await this.sendMessage(jid, this.channelsDialog.renderNumbered(reply));
     return true;
   }
 

@@ -16,7 +16,7 @@ import {
 } from '../../../domain/repositories/repository.tokens';
 
 @Injectable()
-export class TelegramIdentityService {
+export class BotIdentityService {
   constructor(
     @Inject(BOT_LINK_REPOSITORY)
     private readonly repository: IBotLinkRepository,
@@ -25,15 +25,23 @@ export class TelegramIdentityService {
   ) {}
 
   async cacheUserId(externalUserId: string, userId: string): Promise<void> {
-    const botId = botNamespace(this.config);
-    await this.redis.delete(RedisService.key('telegramIdentityRoles', botId, externalUserId));
-    await this.redis.set(RedisService.key('telegramIdentity', botId, externalUserId), userId, 86400);
+    const namespace = botNamespace(this.config);
+    await this.redis.delete(RedisService.key('telegramIdentityRoles', namespace, externalUserId));
+    await this.redis.set(RedisService.key('telegramIdentity', namespace, externalUserId), userId, 86400);
+  }
+
+  /** نقش‌های کش‌شده‌ی منو در همه‌ی ربات‌های کاربر پاک می‌شود (مثلاً بعد از خرید نقش جدید). */
+  async forgetRoles(userId: string): Promise<void> {
+    const namespace = botNamespace(this.config);
+    const links = await this.repository.findAllByUserId(userId);
+    if (!links.length) return;
+    await this.redis.delete(...links.map(link => RedisService.key('telegramIdentityRoles', namespace, link.externalUserId)));
   }
 
   /** Menu presentation only; business authorization must still check current permissions. */
   async getMenuRoles(externalUserId: string): Promise<string[] | null> {
-    const botId = botNamespace(this.config);
-    const key = RedisService.key('telegramIdentityRoles', botId, externalUserId);
+    const namespace = botNamespace(this.config);
+    const key = RedisService.key('telegramIdentityRoles', namespace, externalUserId);
     const roles = await this.redis.getJson<string[]>(key);
     if (roles !== null) return roles;
     const link = await this.repository.findByExternalUserId(externalUserId);
@@ -80,9 +88,9 @@ export class TelegramIdentityService {
   async getUserId(
     externalUserId: string,
   ): Promise<string | null> {
-    const botId = botNamespace(this.config);
+    const namespace = botNamespace(this.config);
     try {
-      const cached = await this.redis.get(RedisService.key('telegramIdentity', botId, externalUserId));
+      const cached = await this.redis.get(RedisService.key('telegramIdentity', namespace, externalUserId));
       if (cached) return cached;
     } catch {
       // Redis unavailable: fall back to the database.
@@ -93,7 +101,7 @@ export class TelegramIdentityService {
         await this.cacheUserId(externalUserId, link.userId);
         if (link.user) {
           const roles = link.user.userRoles?.filter(item => item.role != null).map(item => item.role.name) ?? [];
-          await this.redis.setJson(RedisService.key('telegramIdentityRoles', botId, externalUserId), roles, 86400);
+          await this.redis.setJson(RedisService.key('telegramIdentityRoles', namespace, externalUserId), roles, 86400);
         }
       } catch {
         // Caching is best-effort; the database result is still valid.
@@ -127,12 +135,12 @@ export class TelegramIdentityService {
    * and never use the application again.
    *
    * BotLink represents a real connection between
-   * Telegram identity and a User in our system.
+   * messenger identity (Telegram, Bale or Rubika) and a User in our system.
    *
    * Therefore:
    *
    * - Existing BotLink -> update metadata
-   * - Unknown Telegram user -> do nothing
+   * - Unknown messenger user -> do nothing
    *
    * BotLink is created only by linkUser().
    */
@@ -210,7 +218,7 @@ export class TelegramIdentityService {
       );
 
     if (link?.userId && link.userId !== params.userId) {
-      throw new ConflictException('Telegram account is already linked.');
+      throw new ConflictException('Messenger account is already linked.');
     }
     // هر کاربر در هر پیام‌رسان یک اتصال دارد (تلگرام، بله و روبیکا جدا).
     const existing = await this.repository.findByUserId(params.userId, botPlatformOf(params.externalUserId));

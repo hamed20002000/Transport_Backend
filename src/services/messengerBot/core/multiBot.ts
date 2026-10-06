@@ -60,32 +60,32 @@ export class MultiBot extends EventEmitter {
   // ------------------------------------------------------------------
 
   async sendMessage(chatId: string | number, text: string, options?: TelegramBot.SendMessageOptions) {
-    const { platform, client, raw } = this.route(chatId);
-    const message = await client.sendMessage(raw, text, options);
+    const { platform, client, nativeId } = this.route(chatId);
+    const message = await client.sendMessage(nativeId, text, options);
     return prefixMessage(platform, message);
   }
 
   async editMessageText(text: string, options: TelegramBot.EditMessageTextOptions) {
-    const { client, raw } = this.route(options.chat_id!);
-    return client.editMessageText(text, { ...options, chat_id: raw });
+    const { client, nativeId } = this.route(options.chat_id!);
+    return client.editMessageText(text, { ...options, chat_id: nativeId });
   }
 
   async editMessageReplyMarkup(
     markup: TelegramBot.InlineKeyboardMarkup,
     options: TelegramBot.EditMessageReplyMarkupOptions,
   ) {
-    const { client, raw } = this.route(options.chat_id!);
-    return client.editMessageReplyMarkup(markup, { ...options, chat_id: raw });
+    const { client, nativeId } = this.route(options.chat_id!);
+    return client.editMessageReplyMarkup(markup, { ...options, chat_id: nativeId });
   }
 
   async deleteMessage(chatId: string | number, messageId: number) {
-    const { client, raw } = this.route(chatId);
-    return client.deleteMessage(raw, messageId);
+    const { client, nativeId } = this.route(chatId);
+    return client.deleteMessage(nativeId, messageId);
   }
 
   async answerCallbackQuery(queryId: string) {
-    const { client, raw } = this.route(queryId);
-    return client.answerCallbackQuery(raw);
+    const { client, nativeId } = this.route(queryId);
+    return client.answerCallbackQuery(nativeId);
   }
 
   /** دستورهای ربات روی همه‌ی پیام‌رسان‌ها (ثبت‌شده و بعدی)؛ خطای یکی بقیه را متوقف نمی‌کند. */
@@ -102,25 +102,25 @@ export class MultiBot extends EventEmitter {
   }
 
   getFileStream(fileId: string): Readable {
-    const { client, raw } = this.route(fileId);
-    return client.getFileStream(raw);
+    const { client, nativeId } = this.route(fileId);
+    return client.getFileStream(nativeId);
   }
 
   async downloadFile(fileId: string, directory: string): Promise<string> {
-    const { client, raw } = this.route(fileId);
-    return client.downloadFile(raw, directory);
+    const { client, nativeId } = this.route(fileId);
+    return client.downloadFile(nativeId, directory);
   }
 
   async getFileLink(fileId: string): Promise<string> {
-    const { client, raw } = this.route(fileId);
-    return client.getFileLink(raw);
+    const { client, nativeId } = this.route(fileId);
+    return client.getFileLink(nativeId);
   }
 
-  private route(id: string | number): { platform: BotPlatform; client: PlatformClient; raw: string } {
-    const { platform, raw } = parseBotId(id);
+  private route(id: string | number): { platform: BotPlatform; client: PlatformClient; nativeId: string } {
+    const { platform, nativeId } = parseBotId(id);
     const client = this.clients.get(platform);
     if (!client) throw new Error(`${platform} bot is not configured.`);
-    return { platform, client, raw };
+    return { platform, client, nativeId };
   }
 }
 

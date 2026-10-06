@@ -34,5 +34,9 @@
   "get_company_profile": "در حال آوردن اطلاعات حساب",
   "get_company_profile_end": "اطلاعات حساب آماده است.",
   "update_company_profile": "در حال ثبت اطلاعات حساب",
-  "update_company_profile_end": "اطلاعات حساب ثبت شد."
+  "update_company_profile_end": "اطلاعات حساب ثبت شد.",
+  "get_my_subscription": "در حال بررسی اشتراک",
+  "get_my_subscription_end": "وضعیت اشتراک آماده است.",
+  "get_payment_status": "در حال بررسی آخرین خرید",
+  "get_payment_status_end": "وضعیت خرید آماده است."
 }

@@ -7,7 +7,7 @@ import {
 } from 'nestjs-i18n';
 
 @Injectable()
-export class TelegramMessagesService {
+export class BotMessagesService {
   constructor(
     private readonly i18n:
       I18nService,

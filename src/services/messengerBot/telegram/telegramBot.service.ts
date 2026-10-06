@@ -12,6 +12,8 @@ import { MessengerBotService } from '../core/messengerBot.service';
 import { MultiBot } from '../core/multiBot';
 import { TelegramTransport } from './telegramTransport';
 
+const RETRY_DELAY_MS = 30_000;
+
 /**
  * اتصال ربات تلگرام (polling یا webhook). منطق ربات در MessengerBotService
  * مشترک است؛ این سرویس فقط کلاینت تلگرام را می‌سازد و در MultiBot ثبت می‌کند.
@@ -22,6 +24,8 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
   private bot?: TelegramBot;
   private transport?: TelegramTransport;
   private ready = false;
+  private destroyed = false;
+  private retryTimer?: NodeJS.Timeout;
 
   constructor(
     private readonly config: ConfigService,
@@ -43,17 +47,27 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
 
     // در پس‌زمینه: تلگرامِ فیلترشده ممکن است دقیقه‌ها جواب ندهد و نباید
     // بالا آمدن برنامه یا بقیه‌ی ربات‌ها را معطل کند.
-    const transport = this.transport;
+    this.start(bot, this.transport);
+  }
+
+  /** تا وقتی تلگرام در دسترس نیست (فیلتر/قطعی VPN) دوباره تلاش می‌کند؛ بعد از شروع، خود polling خطاها را تحمل می‌کند. */
+  private start(bot: TelegramBot, transport: TelegramTransport): void {
     void transport
       .start(bot)
       .then(() => {
         this.ready = true;
         this.logger.log(`Telegram bot started in ${transport.mode} mode.`);
       })
-      .catch((error: Error) => this.logger.error(`Failed to start Telegram bot: ${error.message}`));
+      .catch((error: Error) => {
+        if (this.destroyed) return;
+        this.logger.error(`Failed to start Telegram bot: ${error.message}. Retrying in ${RETRY_DELAY_MS / 1000}s.`);
+        this.retryTimer = setTimeout(() => this.start(bot, transport), RETRY_DELAY_MS);
+      });
   }
 
   async onModuleDestroy(): Promise<void> {
+    this.destroyed = true;
+    clearTimeout(this.retryTimer);
     this.ready = false;
     if (this.bot?.isPolling()) await this.bot.stopPolling();
     // Keep the remote webhook registered across deployments.

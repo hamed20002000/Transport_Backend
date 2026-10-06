@@ -1,12 +1,10 @@
-export enum TelegramSessionState {
+export enum BotSessionState {
   Idle = 'IDLE',
   RegisteringAccountType = 'REGISTERING_ACCOUNT_TYPE',
 
   SelectingAccountType = 'SELECTING_ACCOUNT_TYPE',
 
   SelectingPlan = 'SELECTING_PLAN',
-
-  WaitingForPhone = 'WAITING_FOR_PHONE',
 
   WaitingForReceipt = 'WAITING_FOR_RECEIPT',
 

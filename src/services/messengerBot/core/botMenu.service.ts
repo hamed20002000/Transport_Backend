@@ -1,27 +1,27 @@
-import { TelegramSubscriptionService } from './telegramSubscription.service';
+import { BotSubscriptionService } from './botSubscription.service';
 import { Injectable } from '@nestjs/common';
-import { TelegramKeyboardService } from './telegramKeyboard';
+import { BotKeyboardService } from './botKeyboard';
 
-import { TelegramIdentityService } from './telegramIdentity.service';
-import { TelegramMessagesService } from './telegramMessages.service';
+import { BotIdentityService } from './botIdentity.service';
+import { BotMessagesService } from './botMessages.service';
 
 import {
-  TelegramCallback,
-  TelegramCallbackBuilder,
-} from '../../../domain/constants/telegram/TelegramCallback';
+  BotCallback,
+  BotCallbackBuilder,
+} from '../../../domain/constants/bot/BotCallback';
 
 import { AccountType } from 'src/domain/enums/subscription';
 
 @Injectable()
-export class TelegramMenuService {
+export class BotMenuService {
   constructor(
-    private readonly telegramIdentityService:
-      TelegramIdentityService,
+    private readonly botIdentityService:
+      BotIdentityService,
 
     private readonly messages:
-      TelegramMessagesService,
-    private readonly keyboard: TelegramKeyboardService,
-    private readonly telegramSubscriptionService: TelegramSubscriptionService,
+      BotMessagesService,
+    private readonly keyboard: BotKeyboardService,
+    private readonly botSubscriptionService: BotSubscriptionService,
   ) {}
 
   /*
@@ -30,16 +30,26 @@ export class TelegramMenuService {
    * =====================================================
    */
 
+  /** نقش کاربر معلوم نیست (منوی اصلی، پایان خرید، ...): اگر حساب وصل نیست منوی مهمان. */
   async showMenuForUser(
     chatId: string,
     externalUserId: string,
   ): Promise<void> {
-    const roles = await this.telegramIdentityService.getMenuRoles(externalUserId);
+    const roles = await this.botIdentityService.getMenuRoles(externalUserId);
     if (roles === null) {
       await this.showGuestMenu(chatId);
       return;
     }
 
+    await this.showMenuForRoles(chatId, externalUserId, roles);
+  }
+
+  /** منوی نقش کاربری که حسابش وصل است و نقش‌هایش را صدازننده از قبل دارد. */
+  async showMenuForRoles(
+    chatId: string,
+    externalUserId: string,
+    roles: string[],
+  ): Promise<void> {
     if (!(await this.ensureActiveSubscription(chatId, externalUserId))) return;
 
     /*
@@ -98,7 +108,7 @@ export class TelegramMenuService {
   }
 
   ensureActiveSubscription(chatId: string, externalUserId: string): Promise<boolean> {
-    return this.telegramSubscriptionService.ensureActiveSubscription(chatId, externalUserId);
+    return this.botSubscriptionService.ensureActiveSubscription(chatId, externalUserId);
   }
 
   /*
@@ -127,7 +137,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallback.BuyAccount,
+                  BotCallback.BuyAccount,
               },
             ],
 
@@ -139,7 +149,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallback.RenewSubscription,
+                  BotCallback.RenewSubscription,
               },
             ],
 
@@ -151,7 +161,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallback.Support,
+                  BotCallback.Support,
               },
             ],
           ],
@@ -167,7 +177,7 @@ export class TelegramMenuService {
    *
    * این منو مربوط به خرید اکانت است.
    *
-   * TelegramAccountHandler می‌تواند
+   * BotAccountHandler می‌تواند
    * این متد را صدا بزند.
    */
 
@@ -191,7 +201,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallbackBuilder.accountType(
+                  BotCallbackBuilder.accountType(
                     AccountType.Driver,
                   ),
               },
@@ -205,7 +215,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallbackBuilder.accountType(
+                  BotCallbackBuilder.accountType(
                     AccountType.Company,
                   ),
               },
@@ -219,7 +229,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallbackBuilder.accountType(
+                  BotCallbackBuilder.accountType(
                     AccountType.Broker,
                   ),
               },
@@ -233,7 +243,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallback.MainMenu,
+                  BotCallback.MainMenu,
               },
             ],
           ],
@@ -268,7 +278,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallback.DriverSearchLoads,
+                  BotCallback.DriverSearchLoads,
               },
             ],
 
@@ -280,7 +290,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallback.DriverLoadRequests,
+                  BotCallback.DriverLoadRequests,
               },
             ],
 
@@ -292,7 +302,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallback.DriverActiveTrip,
+                  BotCallback.DriverActiveTrip,
               },
             ],
 
@@ -304,7 +314,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallback.DriverReturnLoads,
+                  BotCallback.DriverReturnLoads,
               },
             ],
 
@@ -316,7 +326,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallback.MySubscription,
+                  BotCallback.MySubscription,
               },
             ],
 
@@ -328,7 +338,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallback.Support,
+                  BotCallback.Support,
               },
             ],
           ],
@@ -363,7 +373,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallback.CompanyCreateLoad,
+                  BotCallback.CompanyCreateLoad,
               },
             ],
 
@@ -375,7 +385,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallback.CompanyLoads,
+                  BotCallback.CompanyLoads,
               },
             ],
 
@@ -387,7 +397,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallback.CompanyDriverRequests,
+                  BotCallback.CompanyDriverRequests,
               },
             ],
 
@@ -399,7 +409,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallback.CompanyActiveTrips,
+                  BotCallback.CompanyActiveTrips,
               },
             ],
 
@@ -411,7 +421,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallback.CompanyChannels,
+                  BotCallback.CompanyChannels,
               },
             ],
 
@@ -423,7 +433,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallback.MySubscription,
+                  BotCallback.MySubscription,
               },
             ],
 
@@ -435,7 +445,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallback.Support,
+                  BotCallback.Support,
               },
             ],
           ],
@@ -470,7 +480,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallback.BrokerSearchLoads,
+                  BotCallback.BrokerSearchLoads,
               },
             ],
 
@@ -482,7 +492,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallback.BrokerLoads,
+                  BotCallback.BrokerLoads,
               },
             ],
 
@@ -494,7 +504,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallback.BrokerDrivers,
+                  BotCallback.BrokerDrivers,
               },
             ],
 
@@ -506,7 +516,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallback.MySubscription,
+                  BotCallback.MySubscription,
               },
             ],
 
@@ -518,7 +528,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallback.Support,
+                  BotCallback.Support,
               },
             ],
           ],
@@ -553,7 +563,7 @@ export class TelegramMenuService {
                   ),
 
                 callback_data:
-                  TelegramCallback.Support,
+                  BotCallback.Support,
               },
             ],
           ],

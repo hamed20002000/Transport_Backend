@@ -11,16 +11,16 @@ import { User } from '../../../domain/entities/auth/User';
 import { BotLink } from '../../../domain/entities/agent/BotLink';
 import { RecordStatus } from '../../../domain/enums/RecordStatus';
 import { AccountType } from '../../../domain/enums/subscription';
-import { TelegramCallback } from '../../../domain/constants/telegram/TelegramCallback';
+import { BotCallback } from '../../../domain/constants/bot/BotCallback';
 import { normalizePhoneNumber } from '../../../dto/auth/phone-number';
 import { PasswordService } from '../../auth/password.service';
 import { RedisService } from '../../redis/redis.service';
-import { TelegramIdentityService } from './telegramIdentity.service';
-import { TelegramSessionService } from './telegramSession.service';
-import { TelegramMessagesService } from './telegramMessages.service';
-import { TelegramMenuService } from './telegramMenu.service';
+import { BotIdentityService } from './botIdentity.service';
+import { BotSessionService } from './botSession.service';
+import { BotMessagesService } from './botMessages.service';
+import { BotMenuService } from './botMenu.service';
 
-interface TelegramIdentityMetadata {
+interface BotIdentityMetadata {
   externalUserId: string;
   chatId: string;
   username?: string;
@@ -33,17 +33,17 @@ const PASSWORD_LENGTH = 10;
 const PASSWORD_CHARACTERS = 'abcdefghjkmnpqrstuvwxyz23456789';
 
 @Injectable()
-export class TelegramAccessService {
+export class BotAccessService {
   constructor(
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     @Inject(BOT_LINK_REPOSITORY) private readonly links: IBotLinkRepository,
     private readonly passwords: PasswordService,
-    private readonly identity: TelegramIdentityService,
-    private readonly sessions: TelegramSessionService,
+    private readonly identity: BotIdentityService,
+    private readonly sessions: BotSessionService,
     private readonly redis: RedisService,
     private readonly config: ConfigService,
-    private readonly messages: TelegramMessagesService,
-    private readonly menu: TelegramMenuService,
+    private readonly messages: BotMessagesService,
+    private readonly menu: BotMenuService,
     private readonly bot: MultiBot,
   ) {}
 
@@ -60,13 +60,13 @@ export class TelegramAccessService {
     if (await this.identity.getUserId(externalUserId)) {
       return this.handleIdentifiedUser(chatId, externalUserId, callback);
     }
-    const botId = botNamespace(this.config);
-    const lock = RedisService.key('telegramAccessLock', botId, externalUserId);
+    const namespace = botNamespace(this.config);
+    const lock = RedisService.key('telegramAccessLock', namespace, externalUserId);
     const owner = randomBytes(16).toString('hex');
     if (!(await this.redis.setIfAbsent(lock, owner, ACCESS_LOCK_TTL_SECONDS))) return true;
     try {
       // A concurrent contact/callback may have completed before we acquired the lock.
-      if (await this.redis.get(RedisService.key('telegramIdentity', botId, externalUserId))) {
+      if (await this.redis.get(RedisService.key('telegramIdentity', namespace, externalUserId))) {
         return await this.handleIdentifiedUser(chatId, externalUserId, callback);
       }
       await this.handleUnidentifiedUser(message, from, callback);
@@ -92,12 +92,13 @@ export class TelegramAccessService {
   ): Promise<boolean> {
     const roles = await this.identity.getMenuRoles(externalUserId);
     if (roles?.length) {
-      if (!callback?.startsWith(TelegramCallback.RegisterAccountTypePrefix)) return false;
-      await this.menu.showMenuForUser(chatId, externalUserId);
+      if (!callback?.startsWith(BotCallback.RegisterAccountTypePrefix)) return false;
+      // دکمه‌ی «انتخاب نوع حساب» قدیمی؛ نقش از قبل هست، همان منوی نقش.
+      await this.menu.showMenuForRoles(chatId, externalUserId, roles);
       return true;
     }
     const accountType = Object.values(AccountType).find(
-      type => callback === `${TelegramCallback.RegisterAccountTypePrefix}${type}`,
+      type => callback === `${BotCallback.RegisterAccountTypePrefix}${type}`,
     );
     if (!accountType) {
       await this.showAccountTypes(chatId);
@@ -116,7 +117,7 @@ export class TelegramAccessService {
   ): Promise<void> {
     const externalUserId = String(from.id);
     const chatId = String(message.chat.id);
-    const metadata: TelegramIdentityMetadata = {
+    const metadata: BotIdentityMetadata = {
       externalUserId,
       chatId,
       username: from.username,
@@ -132,7 +133,7 @@ export class TelegramAccessService {
 
   private async handleContact(
     contact: TelegramBot.Contact,
-    metadata: TelegramIdentityMetadata,
+    metadata: BotIdentityMetadata,
   ): Promise<void> {
     const { chatId, externalUserId } = metadata;
     // مقایسه‌ی رشته‌ای: شناسه‌های بله/روبیکا پیشوند دارند (bale:123) و عدد نیستند.
@@ -154,7 +155,7 @@ export class TelegramAccessService {
     await this.showAccountTypes(chatId);
   }
 
-  private async linkExistingUser(metadata: TelegramIdentityMetadata, user: User): Promise<void> {
+  private async linkExistingUser(metadata: BotIdentityMetadata, user: User): Promise<void> {
     if (user.recordStatus !== RecordStatus.Active) {
       await this.bot.sendMessage(metadata.chatId, this.messages.get('identity.inactive'));
       return;
@@ -169,7 +170,7 @@ export class TelegramAccessService {
   }
 
   private async registerNewUser(
-    metadata: TelegramIdentityMetadata,
+    metadata: BotIdentityMetadata,
     phoneNumber: string,
   ): Promise<void> {
     const { chatId, externalUserId } = metadata;
@@ -185,7 +186,7 @@ export class TelegramAccessService {
       mustChangePassword: false,
     });
     const oldLink = await this.links.findByExternalUserId(externalUserId);
-    if (oldLink?.userId) throw new ConflictException('Telegram account is already linked.');
+    if (oldLink?.userId) throw new ConflictException('Messenger account is already linked.');
     const link = Object.assign(oldLink ?? new BotLink(), {
       externalUserId,
       chatId,
@@ -216,7 +217,7 @@ export class TelegramAccessService {
       );
     } catch {
       // A Telegram transport error may contain the message text, including the password.
-      throw new Error('Could not deliver Telegram Web credentials.');
+      throw new Error('Could not deliver Web credentials through the messenger bot.');
     }
   }
 
@@ -242,7 +243,7 @@ export class TelegramAccessService {
         inline_keyboard: Object.values(AccountType).map((type) => [
           {
             text: this.messages.get(`account.${type.toLowerCase()}`),
-            callback_data: `${TelegramCallback.RegisterAccountTypePrefix}${type}`,
+            callback_data: `${BotCallback.RegisterAccountTypePrefix}${type}`,
           },
         ]),
       },

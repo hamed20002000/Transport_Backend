@@ -3,6 +3,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { IUserRepository } from 'src/domain/repositories/IUserRepopsitory';
 import { SUBSCRIPTION_REPOSITORY, USER_REPOSITORY } from 'src/domain/repositories/repository.tokens';
 import { ISubscriptionRepository } from 'src/domain/repositories/subscription/ISubscriptionRepository';
+import { SubscriptionPolicyService } from '../subscription/subscriptionPolicy.service';
 import { ChannelPlatform, MonitoredChannel, TarabariChannelsClient } from './tarabariChannels.client';
 
 export type ChannelAccess = 'ok' | 'notCompany' | 'noSubscription';
@@ -18,17 +19,19 @@ const COMPANY_ROLES = ['COMPANY', 'COMPANY_ADMIN'];
  * سرویس استفاده می‌کنند.
  */
 @Injectable()
-export class ChannelSubscriptionService {
+export class CompanyChannelsService {
   constructor(
     private readonly tarabari: TarabariChannelsClient,
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     @Inject(SUBSCRIPTION_REPOSITORY) private readonly subscriptions: ISubscriptionRepository,
+    private readonly policy: SubscriptionPolicyService,
   ) {}
 
   async checkAccess(userId: string): Promise<ChannelAccess> {
     const user = await this.users.findById(userId);
     const roles = user?.userRoles?.map((item) => item.role?.name).filter(Boolean) ?? [];
     if (!roles.some((role) => COMPANY_ROLES.includes(role))) return 'notCompany';
+    if (!(await this.policy.isRequired())) return 'ok';
     return (await this.subscriptions.findActiveByUserId(userId)) ? 'ok' : 'noSubscription';
   }
 

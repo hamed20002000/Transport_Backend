@@ -6,6 +6,7 @@ import { CargoNotification } from '../../domain/entities/notification/CargoNotif
 import { CargoListingStatus, NotificationDeliveryStatus } from '../../domain/enums/notification';
 import { SUBSCRIPTION_REPOSITORY, BOT_LINK_REPOSITORY } from '../../domain/repositories/repository.tokens';
 import { ISubscriptionRepository } from '../../domain/repositories/subscription/ISubscriptionRepository';
+import { SubscriptionPolicyService } from '../subscription/subscriptionPolicy.service';
 import { CargoListingRepository } from '../../infrastructure/repositories/notification/cargoListing.repository';
 import {
   CargoNotificationDelivery,
@@ -51,6 +52,7 @@ export class CargoNotificationService {
     @Inject(forwardRef(() => WhatsappService))
     private readonly whatsapp: WhatsappService,
     private readonly gateway: NotificationsGateway,
+    private readonly policy: SubscriptionPolicyService,
   ) {}
 
   /**
@@ -101,9 +103,10 @@ export class CargoNotificationService {
   private async resolveRecipients(event: CargoDetectedEvent) {
     const owners = [...new Set(event.ownerUserIds.filter((id) => UUID_PATTERN.test(id)))];
 
+    const required = await this.policy.isRequired();
     const subscribed: string[] = [];
     for (const userId of owners) {
-      if (!await this.subscriptions.findActiveByUserId(userId)) subscribed.push(userId);
+      if (!required || await this.subscriptions.findActiveByUserId(userId)) subscribed.push(userId);
     }
 
     const recipients = await this.filters.filterInterestedUsers(subscribed, event);

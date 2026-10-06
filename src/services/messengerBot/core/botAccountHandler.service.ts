@@ -9,7 +9,7 @@ import {
 
 import TelegramBot from 'node-telegram-bot-api';
 import { MultiBot } from './multiBot';
-import { TelegramKeyboardService } from './telegramKeyboard';
+import { BotKeyboardService } from './botKeyboard';
 
 import {
   mkdir,
@@ -26,13 +26,13 @@ import { SubscriptionOrderStatus } from 'src/domain/enums/subscription';
 import { SubscriptionOrder } from 'src/domain/entities/subscription/SubscriptionOrder';
 
 import {
-  TelegramSessionState,
-} from '../../../domain/enums/telegram';
+  BotSessionState,
+} from '../../../domain/enums/botSession';
 
 import {
-  TelegramCallback,
-  TelegramCallbackBuilder,
-} from '../../../domain/constants/telegram/TelegramCallback';
+  BotCallback,
+  BotCallbackBuilder,
+} from '../../../domain/constants/bot/BotCallback';
 
 import {
   SubscriptionPlanService,
@@ -47,26 +47,26 @@ import {
 } from '../../subscription/paymentreceipt.service';
 
 import {
-  TelegramSessionService,
-} from './telegramSession.service';
+  BotSessionService,
+} from './botSession.service';
 
 import {
-  TelegramMenuService,
-} from './telegramMenu.service';
+  BotMenuService,
+} from './botMenu.service';
 
 import {
-  TelegramMessagesService,
-} from './telegramMessages.service';
+  BotMessagesService,
+} from './botMessages.service';
 
 import {
-  TelegramIdentityService,
-} from './telegramIdentity.service';
+  BotIdentityService,
+} from './botIdentity.service';
 
 @Injectable()
-export class TelegramAccountHandler {
+export class BotAccountHandler {
   private readonly logger =
     new Logger(
-      TelegramAccountHandler.name,
+      BotAccountHandler.name,
     );
 
   constructor(
@@ -82,16 +82,16 @@ export class TelegramAccountHandler {
     private readonly paymentReceiptService:
       PaymentReceiptService,
 
-    private readonly telegramSessionService:
-      TelegramSessionService,
+    private readonly botSessionService:
+      BotSessionService,
 
-    private readonly telegramMenuService:
-      TelegramMenuService,
+    private readonly botMenuService:
+      BotMenuService,
 
     private readonly messages:
-      TelegramMessagesService,
-    private readonly keyboard: TelegramKeyboardService,
-    private readonly telegramIdentityService: TelegramIdentityService,
+      BotMessagesService,
+    private readonly keyboard: BotKeyboardService,
+    private readonly botIdentityService: BotIdentityService,
     private readonly bot: MultiBot,
   ) {}
 
@@ -121,24 +121,18 @@ export class TelegramAccountHandler {
         return;
       }
 
-      const session = await this.telegramSessionService.get(externalUserId);
+      const session = await this.botSessionService.get(externalUserId);
       switch (session?.state) {
-        case TelegramSessionState.SelectingAccountType:
-          await this.telegramMenuService.showAccountTypes(chatId);
+        case BotSessionState.SelectingAccountType:
+          await this.botMenuService.showAccountTypes(chatId);
           return;
-        case TelegramSessionState.SelectingPlan:
+        case BotSessionState.SelectingPlan:
           if (session.accountType) {
             await this.showPlans(chatId, session.accountType);
             return;
           }
           break;
-        case TelegramSessionState.WaitingForPhone:
-          if (session.accountType && session.subscriptionPlanId) {
-            await this.selectPlan(chatId, externalUserId, session.subscriptionPlanId);
-            return;
-          }
-          break;
-        case TelegramSessionState.WaitingForReceipt:
+        case BotSessionState.WaitingForReceipt:
           // Payment window still open but no order persisted yet.
           if (!session.orderId && session.subscriptionPlanId) {
             const plan = await this.subscriptionPlanService.findById(session.subscriptionPlanId);
@@ -164,7 +158,7 @@ export class TelegramAccountHandler {
           inline_keyboard: [
             [{
               text: this.messages.get('menu.main.buyAccount'),
-              callback_data: TelegramCallback.BuyAccount,
+              callback_data: BotCallback.BuyAccount,
             }],
             ...this.paymentStatusKeyboard().inline_keyboard,
           ],
@@ -184,8 +178,8 @@ export class TelegramAccountHandler {
     order: SubscriptionOrder,
   ): Promise<void> {
     if (order.status === SubscriptionOrderStatus.WaitingForReceipt) {
-      await this.telegramSessionService.set(externalUserId, {
-        state: TelegramSessionState.WaitingForReceipt,
+      await this.botSessionService.set(externalUserId, {
+        state: BotSessionState.WaitingForReceipt,
         orderId: order.id,
         accountType: order.accountType,
         subscriptionPlanId: order.subscriptionPlanId,
@@ -202,8 +196,8 @@ export class TelegramAccountHandler {
     switch (order.status) {
       case SubscriptionOrderStatus.ReceiptSubmitted:
       case SubscriptionOrderStatus.UnderReview:
-        await this.telegramSessionService.set(externalUserId, {
-          state: TelegramSessionState.UnderReview,
+        await this.botSessionService.set(externalUserId, {
+          state: BotSessionState.UnderReview,
           orderId: order.id,
         });
         messageKey = 'payment.reviewStatus';
@@ -230,7 +224,7 @@ export class TelegramAccountHandler {
       SubscriptionOrderStatus.Rejected,
       SubscriptionOrderStatus.Cancelled,
     ].includes(order.status)) {
-      await this.telegramSessionService.reset(externalUserId);
+      await this.botSessionService.reset(externalUserId);
     }
   }
 
@@ -239,11 +233,11 @@ export class TelegramAccountHandler {
       inline_keyboard: [
         [{
           text: this.messages.get('menu.common.paymentStatus'),
-          callback_data: TelegramCallback.PaymentStatus,
+          callback_data: BotCallback.PaymentStatus,
         }],
         [{
           text: this.messages.get('menu.common.mainMenu'),
-          callback_data: TelegramCallback.MainMenu,
+          callback_data: BotCallback.MainMenu,
         }],
       ],
     };
@@ -259,20 +253,20 @@ export class TelegramAccountHandler {
     chatId: string,
     externalUserId: string,
   ): Promise<void> {
-    await this.telegramSessionService.reset(
+    await this.botSessionService.reset(
       externalUserId,
     );
 
-    await this.telegramSessionService.update(
+    await this.botSessionService.update(
       externalUserId,
       {
         state:
-          TelegramSessionState
+          BotSessionState
             .SelectingAccountType,
       },
     );
 
-    await this.telegramMenuService
+    await this.botMenuService
       .showAccountTypes(
         chatId,
       );
@@ -289,11 +283,11 @@ export class TelegramAccountHandler {
     externalUserId: string,
     accountType: AccountType,
   ): Promise<void> {
-    await this.telegramSessionService.update(
+    await this.botSessionService.update(
       externalUserId,
       {
         state:
-          TelegramSessionState
+          BotSessionState
             .SelectingPlan,
 
         accountType,
@@ -342,7 +336,7 @@ export class TelegramAccountHandler {
                       ),
 
                     callback_data:
-                      TelegramCallback
+                      BotCallback
                         .MainMenu,
                   },
                 ],
@@ -374,7 +368,7 @@ export class TelegramAccountHandler {
                 ),
 
               callback_data:
-                TelegramCallbackBuilder
+                BotCallbackBuilder
                   .plan(
                     plan.id,
                   ),
@@ -390,7 +384,7 @@ export class TelegramAccountHandler {
             ),
 
           callback_data:
-            TelegramCallback.MainMenu,
+            BotCallback.MainMenu,
         },
       ]);
 
@@ -433,7 +427,7 @@ export class TelegramAccountHandler {
   ): Promise<void> {
     try {
       const session =
-        await this.telegramSessionService
+        await this.botSessionService
           .getOrCreate(
             externalUserId,
           );
@@ -441,7 +435,7 @@ export class TelegramAccountHandler {
       if (
         !session.accountType
       ) {
-        await this.telegramSessionService.reset(
+        await this.botSessionService.reset(
           externalUserId,
         );
 
@@ -451,7 +445,7 @@ export class TelegramAccountHandler {
           ),
         );
 
-        await this.telegramMenuService
+        await this.botMenuService
           .showMenuForUser(
             chatId,
             externalUserId,
@@ -494,7 +488,7 @@ export class TelegramAccountHandler {
        * mobile, so it is reused for the order.
        */
       const link =
-        await this.telegramIdentityService
+        await this.botIdentityService
           .findByExternalUserId(
             externalUserId,
           );
@@ -503,7 +497,7 @@ export class TelegramAccountHandler {
         link?.user?.mobile;
 
       if (!phoneNumber) {
-        await this.telegramSessionService.reset(
+        await this.botSessionService.reset(
           externalUserId,
         );
 
@@ -524,11 +518,11 @@ export class TelegramAccountHandler {
       const timeoutSeconds =
         this.paymentTimeoutSeconds;
 
-      await this.telegramSessionService.set(
+      await this.botSessionService.set(
         externalUserId,
         {
           state:
-            TelegramSessionState
+            BotSessionState
               .WaitingForReceipt,
 
           accountType:
@@ -560,190 +554,6 @@ export class TelegramAccountHandler {
           'errors.selectPlanFailed',
         ),
       );
-    }
-  }
-
-  /*
-   * =====================================================
-   * Contact
-   * =====================================================
-   */
-
-  async handleContact(
-    message: TelegramBot.Message,
-  ): Promise<boolean> {
-    const from =
-      message.from;
-
-    const contact =
-      message.contact;
-
-    if (
-      !from ||
-      !contact
-    ) {
-      return false;
-    }
-
-    const externalUserId =
-      from.id.toString();
-
-    const chatId =
-      message.chat.id.toString();
-
-    const session =
-      await this.telegramSessionService.get(
-        externalUserId,
-      );
-
-    if (
-      !session ||
-      session.state !==
-        TelegramSessionState
-          .WaitingForPhone
-    ) {
-      return false;
-    }
-
-    /*
-     * Telegram-specific validation:
-     *
-     * Contact must belong to
-     * the Telegram user himself.
-     */
-
-    if (
-      contact.user_id == null ||
-      contact.user_id !==
-        from.id
-    ) {
-      await this.keyboard.sendMessage(chatId,
-        this.messages.get(
-          'account.invalidContactOwner',
-        ),
-      );
-
-      return true;
-    }
-
-    /*
-     * Raw phone number from Telegram.
-     *
-     * Normalization and final validation
-     * are performed inside
-     * SubscriptionOrderService.
-     *
-     * This keeps the business logic
-     * reusable for Telegram and WhatsApp.
-     */
-
-    const phoneNumber =
-      contact.phone_number;
-
-    if (
-      !session.accountType ||
-      !session.subscriptionPlanId
-    ) {
-      await this.telegramSessionService.reset(
-        externalUserId,
-      );
-
-      await this.keyboard.sendMessage(chatId,
-        this.messages.get(
-          'account.invalidPurchaseSession',
-        ),
-        {
-          reply_markup: {
-            remove_keyboard:
-              true,
-          },
-        },
-      );
-
-      await this.telegramMenuService
-        .showMenuForUser(
-          chatId,
-          externalUserId,
-        );
-
-      return true;
-    }
-
-    try {
-      const order =
-        await this.subscriptionOrderService
-          .createOrder({
-            provider:
-              communicationProviderOf(externalUserId),
-
-            providerUserId:
-              externalUserId,
-
-            phoneNumber,
-
-            accountType:
-              session.accountType,
-
-            subscriptionPlanId:
-              session.subscriptionPlanId,
-          });
-
-      await this.telegramSessionService.update(
-        externalUserId,
-        {
-          state:
-            TelegramSessionState
-              .WaitingForReceipt,
-
-          orderId:
-            order.id,
-
-          /*
-           * Store canonical phone returned
-           * through the created order.
-           */
-          phoneNumber:
-            order.phoneNumber,
-        },
-      );
-
-      await this.keyboard.sendMessage(chatId,
-        this.messages.get(
-          'account.phoneReceived',
-        ),
-        {
-          reply_markup: {
-            remove_keyboard:
-              true,
-          },
-        },
-      );
-
-      await this.sendPaymentInformation(
-        chatId,
-        order.amount,
-        order.currency,
-      );
-
-      return true;
-    } catch (error: unknown) {
-      this.logger.error(
-        `Could not create subscription order: ${this.getErrorMessage(error)}`,
-      );
-
-      await this.keyboard.sendMessage(chatId,
-        this.messages.get(
-          'errors.createOrderFailed',
-        ),
-        {
-          reply_markup: {
-            remove_keyboard:
-              true,
-          },
-        },
-      );
-
-      return true;
     }
   }
 
@@ -813,7 +623,7 @@ export class TelegramAccountHandler {
           inline_keyboard: [
             [{
               text: this.messages.get('payment.cancel'),
-              callback_data: TelegramCallback.CancelPurchase,
+              callback_data: BotCallback.CancelPurchase,
             }],
             ...this.paymentStatusKeyboard().inline_keyboard,
           ],
@@ -845,14 +655,14 @@ export class TelegramAccountHandler {
       message.chat.id.toString();
 
     const session =
-      await this.telegramSessionService.get(
+      await this.botSessionService.get(
         externalUserId,
       );
 
     if (
       !session ||
       session.state !==
-        TelegramSessionState
+        BotSessionState
           .WaitingForReceipt
     ) {
       return false;
@@ -878,7 +688,7 @@ export class TelegramAccountHandler {
     }
 
     const outcome =
-      await this.telegramSessionService
+      await this.botSessionService
         .withReceiptLock(
           externalUserId,
           () =>
@@ -911,14 +721,14 @@ export class TelegramAccountHandler {
   ): Promise<void> {
     // Re-read: another photo may have completed while we waited.
     const session =
-      await this.telegramSessionService.get(
+      await this.botSessionService.get(
         externalUserId,
       );
 
     if (
       !session ||
       session.state !==
-        TelegramSessionState
+        BotSessionState
           .WaitingForReceipt
     ) {
       await this.showPurchaseStatus(
@@ -979,7 +789,7 @@ export class TelegramAccountHandler {
           session.phoneNumber
         )
       ) {
-        await this.telegramSessionService.reset(
+        await this.botSessionService.reset(
           externalUserId,
         );
 
@@ -989,7 +799,7 @@ export class TelegramAccountHandler {
           ),
         );
 
-        await this.telegramMenuService
+        await this.botMenuService
           .showMenuForUser(
             chatId,
             externalUserId,
@@ -1069,11 +879,11 @@ export class TelegramAccountHandler {
               fileId,
           });
 
-      await this.telegramSessionService.update(
+      await this.botSessionService.update(
         externalUserId,
         {
           state:
-            TelegramSessionState
+            BotSessionState
               .UnderReview,
 
           orderId:
@@ -1100,7 +910,7 @@ export class TelegramAccountHandler {
                     ),
 
                   callback_data:
-                    TelegramCallback
+                    BotCallback
                       .MainMenu,
                 },
               ],
@@ -1140,7 +950,7 @@ export class TelegramAccountHandler {
      * cancellation operation is implemented.
      */
 
-    await this.telegramSessionService.reset(
+    await this.botSessionService.reset(
       externalUserId,
     );
 
@@ -1156,7 +966,7 @@ export class TelegramAccountHandler {
       },
     );
 
-    await this.telegramMenuService
+    await this.botMenuService
       .showMenuForUser(
         chatId,
         externalUserId,
