@@ -23,13 +23,28 @@ export class SubscriptionPlanService {
       ISubscriptionPlanRepository,
   ) {}
 
+
+  /**
+   * به دست آوردن سابسکریپشن پلن با استفاده از ایدی
+   * @param id 
+   * @returns 
+   */
+
+  //#region -----------------------  به دست آوردن سابسکریپشن با ایدی -------------------------- 
   async findById(
     id: string,
   ): Promise<SubscriptionPlan | null> {
     return this.subscriptionPlanRepository
       .findById(id);
   }
+  //#endregion ----------------------------------------------------------------------------------
 
+ /**
+  * بررسی اینکه آیا اکانت مورد نظر براش سابسکریپشن تعریف شده یا نه؟
+  * @param accountType
+  * @returns 
+  */
+ //#region ---------------------------  آیا برای اکانت ساب تعریف شده یا نه -----------------------
   async findActiveByAccountType(
     accountType: AccountType,
   ): Promise<SubscriptionPlan[]> {
@@ -38,4 +53,5 @@ export class SubscriptionPlanService {
         accountType,
       );
   }
+  //#endregion -------------------------------------------------------------------------------------
 }

@@ -11,6 +11,11 @@ export interface BotAction {
    * row هر گزینه یک ردیف کامل است. واتساپ دکمه ندارد و این را نادیده می‌گیرد.
    */
   row?: number;
+  /**
+   * دکمه‌ی لینک (مثل «باز کردن مسیر در نقشه»): به‌جای اجرای id این آدرس باز
+   * می‌شود. روبیکا و واتساپ آن را خط «عنوان: لینک» زیر متن نشان می‌دهند.
+   */
+  url?: string;
 }
 
 /** ردیف‌های کیبورد: گزینه‌های پشت‌سرهم با row یکسان یک ردیف می‌شوند. */
@@ -32,6 +37,22 @@ export interface BotReply {
   text: string;
   actions: BotAction[];
   closed?: 'exit' | 'denied';
+  /**
+   * به‌جای دکمه‌های شیشه‌ای، کیبورد پایین با دکمه‌ی «ارسال موقعیت» (با این
+   * متن) نشان داده شود؛ فقط این نوع دکمه می‌تواند لوکیشن کاربر را بخواهد.
+   */
+  locationButton?: string;
+  /** عکسی که قبل از متن فرستاده می‌شود (مثل نقشه‌ی مسیر و جایگاه‌های سوخت). */
+  photo?: { image: Buffer; caption?: string };
+}
+
+/** لوکیشنی که کاربر فرستاده؛ edited = به‌روزرسانی Live Location تلگرام. */
+export interface BotLocation {
+  latitude: number;
+  longitude: number;
+  // ثانیه؛ فقط برای Live Location
+  livePeriod?: number;
+  edited: boolean;
 }
 
 export interface BotContext {
@@ -40,6 +61,11 @@ export interface BotContext {
   externalUserId: string;
   // User.id همین سرویس، از هویت تأییدشده‌ی پیام‌رسان
   userId: string;
+  /**
+   * کار طولانی (مثل محاسبه‌ی مسیر): پیام موقت «⏳ …» تا جواب آماده شود؛
+   * پیام‌رسان بعد از جواب پاکش می‌کند (اگر بتواند).
+   */
+  progress?: (text: string) => Promise<void>;
 }
 
 /**
@@ -56,6 +82,8 @@ export interface BotDialog {
   hasSession(ctx: Pick<BotContext, 'platform' | 'externalUserId'>): Promise<boolean>;
   /** null یعنی متن به این گفتگو مربوط نبود. */
   handleText(ctx: BotContext, text: string): Promise<BotReply | null>;
+  /** لوکیشن کاربر؛ null یعنی این گفتگو کاری با آن ندارد. */
+  handleLocation?(ctx: BotContext, location: BotLocation): Promise<BotReply | null>;
 }
 
 /**

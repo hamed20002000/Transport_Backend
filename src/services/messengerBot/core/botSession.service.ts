@@ -19,6 +19,17 @@ export class BotSessionService {
     this.namespace = botNamespace(config);
   }
 
+  /**
+   * بررسی میکنید که آیانشست کاربر هنوز هست یا نه 
+   * اگر هنوز  نشست داشته باشه اونو برمیگردونه 
+   * البته اینجا دوتا نشست داریم یه نشستی که زمان انقضا داره مثل خرید سابسکریپشن و نشست های بعدی که زمان انقضا ندارند
+   * نشستس که انقضا داره نباید با هر دسترسی که نشست دوباره تمدید بشه
+   * ولی بقیه باید تمدیدبشن
+   * @param externalUserId 
+   * @returns 
+   */
+
+  //#region -------------------------- به دست اوردن نشست کاربر ----------------------------
   async get(externalUserId: string): Promise<BotSession | null> {
     const key = RedisService.key('telegramSession', this.namespace, externalUserId);
     const session = await this.redis.getJson<BotSession>(key);
@@ -28,11 +39,32 @@ export class BotSessionService {
     // Refresh expiry without overwriting a newer session value.
     return await this.redis.expire(key, this.ttlSeconds) ? session : null;
   }
+  //#endregion --------------------------------------------------------------------------------
 
+  /**
+   * اگه کاربر نشست داشته باشه همون رو برمیگردونه وگرنه یه نشست تازه میسازه و اونو برمیگردونه
+   * @param externalUserId 
+   * @returns 
+   */
+
+  //#region ---------------------- نشست کاربر رو برمیگردونه یا یه نشست تازه میسازه -------------
   async getOrCreate(externalUserId: string): Promise<BotSession> {
     return await this.get(externalUserId) ?? await this.reset(externalUserId);
   }
+  //#endregion ---------------------------------------------------------------------------------
 
+  /**
+   * نشست رو برای کاربر تنظیم میکنه
+   * اگه نشست انقضا نداشته باشه همون ۳۰ دقیقه میزاره
+   * اگه انقضا داشته باشه زمان انقضا منهای زمان جاری رو محاسبه میکنه
+   * اکه زمان محاسبه شده کوچکتر از صفر باشه پاکش مکنه
+   * نشست در ردیس دخیره میشه
+   * @param externalUserId 
+   * @param session 
+   * @returns 
+   */
+
+  //#region ---------------------------- تنظیم نشست برای کاربر -----------------------
   async set(externalUserId: string, session: BotSession): Promise<void> {
     const ttlSeconds = session.expiresAt
       ? Math.ceil((session.expiresAt - Date.now()) / 1000)
@@ -43,7 +75,18 @@ export class BotSessionService {
     }
     await this.redis.setJson(RedisService.key('telegramSession', this.namespace, externalUserId), session, ttlSeconds);
   }
+  //#endregion -------------------------------------------------------------------------
 
+
+  /**
+   * نشست کاربر رو بروز میکنه
+   * اگه کاربر نشست داشته باشه همون رو با مقادیر جدید بروز میکنه اگه نداشته باشه یه نشست جدید میسازه و در ردیس ذخیره میکنه
+   * @param externalUserId 
+   * @param values 
+   * @returns 
+   */
+
+  //#region -------------------------------- بروزرسانی نشست کاربر -------------------------------
   async update(
     externalUserId: string,
     values: Partial<BotSession>,
@@ -53,12 +96,21 @@ export class BotSessionService {
     await this.set(externalUserId, session);
     return session;
   }
+  //#endregion -----------------------------------------------------------------------------------
 
+  /**
+   * نشست کاربر رو رفرش میکنه
+   * @param externalUserId 
+   * @returns 
+   */
+
+  //#region --------------------------- رفرش کردن نشست کاربر ---------------------------
   async reset(externalUserId: string): Promise<BotSession> {
     const session: BotSession = { state: BotSessionState.Idle };
     await this.set(externalUserId, session);
     return session;
   }
+  //#endregion ---------------------------------------------------------------------------
 
   /**
    * Runs `task` only if no other receipt for this user is being processed.
@@ -79,8 +131,15 @@ export class BotSessionService {
     }
   }
 
+  /**
+   * نشست کاربر رو پاک میکنه
+   * @param externalUserId 
+   */
+
+  //#region -------------------------- پاک کردن نشست کاربر ---------------------------
   async delete(externalUserId: string): Promise<void> {
     await this.redis.delete(RedisService.key('telegramSession', this.namespace, externalUserId));
   }
+  //#endregion ------------------------------------------------------------------------
 
 }

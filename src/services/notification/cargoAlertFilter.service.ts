@@ -11,6 +11,8 @@ export interface CargoRouteFields {
   cargoType?: string | null;
   vehicleType?: string | null;
   price?: string | null;
+  // فقط بارهایی که شرکتی اعلام کرده نام شرکت دارند؛ بار خام کانال‌ها ندارد.
+  companyName?: string | null;
 }
 
 export interface CargoAlertFilterInput {
@@ -19,6 +21,7 @@ export interface CargoAlertFilterInput {
   destinations?: string[];
   cargoTypes?: string[];
   vehicleTypes?: string[];
+  companies?: string[];
   minPrice?: number | null;
   maxPrice?: number | null;
   isActive?: boolean;
@@ -59,6 +62,7 @@ export class CargoAlertFilterService {
       this.fieldMatches(filter.destinations, cargo.destination) &&
       this.fieldMatches(filter.cargoTypes, cargo.cargoType) &&
       this.fieldMatches(filter.vehicleTypes, cargo.vehicleType) &&
+      this.fieldMatches(filter.companies, cargo.companyName) &&
       this.priceMatches(filter.minPrice, filter.maxPrice, cargo.price)
     );
   }
@@ -127,6 +131,7 @@ export class CargoAlertFilterService {
       destinations: list(input.destinations),
       cargoTypes: list(input.cargoTypes),
       vehicleTypes: list(input.vehicleTypes),
+      companies: list(input.companies),
       minPrice: input.minPrice,
       maxPrice: input.maxPrice,
       isActive: input.isActive,

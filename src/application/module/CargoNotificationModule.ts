@@ -7,10 +7,17 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { CargoAlertFilter } from '../../domain/entities/notification/CargoAlertFilter';
 import { CargoListing } from '../../domain/entities/notification/CargoListing';
 import { CargoNotification } from '../../domain/entities/notification/CargoNotification';
+import { CargoRequest } from '../../domain/entities/notification/CargoRequest';
+import { DriverLocation } from '../../domain/entities/notification/DriverLocation';
+import { DriverLocationLog } from '../../domain/entities/notification/DriverLocationLog';
 import { CargoAlertFilterRepository } from '../../infrastructure/repositories/notification/cargoAlertFilter.repository';
 import { CargoAudienceRepository } from '../../infrastructure/repositories/notification/cargoAudience.repository';
 import { CargoListingRepository } from '../../infrastructure/repositories/notification/cargoListing.repository';
 import { CargoNotificationRepository } from '../../infrastructure/repositories/notification/cargoNotification.repository';
+import {
+  CargoRequestRepository,
+  DriverLocationRepository,
+} from '../../infrastructure/repositories/notification/cargoRequest.repository';
 import {
   CargoAlertFilterController,
   CargoListingController,
@@ -31,6 +38,11 @@ import { MessengerBotModule } from './MessengerBotModule';
 import { RedisModule } from './RedisModule';
 import { UserModule } from './UserModule';
 import { CargoDialog } from '../../services/notification/cargoDialog';
+import { CargoTripService } from '../../services/notification/cargoTrip.service';
+import { TripDialog } from '../../services/notification/tripDialog';
+import { WhatsappDialogBridge } from '../../services/notification/whatsappDialogBridge';
+import { CargoInsightService } from '../../services/notification/cargoInsight.service';
+import { RoutingModule } from './RoutingModule';
 import { CompanyCargoTools } from '../../services/notification/companyCargoTools';
 import { CompanyFilterTools } from '../../services/notification/companyFilterTools';
 
@@ -41,7 +53,7 @@ import { CompanyFilterTools } from '../../services/notification/companyFilterToo
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([CargoNotification, CargoAlertFilter, CargoListing]),
+    TypeOrmModule.forFeature([CargoNotification, CargoAlertFilter, CargoListing, CargoRequest, DriverLocation, DriverLocationLog]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -54,6 +66,8 @@ import { CompanyFilterTools } from '../../services/notification/companyFilterToo
     WhatsappModule,
     RedisModule,
     UserModule,
+    // مسیر، مسافت، سوخت و جایگاه‌های سوخت برای جزئیات بار راننده
+    RoutingModule,
   ],
   controllers: [CargoNotificationController, CargoListingController, CargoAlertFilterController],
   providers: [
@@ -61,7 +75,12 @@ import { CompanyFilterTools } from '../../services/notification/companyFilterToo
     CargoAlertFilterRepository,
     CargoListingRepository,
     CargoAudienceRepository,
+    CargoRequestRepository,
+    DriverLocationRepository,
     CargoAlertFilterService,
+    // درخواست راننده، سفر فعال و موقعیت راننده
+    CargoTripService,
+    CargoInsightService,
     CargoNotificationService,
     CargoListingService,
     NotificationsGateway,
@@ -74,6 +93,10 @@ import { CompanyFilterTools } from '../../services/notification/companyFilterToo
     CompanyFilterTools,
     // دکمه‌های بار در ربات‌ها؛ خودش را در BotDialogRegistry ثبت می‌کند
     CargoDialog,
+    // درخواست‌ها/سفر/بار برگشتی راننده و درخواست رانندگان/سفرهای فعال شرکت
+    TripDialog,
+    // همین گفتگوها در واتساپ با گزینه‌های شماره‌دار
+    WhatsappDialogBridge,
   ],
 })
 export class CargoNotificationModule {}

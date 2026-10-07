@@ -1,6 +1,7 @@
 import { SubscriptionPlanController } from 'src/presentation/controllers/admin/subscription-plan.controller';
 import { SubscriptionPolicyController } from 'src/presentation/controllers/admin/subscription-policy.controller';
 import { AppSetting } from '../../domain/entities/setting/AppSetting';
+import { RedisModule } from './RedisModule';
 import { SubscriptionPolicyService } from '../../services/subscription/subscriptionPolicy.service';
 import { AccountProvisioningService } from '../../services/subscription/accountprovisioning.service';
 import { SubscriptionTools } from '../../services/subscription/subscriptionTools';
@@ -44,6 +45,7 @@ import {
       AppSetting,
     ]),
     UserModule,
+    RedisModule,
   ],
 
   providers: [

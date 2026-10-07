@@ -30,6 +30,10 @@ export class CreateCargoAlertFilterDto {
   @IsOptional() @IsArray() @ArrayMaxSize(50) @IsString({ each: true }) @MaxLength(100, { each: true })
   vehicleTypes?: string[];
 
+  // فقط بارهای این شرکت‌ها (برای راننده‌ها)
+  @IsOptional() @IsArray() @ArrayMaxSize(50) @IsString({ each: true }) @MaxLength(100, { each: true })
+  companies?: string[];
+
   // بازه‌ی کرایه به تومان؛ null حد را برمی‌دارد.
   @IsOptional() @IsInt() @Min(0) @Max(1_000_000_000_000)
   minPrice?: number | null;

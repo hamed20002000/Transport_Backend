@@ -24,7 +24,7 @@ import { CompanyChannelsDialog } from '../../channel/companyChannelsDialog';
 import { BotSessionState } from 'src/domain/enums/botSession';
 import { createWriteStream } from 'node:fs';
 import { findMenuButton } from './menuTextMatch';
-import { actionRows, BotDialog, BotDialogRegistry, BotReply } from './botDialog';
+import { actionRows, BotAction, BotDialog, BotDialogRegistry, BotLocation, BotReply } from './botDialog';
 import { SubscriptionStatusService } from '../../subscription/subscriptionStatus.service';
 import { pipeline } from 'node:stream/promises';
 import {
@@ -87,6 +87,13 @@ export class MessengerBotService implements OnModuleInit {
       });
     });
 
+    this.multiBot.on('edited_message', (message: TelegramBot.Message) => {
+      if (!message.location) return;
+      void this.handleLocation(message, true).catch((error: unknown) => {
+        this.logger.error(this.getErrorMessage(error));
+      });
+    });
+
     this.multiBot.on('callback_query', (query: TelegramBot.CallbackQuery) => {
       void this.handleCallbackQuery(query).catch((error: unknown) => {
         this.logger.error(this.getErrorMessage(error));
@@ -102,6 +109,7 @@ export class MessengerBotService implements OnModuleInit {
   /** آپدیت webhook تلگرام: منتظر پردازش می‌ماند تا خطا به تلگرام برگردد و دوباره بفرستد. */
   async handleUpdate(update: TelegramBot.Update): Promise<void> {
     if (update.message) await this.handleMessage(update.message);
+    else if (update.edited_message?.location) await this.handleLocation(update.edited_message, true);
     else if (update.callback_query) await this.handleCallbackQuery(update.callback_query);
   }
 
@@ -121,21 +129,26 @@ export class MessengerBotService implements OnModuleInit {
   ): Promise<void> {
 
     const from =
-      message.from;
+      message.from;//گرفتن آبجکت کاربر که اطلاعات در آن هست
 
     if (!from) {
       return;
     }
 
     const externalUserId =
-      from.id.toString();
+      from.id.toString();//به دست آوردن شناسه کاربر در پیام رسان که الان برای خود من 263311795 هست
 
     const chatId =
-      message.chat.id.toString();
+      message.chat.id.toString();//شناسه چت که در چت خصوصی همون from.idهست ولی در کانال و گروه فرق داره 
 
-    this.keyboard.clearCallbackMessage(chatId);
+    this.keyboard.clearCallbackMessage(chatId);// پاک کردن منوی قبلی از لیست ویرایش ها چون الان داریم متن یا ویس رو پردازش میکنیم
 
-    if (await this.botAccessService.handle(message, from)) return;
+    if (await this.botAccessService.handle(message, from)) return;// بررسی اینکه آیا کاربر به سیستم وصل هست یعنی از قبل حساب دارد یا نه
+
+    if (message.location) {
+      await this.handleLocation(message, false);
+      return;
+    }
 
     /*
      * =====================================================
@@ -792,11 +805,22 @@ export class MessengerBotService implements OnModuleInit {
   async sendNotification(
     chatId: string,
     text: string,
+    options?: TelegramBot.SendMessageOptions,
   ): Promise<number> {
     const message = await this.requireBot()
-      .sendMessage(chatId, text);
+      .sendMessage(chatId, text, options);
 
     return message.message_id;
+  }
+
+  /** اعلان با دکمه‌های گفتگو (مثل «قبول/رد» درخواست راننده برای شرکت). */
+  async sendActionNotification(chatId: string, text: string, actions: BotAction[]): Promise<number> {
+    return this.sendNotification(chatId, text, actions.length ? { reply_markup: this.inlineActions(actions) } : undefined);
+  }
+
+  /** پین نقشه (مثلاً موقعیت راننده برای شرکت). */
+  async sendLocation(chatId: string, latitude: number, longitude: number): Promise<void> {
+    await this.requireBot().sendLocation(chatId, latitude, longitude);
   }
 
   async editNotification(
@@ -965,8 +989,38 @@ export class MessengerBotService implements OnModuleInit {
       await this.openMainMenu(chatId, externalUserId);
       return;
     }
-    const reply = await dialog.handleAction({ platform: MessengerPlatform.Bot, externalUserId, userId }, action);
-    if (reply) await this.sendDialogReply(chatId, externalUserId, reply);
+    const progress = this.progressNotice(chatId);
+    try {
+      const reply = await dialog.handleAction(
+        { platform: MessengerPlatform.Bot, externalUserId, userId, progress: progress.show },
+        action,
+      );
+      if (reply) await this.sendDialogReply(chatId, externalUserId, reply);
+    } finally {
+      await progress.clear();
+    }
+  }
+
+  /**
+   * پیام موقت «در حال محاسبه» مستقیم با ربات فرستاده می‌شود (نه BotKeyboardService)
+   * تا منوی فعلی همچنان در جا ویرایش شود؛ بعد از جواب پاک می‌شود.
+   */
+  private progressNotice(chatId: string): { show: (text: string) => Promise<void>; clear: () => Promise<void> } {
+    let messageId: number | undefined;
+    return {
+      show: async (text) => {
+        if (messageId !== undefined) return;
+        try {
+          messageId = (await this.multiBot.sendMessage(chatId, text)).message_id;
+        } catch (error) {
+          this.logger.warn(`Progress notice failed: ${this.getErrorMessage(error)}`);
+        }
+      },
+      clear: async () => {
+        if (messageId === undefined) return;
+        await this.multiBot.deleteMessage(chatId, messageId).catch(() => undefined);
+      },
+    };
   }
 
   /** true اگر یکی از گفتگوهای ثبت‌شده منتظر این متن بود و جواب داد. */
@@ -1014,13 +1068,73 @@ ${order.text}`, {
       await this.openMainMenu(chatId, externalUserId);
       return;
     }
+    if (reply.photo) {
+      // منو باید زیر عکس بیاید: به‌جای ویرایش منوی قبلی (بالای عکس) پیام تازه
+      this.keyboard.clearCallbackMessage(chatId);
+      try {
+        await this.multiBot.sendPhoto(chatId, reply.photo.image, reply.photo.caption);
+      } catch (error) {
+        this.logger.warn(`Bot sendPhoto failed: ${this.getErrorMessage(error)}`);
+      }
+    }
+    if (reply.locationButton) {
+      // «منوی اصلی» متنی است که handleMessage می‌شناسد؛ راه خروج از این کیبورد.
+      await this.sendMessage(chatId, reply.text, {
+        reply_markup: {
+          keyboard: [
+            [{ text: reply.locationButton, request_location: true }],
+            [{ text: this.messages.get('menu.common.mainMenu') }],
+          ],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        },
+      });
+      return;
+    }
     await this.sendMessage(chatId, reply.text, {
-      reply_markup: {
-        inline_keyboard: reply.actions.length
-          ? actionRows(reply.actions).map((row) => row.map((action) => ({ text: action.label, callback_data: action.id })))
-          : [[{ text: this.messages.get('menu.common.mainMenu'), callback_data: BotCallback.MainMenu }]],
-      },
+      reply_markup: reply.actions.length
+        ? this.inlineActions(reply.actions)
+        : { inline_keyboard: [[{ text: this.messages.get('menu.common.mainMenu'), callback_data: BotCallback.MainMenu }]] },
     });
+  }
+
+  private inlineActions(actions: BotAction[]): TelegramBot.InlineKeyboardMarkup {
+    return {
+      inline_keyboard: actionRows(actions).map((row) =>
+        row.map((action) => (action.url ? { text: action.label, url: action.url } : { text: action.label, callback_data: action.id })),
+      ),
+    };
+  }
+
+  /**
+   * لوکیشن کاربر (یا به‌روزرسانی Live Location) به گفتگوهایی که منتظرش هستند
+   * (مثل سفر فعال راننده) می‌رود. به‌روزرسانی‌های live بی‌صدا ذخیره می‌شوند.
+   */
+  private async handleLocation(message: TelegramBot.Message, edited: boolean): Promise<void> {
+    const location = message.location;
+    const from = message.from;
+    if (!location || !from) return;
+    const externalUserId = from.id.toString();
+    const chatId = message.chat.id.toString();
+    const userId = await this.botIdentityService.getUserId(externalUserId);
+    if (!userId) {
+      if (!edited) await this.openMainMenu(chatId, externalUserId);
+      return;
+    }
+    const ctx = { platform: MessengerPlatform.Bot, externalUserId, userId };
+    const point: BotLocation = {
+      latitude: location.latitude,
+      longitude: location.longitude,
+      livePeriod: (location as { live_period?: number }).live_period,
+      edited,
+    };
+    for (const dialog of this.dialogs.all()) {
+      const reply = await dialog.handleLocation?.(ctx, point);
+      if (!reply) continue;
+      if (!edited) await this.sendDialogReply(chatId, externalUserId, reply);
+      return;
+    }
+    if (!edited) await this.sendNotice(chatId, this.messages.get('errors.unsupportedMessage'));
   }
 
   private async openMainMenu(

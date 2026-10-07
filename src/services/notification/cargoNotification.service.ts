@@ -21,11 +21,15 @@ import { BOT_DELIVERY_COLUMNS, isPermanentTelegramError, nextDeliveryRetryAt } f
 import { BOT_PLATFORMS, BotPlatform } from '../messengerBot/core/botPlatform';
 import { buildCargoNotificationText } from './cargoNotificationText';
 import { CARGO_NOTIFICATION_SOCKET_EVENT, NotificationsGateway } from './notifications.gateway';
+import { TripAction } from '../../domain/constants/bot/TripAction';
 
 const BOT_PLATFORM_LABEL_EN: Record<BotPlatform, string> = { telegram: 'Telegram', bale: 'Bale', rubika: 'Rubika' };
 
 // سقف ردیف‌هایی که برای غربال با فیلترها خوانده می‌شوند (جدیدترین‌ها).
 const LIST_SCAN_LIMIT = 1000;
+
+const REQUEST_BUTTON = '🙋 درخواست این بار';
+const DETAIL_BUTTON = '🗺 مسیر و جزئیات';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -156,7 +160,14 @@ export class CargoNotificationService {
 
     const attempts = row[columns.attempts] + 1;
     try {
-      const messageId = await this.bots.sendNotification(link.chatId, row.text);
+      // بار اعلام‌شده برای راننده: دکمه‌ی «درخواست این بار»؛ با «برداشته شد»
+      // پیام ویرایش و دکمه برداشته می‌شود.
+      const messageId = row.listingId
+        ? await this.bots.sendActionNotification(link.chatId, row.text, [
+            { id: `${TripAction.Detail}${row.listingId}`, label: DETAIL_BUTTON, row: 0 },
+            { id: `${TripAction.Request}${row.listingId}`, label: REQUEST_BUTTON, row: 0 },
+          ])
+        : await this.bots.sendNotification(link.chatId, row.text);
       await update({
         [columns.status]: NotificationDeliveryStatus.Sent,
         [columns.chatId]: link.chatId,

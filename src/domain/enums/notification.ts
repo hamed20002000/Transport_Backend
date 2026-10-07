@@ -11,3 +11,13 @@ export enum CargoListingStatus {
   // شرکت (ثبت‌کننده‌ی کانال) اعلام کرده بار فروخته/برداشته شد.
   Taken = 'TAKEN',
 }
+
+/** درخواست راننده برای یک بار اعلام‌شده؛ قبول‌شده همان «سفر فعال» است. */
+export enum CargoRequestStatus {
+  Pending = 'PENDING',
+  // شرکت قبول کرد: سفر فعال راننده
+  Accepted = 'ACCEPTED',
+  Rejected = 'REJECTED',
+  Cancelled = 'CANCELLED',
+  Delivered = 'DELIVERED',
+}

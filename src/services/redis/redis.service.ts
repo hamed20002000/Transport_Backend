@@ -13,7 +13,7 @@ export class RedisService implements OnModuleDestroy {
       throw new Error('Redis key parts must be non-empty.');
     }
     const identifiers = kind === 'refreshToken'
-      ? [createHash('sha256').update(parts[0]).digest('hex')]
+      ? [createHash('sha256').update((parts as RedisKeyParts['refreshToken'])[0]).digest('hex')]
       : parts.map(RedisService.escapePart);
     return [KEY_PREFIXES[kind], ...identifiers].join(':');
   }
@@ -29,6 +29,9 @@ export class RedisService implements OnModuleDestroy {
 
   private readonly logger = new Logger(RedisService.name);
   private readonly client: Redis;
+  /** اتصال جدا برای subscribe: اتصالی که subscribe کرده دستور دیگری اجرا نمی‌کند. */
+  private subscriber?: Redis;
+  private readonly handlers = new Map<string, Set<(message: string) => void>>();
 
   constructor(config: ConfigService) {
     const port = Number(config.get<string | number>('REDIS_PORT', 6379));
@@ -99,12 +102,52 @@ export class RedisService implements OnModuleDestroy {
     return this.client.ttl(key);
   }
 
+  async publish(channel: string, message: string): Promise<void> {
+    await this.client.publish(channel, message);
+  }
+
+  /** پیام‌های کانال را به handler می‌دهد؛ بعد از قطع و وصل Redis خودکار دوباره subscribe می‌شود. */
+
+  /**
+   * برای سابسکرایب کردن هندلرها
+   * @param channel 
+   * @param handler 
+   */
+  //#region -----------------------------  سابسکرایب کردن --------------------------------
+  async subscribe(channel: string, handler: (message: string) => void): Promise<void> {
+    if (!this.subscriber) {
+      this.subscriber = this.client.duplicate();
+      this.subscriber.on('error', () => {
+        this.logger.warn('Redis subscriber connection error. Check Redis availability and configuration.');
+      });
+      this.subscriber.on('message', (from: string, message: string) => {
+        for (const listener of this.handlers.get(from) ?? []) {
+          try {
+            listener(message);
+          } catch (error) {
+            this.logger.warn(`Redis message handler failed on ${from}: ${(error as Error).message}`);
+          }
+        }
+      });
+    }
+    const listeners = this.handlers.get(channel) ?? new Set();
+    listeners.add(handler);
+    this.handlers.set(channel, listeners);
+    if (listeners.size === 1) await this.subscriber.subscribe(channel);
+  }
+  //#endregion -----------------------------------------------------------------------------
+
   async onModuleDestroy(): Promise<void> {
-    try {
-      if (this.client.status === 'ready') await this.client.quit();
-    } finally {
-      // Also stop reconnection attempts when Redis is unavailable.
-      this.client.disconnect();
+    for (const connection of [this.client, this.subscriber]) {
+      if (!connection) continue;
+      try {
+        if (connection.status === 'ready') await connection.quit();
+      } catch {
+        // quit ناموفق؛ disconnect پایین اتصال را به هر حال می‌بندد.
+      } finally {
+        // Also stop reconnection attempts when Redis is unavailable.
+        connection.disconnect();
+      }
     }
   }
 

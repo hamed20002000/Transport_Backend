@@ -6,6 +6,7 @@ import { CargoDetectedEvent } from '../../domain/constants/cargoEvents';
 import { CargoListing } from '../../domain/entities/notification/CargoListing';
 import { CargoNotification } from '../../domain/entities/notification/CargoNotification';
 import { CargoListingStatus } from '../../domain/enums/notification';
+import { normalizePersianText } from '../../domain/helper/persianText';
 import { CargoAudienceRepository } from '../../infrastructure/repositories/notification/cargoAudience.repository';
 import { CargoListingRepository } from '../../infrastructure/repositories/notification/cargoListing.repository';
 import { CargoNotificationRepository } from '../../infrastructure/repositories/notification/cargoNotification.repository';
@@ -25,6 +26,8 @@ import {
 const WHATSAPP_EDIT_WINDOW_MS = 14 * 60 * 1000;
 
 const TAKEN_REACTION = '❌';
+
+const OPEN_SCAN_LIMIT = 1000;
 
 // ارسال به راننده‌ها در پس‌زمینه انجام می‌شود؛ اگر برنامه وسط کار بسته شود،
 // worker تلاش مجدد بعد از این مدت ارسال‌های باقی‌مانده را می‌فرستد.
@@ -169,6 +172,10 @@ export class CargoListingService {
    * «برداشته شد» (TAKEN) یا برگرداندن (OPEN). فقط شرکتی که بار را منتشر کرده
    * می‌تواند وضعیتش را عوض کند؛ پیام همه‌ی راننده‌ها در هر سه کانال ویرایش می‌شود.
    */
+  findById(listingId: string): Promise<CargoListing | null> {
+    return this.listings.findById(listingId);
+  }
+
   async setStatus(userId: string, listingId: string, status: CargoListingStatus) {
     const listing = await this.listings.findOneForPublisher(listingId, userId);
     if (!listing) throw new NotFoundException('Cargo listing not found.');
@@ -193,11 +200,37 @@ export class CargoListingService {
   }
 
   /** بارهای باز همه‌ی شرکت‌ها برای راننده؛ متن هر بار همان پیامی است که برای راننده‌ها فرستاده شد. */
-  async listOpen(options: { page: number; pageSize: number }) {
-    const [items, total] = await this.listings.findOpenPage({
-      skip: (options.page - 1) * options.pageSize,
-      take: options.pageSize,
-    });
+  /** شرکت‌هایی که بار اعلام کرده‌اند، برای انتخاب در فیلتر راننده. */
+  companyNames(limit = 20): Promise<string[]> {
+    return this.listings.findPublisherCompanyNames(limit);
+  }
+
+  /**
+   * بارهای باز؛ با userId فقط آن‌هایی که با فیلترهای فعال آن کاربر جورند (مثل
+   * اعلانی که برایش می‌رود). match روی متن آزاد در SQL ممکن نیست، پس
+   * جدیدترین OPEN_SCAN_LIMIT بار در برنامه فیلتر می‌شوند.
+   */
+  async listOpen(options: { page: number; pageSize: number; userId?: string; origin?: string; destination?: string }) {
+    const skip = (options.page - 1) * options.pageSize;
+    const filters = options.userId ? await this.filters.activeFor(options.userId) : [];
+    // بار برگشتی: فقط بارهایی که مبدأ (و اگر داده شد مقصد)شان این شهر است («شامل بودن» مثل فیلترها)
+    const origin = options.origin ? normalizePersianText(options.origin) : '';
+    const destination = options.destination ? normalizePersianText(options.destination) : '';
+    let items: CargoListing[];
+    let total: number;
+    if (filters.length === 0 && !origin && !destination) {
+      [items, total] = await this.listings.findOpenPage({ skip, take: options.pageSize });
+    } else {
+      const [recent] = await this.listings.findOpenPage({ skip: 0, take: OPEN_SCAN_LIMIT });
+      const matching = recent.filter(
+        (listing) =>
+          this.filters.matchesAny(filters, listing) &&
+          (!origin || normalizePersianText(listing.origin ?? '').includes(origin)) &&
+          (!destination || normalizePersianText(listing.destination ?? '').includes(destination)),
+      );
+      items = matching.slice(skip, skip + options.pageSize);
+      total = matching.length;
+    }
 
     return { items: items.map((listing) => this.toView(listing)), total, page: options.page, pageSize: options.pageSize };
   }

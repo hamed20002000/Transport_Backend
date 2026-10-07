@@ -7,6 +7,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Agent } from 'https';
 import TelegramBot from 'node-telegram-bot-api';
 import { MessengerBotService } from '../core/messengerBot.service';
 import { MultiBot } from '../core/multiBot';
@@ -41,7 +42,12 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     }
 
     this.transport = new TelegramTransport(this.config);
-    const bot = new TelegramBot(token, { polling: false });
+    const bot = new TelegramBot(token, {
+      polling: false,
+      // فقط IPv4: Node هر آدرس را ۲۵۰ms امتحان می‌کند؛ IPv6 تلگرام وصل نمی‌شود و
+      // اتصال IPv4 کند (فیلتر/VPN) از این بیشتر طول می‌کشد → EFATAL: AggregateError.
+      request: { agent: new Agent({ family: 4, keepAlive: true }) } as TelegramBot.ConstructorOptions['request'],
+    });
     this.bot = bot;
     this.multiBot.register('telegram', bot);
 

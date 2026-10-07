@@ -46,6 +46,17 @@ const toLatinDigits = (value: string) =>
     .replace(/[۰-۹]/g, (digit) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)))
     .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)));
 
+/**
+ * گفتگوهای ربات (بارها، فیلترها، درخواست و سفر راننده...) در واتساپ با گزینه‌های
+ * شماره‌دار. پیاده‌سازی در WhatsappDialogBridge (ماژول بارها) است و موقع
+ * راه‌اندازی خودش را اینجا ثبت می‌کند تا این ماژول به آن وابسته نشود.
+ */
+export interface WhatsappDialogHandler {
+  /** true اگر متن مال یکی از گفتگوها بود و جواب داده شد. */
+  handleText(jid: string, userId: string, text: string): Promise<boolean>;
+  handleLocation(jid: string, userId: string, location: { latitude: number; longitude: number; live: boolean }): Promise<boolean>;
+}
+
 @Injectable()
 export class WhatsappService implements OnModuleInit {
   private readonly logger = new Logger(WhatsappService.name);
@@ -79,6 +90,8 @@ export class WhatsappService implements OnModuleInit {
   private selectionMessageKeys = new Map<string, proto.IMessageKey>();
 
   private static readonly SELECTION_PAGE_SIZE = 10;
+
+  private dialogHandler?: WhatsappDialogHandler;
 
   //Voice-recognized transcripts that are still waiting for user approval -- 
   // exactly equivalent to pendingTranscriptions in MessengerBotService
@@ -274,6 +287,15 @@ export class WhatsappService implements OnModuleInit {
         // passed into the pipeline's `files` array. No pendingXxx map
         // needed here -- unlike voice, we don't ask for confirmation first,
         // since there's no transcription-accuracy risk to guard against.
+        if (msg.message.locationMessage || msg.message.liveLocationMessage) {
+          try {
+            await this.handleLocationMessage(jid, msg);
+          } catch (error) {
+            this.logger.error(`Konum mesajı işlenirken hata: ${jid}`, error as Error);
+          }
+          continue;
+        }
+
         const imageMessage = msg.message.imageMessage;
         const documentMessage = msg.message.documentMessage;
         if (imageMessage || documentMessage) {
@@ -406,6 +428,8 @@ export class WhatsappService implements OnModuleInit {
     // گروه‌ها و کانال‌ها: همان جریان منوی تلگرام، با گزینه‌های شماره‌دار.
     // با «کانال‌ها» باز می‌شود و تا وقتی باز است شماره/لینک/«لغو» را می‌گیرد.
     if (await this.handleChannelMessage(jid, userid, text)) return;
+    // بقیه‌ی بخش‌های ربات: «منو»، بارها، فیلترها، درخواست و سفر راننده، با گزینه‌های شماره‌دار
+    if (this.dialogHandler && (await this.dialogHandler.handleText(jid, userid, text))) return;
 
     // NEW: 'yeni sohbet' -- exact WhatsApp equivalent of Telegram's /yeni
     // and the web's "new chat" button. Clears CurrentSessionId so the next
@@ -417,6 +441,36 @@ export class WhatsappService implements OnModuleInit {
 
     // None of the pending states applied -- this is a genuinely new command.
     await this.runCommand(userid, username, text);
+  }
+
+  setDialogHandler(handler: WhatsappDialogHandler): void {
+    this.dialogHandler = handler;
+  }
+
+  /** لوکیشن (یا Live Location) کاربر ثبت‌شده به گفتگوهای ربات می‌رود. */
+  private async handleLocationMessage(jid: string, msg: WAMessage): Promise<void> {
+    const location = msg.message?.locationMessage ?? msg.message?.liveLocationMessage;
+    if (!location || location.degreesLatitude == null || location.degreesLongitude == null) return;
+    const mapping = await this.resolveUserFromJid(jid);
+    if (!mapping || !this.dialogHandler) return;
+    const handled = await this.dialogHandler.handleLocation(jid, mapping.userid, {
+      latitude: Number(location.degreesLatitude),
+      longitude: Number(location.degreesLongitude),
+      live: !!msg.message?.liveLocationMessage,
+    });
+    if (!handled) await this.sendMessage(jid, 'این نوع پیام پشتیبانی نمی‌شود.');
+  }
+
+  /** عکس با زیرنویس (مثل نقشه‌ی مسیر و جایگاه‌های سوخت). */
+  async sendImage(jid: string, image: Buffer, caption?: string): Promise<void> {
+    if (!this.sock) throw new Error('WhatsApp socket is not connected.');
+    await this.sock.sendMessage(jid, { image, caption });
+  }
+
+  /** پین نقشه (مثلاً موقعیت راننده برای شرکت). */
+  async sendLocation(jid: string, latitude: number, longitude: number): Promise<void> {
+    if (!this.sock) throw new Error('WhatsApp socket is not connected.');
+    await this.sock.sendMessage(jid, { location: { degreesLatitude: latitude, degreesLongitude: longitude } });
   }
 
   /** true اگر پیام مربوط به بخش گروه‌ها و کانال‌ها بود و پاسخ داده شد. */

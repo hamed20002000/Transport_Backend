@@ -28,6 +28,7 @@ export class BotSubscriptionService {
     if (!(await this.policy.isRequired())) return true;
     const userId = await this.identity.getUserId(externalUserId);
     if (userId && await this.subscriptions.findActiveByUserId(userId)) return true;
+    
     const roles = await this.identity.getMenuRoles(externalUserId) ?? [];
     const accountType = roles.includes('DRIVER') ? AccountType.Driver
       : roles.includes('COMPANY') || roles.includes('COMPANY_ADMIN') ? AccountType.Company

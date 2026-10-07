@@ -16,6 +16,19 @@ export class CargoListingRepository {
     return this.repository.save(listing);
   }
 
+  /** نام شرکت‌هایی که بار اعلام کرده‌اند؛ آن‌که اخیراً بار داده اول. */
+  async findPublisherCompanyNames(limit: number): Promise<string[]> {
+    const rows: { name: string }[] = await this.repository
+      .createQueryBuilder('listing')
+      .select('TRIM(listing.companyName)', 'name')
+      .where("listing.companyName IS NOT NULL AND TRIM(listing.companyName) <> ''")
+      .groupBy('TRIM(listing.companyName)')
+      .orderBy('MAX(listing.createdAt)', 'DESC')
+      .limit(limit)
+      .getRawMany();
+    return rows.map((row) => row.name);
+  }
+
   /**
    * کد پیگیری برای بارهایی که از tarabari_backend نیامده‌اند. sequence از
    * 90000000 شروع می‌شود تا با کدهای tarabari (از 100000) تداخل نداشته باشد.
@@ -23,6 +36,10 @@ export class CargoListingRepository {
   async nextManualCode(): Promise<string> {
     const [{ value }] = await this.repository.query(`SELECT nextval('manual_cargo_code_seq') AS value`);
     return `TRB${value}`;
+  }
+
+  findById(id: string): Promise<CargoListing | null> {
+    return this.repository.findOne({ where: { id } });
   }
 
   findOneForPublisher(id: string, publisherUserId: string): Promise<CargoListing | null> {

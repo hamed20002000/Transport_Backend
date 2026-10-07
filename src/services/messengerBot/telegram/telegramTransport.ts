@@ -39,7 +39,8 @@ export class TelegramTransport {
       await bot.setWebHook(this.url!, {
         secret_token: this.secret,
         max_connections: 1,
-        allowed_updates: ['message', 'callback_query'],
+        // edited_message: به‌روزرسانی‌های Live Location راننده
+        allowed_updates: ['message', 'edited_message', 'callback_query'],
       });
     } else {
       // Switching back from webhook must preserve pending updates.

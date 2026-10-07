@@ -1,38 +1,70 @@
-import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { I18nService } from 'nestjs-i18n';
 
 import { PHONE_PATTERN, cargoLine, fa } from 'src/application/services/agent/tools/toolKit';
 import { BotCallback } from 'src/domain/constants/bot/BotCallback';
+import { CargoAlertFilter } from 'src/domain/entities/notification/CargoAlertFilter';
 import { CargoListingStatus } from 'src/domain/enums/notification';
+import { parsePriceToman } from 'src/domain/helper/price';
 import { IUserRepository } from 'src/domain/repositories/IUserRepopsitory';
 import { USER_REPOSITORY } from 'src/domain/repositories/repository.tokens';
 import { BotAction, BotContext, BotDialog, BotDialogRegistry, BotReply } from '../messengerBot/core/botDialog';
 import { RedisService } from '../redis/redis.service';
+import { CargoAlertFilterInput, CargoAlertFilterService } from './cargoAlertFilter.service';
 import { CargoListingService } from './cargoListing.service';
+import { CargoNotificationService } from './cargoNotification.service';
+import { TripAction } from 'src/domain/constants/bot/TripAction';
 import { buildCargoListingText, CargoListingFields } from './cargoNotificationText';
 
 const PREFIX = 'cg:';
 const Action = {
-  MyCargo: `${PREFIX}mine:`, // + page
-  MarkTaken: `${PREFIX}tk:`, // + listingId:page
-  Reopen: `${PREFIX}ro:`, // + listingId:page
+  Suggestions: `${PREFIX}sg:`, // + a|u (همه/خوانده‌نشده):page
+  Announce: `${PREFIX}an:`, // + notificationId
+  ReadAll: `${PREFIX}ra:`, // + a|u
+  MyCargo: `${PREFIX}mine:`, // + a|o|t (وضعیت):page
+  MarkTaken: `${PREFIX}tk:`, // + listingId:status:page
+  Reopen: `${PREFIX}ro:`, // + listingId:status:page
   OpenCargo: `${PREFIX}find:`, // + page
   Create: `${PREFIX}new`,
   Skip: `${PREFIX}skip`,
   Confirm: `${PREFIX}ok`,
+  Edit: `${PREFIX}edit`,
   Restart: `${PREFIX}redo`,
   Cancel: `${PREFIX}cancel`,
   Close: `${PREFIX}close`,
+  Filters: `${PREFIX}fl`,
+  FilterNew: `${PREFIX}fn`,
+  FilterView: `${PREFIX}fv:`, // + filterId
+  FilterToggle: `${PREFIX}ft:`, // + filterId
+  FilterDelete: `${PREFIX}fd:`, // + filterId
+  FilterDeleteYes: `${PREFIX}fy:`, // + filterId
+  FilterEdit: `${PREFIX}fe:`, // + filterId:field
+  FilterClear: `${PREFIX}fc`,
+  FilterPick: `${PREFIX}fp:`, // + index در options جلسه (نام شرکت ممکن است از ۶۴ بایت callback بیشتر باشد)
+  FilterPickDone: `${PREFIX}fok`,
+  FilterCancel: `${PREFIX}fx`,
 } as const;
 
 const COMPANY_ROLES = ['COMPANY', 'COMPANY_ADMIN'];
 const DRIVER_ROLES = ['DRIVER'];
-const MINE_PAGE_SIZE = 5;
+const MINE_PAGE_SIZE = 6;
+const SUGGESTION_PAGE_SIZE = 6;
 // متن کامل هر بار (با شماره‌ها) نشان داده می‌شود؛ صفحه‌ی کوتاه‌تر خواناتر است.
 const FIND_PAGE_SIZE = 3;
 const MAX_FIELD_LENGTH = 200;
 const SESSION_TTL_SECONDS = 30 * 60;
 const CANCEL_WORDS = ['لغو', 'انصراف', 'cancel'];
+// دکمه‌های هر بار/فیلتر دوتا دوتا در یک ردیف
+const PER_ROW = 2;
+
+/** فیلتر لیست پیشنهادها و وضعیت «بارهای من»، مثل Segmented در وب. */
+type SuggestionFilter = 'a' | 'u';
+type MineStatus = 'a' | 'o' | 't';
+const MINE_STATUS: Record<MineStatus, CargoListingStatus | undefined> = {
+  a: undefined,
+  o: CargoListingStatus.Open,
+  t: CargoListingStatus.Taken,
+};
 
 /** مرحله‌های فرم ثبت بار به ترتیب پرسیدن؛ phone فقط اگر پروفایل شماره نداشت. */
 const STEPS = ['origin', 'destination', 'cargoType', 'weight', 'vehicleType', 'price', 'extraNotes', 'phone'] as const;
@@ -41,29 +73,85 @@ const REQUIRED: Step[] = ['origin', 'destination', 'phone'];
 
 type Draft = Partial<Record<Exclude<Step, 'phone'>, string>> & { contactPhones?: string[] };
 
-interface CreateSession {
+interface CargoSession {
+  kind?: 'cargo';
   /** مرحله‌ای که منتظر جوابش هستیم؛ null یعنی پیش‌نمایش (منتظر تأیید). */
   step: Step | null;
   draft: Draft;
+  /** «اعلام بار»: پیشنهادی که منتشر می‌شود؛ بدون آن، بار دستی است. */
+  notificationId?: string;
+  code?: string | null;
+  /** ویرایش پیش‌نمایش: مقدار فعلی هر مرحله نشان داده می‌شود و می‌شود نگهش داشت. */
+  editing?: boolean;
+  /** پیشنهادی که مبدأ/مقصد/شماره‌اش از پیام درنیامده: فقط همان‌ها پرسیده می‌شوند. */
+  fillMissing?: boolean;
+}
+
+/** فیلدهای فیلتر، مثل صفحه‌ی «تنظیمات نمایش بار» وب. */
+// companies فقط برای راننده: بار خام کانال‌ها که به شرکت پیشنهاد می‌شود نام شرکت ندارد.
+const LIST_FIELDS = ['origins', 'destinations', 'cargoTypes', 'vehicleTypes', 'companies'] as const;
+const PRICE_FIELDS = ['minPrice', 'maxPrice'] as const;
+const FILTER_FIELDS = [...LIST_FIELDS, ...PRICE_FIELDS, 'label'] as const;
+type ListField = (typeof LIST_FIELDS)[number];
+type FilterField = (typeof FILTER_FIELDS)[number];
+const MAX_FILTER_ITEMS = 50;
+const MAX_FILTER_ITEM_LENGTH = 100;
+const MAX_FILTER_LABEL_LENGTH = 150;
+const COMPANY_OPTIONS = 20;
+
+interface FilterSession {
+  kind: 'filter';
+  /** null یعنی فیلتر جدید که مرحله‌به‌مرحله پر می‌شود. */
+  filterId: string | null;
+  field: FilterField;
+  draft: CargoAlertFilterInput;
+  /** فیلتر راننده: فیلد «شرکت» هم دارد. */
+  driver?: boolean;
+  /** مرحله‌ی «شرکت»: شرکت‌هایی که دکمه دارند و آن‌هایی که انتخاب شده‌اند. */
+  options?: string[];
+  picked?: string[];
+}
+
+type Session = CargoSession | FilterSession;
+
+/** ردیف‌بندی دکمه‌ها: هر add یک ردیف و grid چند ردیف دوتایی. */
+class Rows {
+  private row = 0;
+  readonly actions: BotAction[] = [];
+
+  add(...actions: BotAction[]): this {
+    if (!actions.length) return this;
+    this.actions.push(...actions.map((action) => ({ ...action, row: this.row })));
+    this.row++;
+    return this;
+  }
+
+  grid(actions: BotAction[], perRow = PER_ROW): this {
+    for (let i = 0; i < actions.length; i += perRow) this.add(...actions.slice(i, i + perRow));
+    return this;
+  }
 }
 
 /**
- * دکمه‌های بار در ربات: «بارهای شرکت» (لیست و علامت برداشته‌شدن)، «ثبت بار»
- * (فرم مرحله‌به‌مرحله) و «پیدا کردن بار» راننده. روی همان CargoListingService
- * که وب و agent استفاده می‌کنند؛ خروجی فقط متن و گزینه است.
+ * دکمه‌های بار در ربات: «بارهای شرکت» (پیشنهادهای کانال‌ها با «اعلام بار»،
+ * بارهای منتشرشده با علامت برداشته‌شدن و تنظیمات فیلتر)، «ثبت بار» (فرم
+ * مرحله‌به‌مرحله) و «پیدا کردن بار» راننده. روی همان سرویس‌هایی که وب و agent
+ * استفاده می‌کنند؛ خروجی فقط متن و گزینه است.
  */
 @Injectable()
 export class CargoDialog implements BotDialog, OnModuleInit {
   private readonly logger = new Logger(CargoDialog.name);
 
   readonly entries: Record<string, string> = {
-    [BotCallback.CompanyLoads]: `${Action.MyCargo}1`,
+    [BotCallback.CompanyLoads]: `${Action.Suggestions}a:1`,
     [BotCallback.CompanyCreateLoad]: Action.Create,
     [BotCallback.DriverSearchLoads]: `${Action.OpenCargo}1`,
   };
 
   constructor(
     private readonly listings: CargoListingService,
+    private readonly notifications: CargoNotificationService,
+    private readonly filters: CargoAlertFilterService,
     private readonly registry: BotDialogRegistry,
     private readonly redis: RedisService,
     private readonly i18n: I18nService,
@@ -97,7 +185,12 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     if (!session) return null;
 
     const value = text.trim();
-    if (CANCEL_WORDS.includes(value.toLowerCase())) return this.cancelCreate(ctx);
+    if (session.kind === 'filter') {
+      if (CANCEL_WORDS.includes(value.toLowerCase())) return this.cancelFilterEdit(ctx, session);
+      return this.filterText(ctx, session, value);
+    }
+
+    if (CANCEL_WORDS.includes(value.toLowerCase())) return this.cancelCreate(ctx, session);
     // پیش‌نمایش منتظر دکمه است؛ متن جدید یعنی کاربر کار دیگری می‌خواهد.
     if (!session.step) return null;
 
@@ -124,38 +217,217 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     }
 
     if (id.startsWith(Action.OpenCargo)) {
-      return (await this.denied(ctx, DRIVER_ROLES)) ?? this.openCargoView(this.page(id.slice(Action.OpenCargo.length)));
+      return (await this.denied(ctx, DRIVER_ROLES)) ?? this.openCargoView(ctx, this.page(id.slice(Action.OpenCargo.length)));
+    }
+
+    // تنظیمات فیلتر برای شرکت و راننده
+    if (id.startsWith(PREFIX + 'f')) {
+      const denied = await this.denied(ctx, [...COMPANY_ROLES, ...DRIVER_ROLES]);
+      if (denied) return denied;
+      const reply = await this.routeFilters(ctx, id);
+      if (reply) return reply;
     }
 
     const denied = await this.denied(ctx, COMPANY_ROLES);
     if (denied) return denied;
 
-    if (id.startsWith(Action.MyCargo)) return this.myCargoView(ctx, this.page(id.slice(Action.MyCargo.length)));
+    if (id.startsWith(Action.Suggestions)) {
+      const [filter, page] = id.slice(Action.Suggestions.length).split(':');
+      return this.suggestionsView(ctx, this.suggestionFilter(filter), this.page(page));
+    }
+    if (id.startsWith(Action.ReadAll)) return this.readAll(ctx, this.suggestionFilter(id.slice(Action.ReadAll.length)));
+    if (id.startsWith(Action.Announce)) return this.startAnnounce(ctx, id.slice(Action.Announce.length));
+
+    if (id.startsWith(Action.MyCargo)) {
+      const parts = id.slice(Action.MyCargo.length).split(':');
+      // دکمه‌های قدیمی فقط شماره‌ی صفحه داشتند
+      const [status, page] = parts.length === 1 ? ['a', parts[0]] : parts;
+      return this.myCargoView(ctx, this.mineStatus(status), this.page(page));
+    }
     if (id.startsWith(Action.MarkTaken))
       return this.changeStatus(ctx, id.slice(Action.MarkTaken.length), CargoListingStatus.Taken);
     if (id.startsWith(Action.Reopen))
       return this.changeStatus(ctx, id.slice(Action.Reopen.length), CargoListingStatus.Open);
-    if (id === Action.Create || id === Action.Restart) return this.startCreate(ctx);
-    if (id === Action.Cancel) return this.cancelCreate(ctx);
+
+    if (id === Action.Create || id === Action.Restart) {
+      const current = await this.getSession(ctx);
+      // «از اول» در اعلام بار یعنی همان پیشنهاد را دوباره ویرایش کن.
+      if (id === Action.Restart && current?.kind !== 'filter' && current?.notificationId) {
+        return this.startAnnounce(ctx, current.notificationId);
+      }
+      return this.startCreate(ctx);
+    }
 
     const session = await this.getSession(ctx);
-    if (!session) return this.myCargoView(ctx, 1);
-    if (id === Action.Skip && session.step && !REQUIRED.includes(session.step)) return this.nextStep(ctx, session);
+    if (id === Action.Cancel) return this.cancelCreate(ctx, session?.kind === 'filter' ? null : session);
+    if (!session || session.kind === 'filter') return this.suggestionsView(ctx, 'a', 1);
+    if (id === Action.Skip && session.step && this.canSkip(session)) return this.nextStep(ctx, session);
+    if (id === Action.Edit && !session.step) return this.startEdit(ctx, session);
     if (id === Action.Confirm && !session.step) return this.publish(ctx, session);
     return session.step ? this.askStep(session) : this.preview(ctx, session);
+  }
+
+  private async routeFilters(ctx: BotContext, id: string): Promise<BotReply | null> {
+    if (id === Action.Filters) return this.filtersView(ctx);
+    if (id === Action.FilterNew) return this.startNewFilter(ctx);
+    if (id.startsWith(Action.FilterView)) return this.filterView(ctx, id.slice(Action.FilterView.length));
+    if (id.startsWith(Action.FilterToggle)) return this.toggleFilter(ctx, id.slice(Action.FilterToggle.length));
+    if (id.startsWith(Action.FilterDelete)) return this.confirmDeleteFilter(ctx, id.slice(Action.FilterDelete.length));
+    if (id.startsWith(Action.FilterDeleteYes)) return this.deleteFilter(ctx, id.slice(Action.FilterDeleteYes.length));
+    if (id.startsWith(Action.FilterEdit)) {
+      const [filterId, field] = id.slice(Action.FilterEdit.length).split(':');
+      return this.startFilterEdit(ctx, filterId, field);
+    }
+
+    const session = await this.getSession(ctx);
+    if (session?.kind !== 'filter') {
+      if (id === Action.FilterClear || id === Action.FilterCancel) return this.filtersView(ctx);
+      return null;
+    }
+    if (id === Action.FilterCancel) return this.cancelFilterEdit(ctx, session);
+    if (id === Action.FilterClear) return this.applyFilterValue(ctx, session, null);
+    if (id === Action.FilterPickDone) return this.applyFilterValue(ctx, session, session.picked?.length ? session.picked : null);
+    if (id.startsWith(Action.FilterPick)) return this.togglePick(ctx, session, Number(id.slice(Action.FilterPick.length)));
+    return null;
+  }
+
+  //#endregion
+
+  //#region ----------- Company: tabs ------------------------------------------
+
+  /** دو بخش «بارهای شرکت» مثل دو تب وب؛ بخش فعلی علامت می‌خورد. */
+  private tabs(current: 'suggestions' | 'mine'): BotAction[] {
+    return [
+      { id: `${Action.Suggestions}a:1`, label: this.selected(this.t('tabs.suggestions'), current === 'suggestions') },
+      { id: `${Action.MyCargo}a:1`, label: this.selected(this.t('tabs.mine'), current === 'mine') },
+    ];
+  }
+
+  private selected(label: string, on: boolean): string {
+    return on ? `✓ ${label}` : label;
+  }
+
+  //#endregion
+
+  //#region ----------- Company: suggested cargo --------------------------------
+
+  private async suggestionsView(ctx: BotContext, filter: SuggestionFilter, page: number, notice?: string): Promise<BotReply> {
+    const result = await this.notifications.list(ctx.userId, {
+      unreadOnly: filter === 'u',
+      kind: 'suggestion',
+      page,
+      pageSize: SUGGESTION_PAGE_SIZE,
+    });
+    const pages = Math.max(1, Math.ceil(result.total / SUGGESTION_PAGE_SIZE));
+    if (page > pages && result.total > 0) return this.suggestionsView(ctx, filter, pages, notice);
+
+    let body = this.t(filter === 'u' ? 'suggestions.emptyUnread' : 'suggestions.empty');
+    const announce: BotAction[] = [];
+    if (result.items.length) {
+      body = result.items
+        .map((item, i) => {
+          const index = fa((page - 1) * SUGGESTION_PAGE_SIZE + i + 1);
+          const cargo = (item.cargo ?? {}) as Parameters<typeof cargoLine>[0] & { code?: string | null };
+          const marks = [
+            item.isRead ? '' : this.t('suggestions.new'),
+            item.published
+              ? this.t('suggestions.published', {
+                  status: this.t(item.published.status === CargoListingStatus.Taken ? 'mine.taken' : 'mine.open'),
+                })
+              : '',
+          ].filter(Boolean);
+          const lines = [
+            `${index}. ${cargoLine(cargo) || (item.text ?? '').slice(0, 80)}`,
+            cargo?.code ? this.t('suggestions.code', { code: cargo.code }) : '',
+            marks.join(' · '),
+          ];
+          if (!item.published) {
+            announce.push({ id: `${Action.Announce}${item.id}`, label: this.t('actions.announce', { index }) });
+          }
+          return lines.filter(Boolean).join('\n');
+        })
+        .join('\n\n');
+      if (pages > 1) body += `\n\n${this.t('mine.page', { page: fa(page), pages: fa(pages) })}`;
+    }
+
+    const rows = new Rows()
+      .add(...this.tabs('suggestions'))
+      .grid(announce)
+      .add(...this.pager(`${Action.Suggestions}${filter}:`, page, pages))
+      .add(
+        { id: `${Action.Suggestions}a:1`, label: this.selected(this.t('actions.all'), filter === 'a') },
+        { id: `${Action.Suggestions}u:1`, label: this.selected(this.t('actions.unread'), filter === 'u') },
+      )
+      .add(
+        { id: `${Action.ReadAll}${filter}`, label: this.t('actions.readAll') },
+        { id: Action.Filters, label: this.t('actions.filters') },
+      )
+      .add({ id: Action.Create, label: this.t('actions.create') }, this.back());
+
+    return {
+      text: [notice, this.t('suggestions.title'), this.t('suggestions.hint'), body].filter(Boolean).join('\n\n'),
+      actions: rows.actions,
+    };
+  }
+
+  private async readAll(ctx: BotContext, filter: SuggestionFilter): Promise<BotReply> {
+    const { updated } = await this.notifications.markRead(ctx.userId);
+    const notice = updated ? this.t('suggestions.markedRead', { count: fa(updated) }) : this.t('suggestions.nothingToMark');
+    return this.suggestionsView(ctx, filter, 1, notice);
+  }
+
+  /** «اعلام بار»: نمونه‌ی پیشنهادی (از پیام و پروفایل شرکت) پیش‌نمایش می‌شود و قابل ویرایش است. */
+  private async startAnnounce(ctx: BotContext, notificationId: string): Promise<BotReply> {
+    let draft: Awaited<ReturnType<CargoListingService['buildDraft']>>;
+    try {
+      draft = await this.listings.buildDraft(ctx.userId, notificationId);
+    } catch {
+      return this.suggestionsView(ctx, 'a', 1, this.t('announce.notFound'));
+    }
+    const value = (text: string | null | undefined) => text?.trim() || undefined;
+    const session: CargoSession = {
+      kind: 'cargo',
+      step: null,
+      notificationId,
+      code: draft.code ?? null,
+      draft: {
+        origin: value(draft.origin),
+        destination: value(draft.destination),
+        cargoType: value(draft.cargoType),
+        weight: value(draft.weight),
+        vehicleType: value(draft.vehicleType),
+        price: value(draft.price),
+        extraNotes: value(draft.extraNotes),
+        contactPhones: draft.contactPhones,
+      },
+    };
+    // مبدأ/مقصد/شماره‌ای که از پیام درنیامده باید اول پرسیده شود.
+    const missing = REQUIRED.find((step) => !this.currentValue(session, step));
+    if (missing) {
+      session.fillMissing = true;
+      session.step = missing;
+      await this.saveSession(ctx, session);
+      return this.askStep(session, this.t('announce.missing'));
+    }
+    await this.saveSession(ctx, session);
+    return this.preview(ctx, session);
   }
 
   //#endregion
 
   //#region ----------- Company: my cargo --------------------------------------
 
-  private async myCargoView(ctx: BotContext, page: number, notice?: string): Promise<BotReply> {
-    const result = await this.listings.listMine(ctx.userId, { page, pageSize: MINE_PAGE_SIZE });
+  private async myCargoView(ctx: BotContext, status: MineStatus, page: number, notice?: string): Promise<BotReply> {
+    const result = await this.listings.listMine(ctx.userId, {
+      ...(MINE_STATUS[status] ? { status: MINE_STATUS[status] } : {}),
+      page,
+      pageSize: MINE_PAGE_SIZE,
+    });
     const pages = Math.max(1, Math.ceil(result.total / MINE_PAGE_SIZE));
-    if (page > pages) return this.myCargoView(ctx, pages, notice);
+    if (page > pages && result.total > 0) return this.myCargoView(ctx, status, pages, notice);
 
-    const actions: BotAction[] = [];
-    let body = this.t('mine.empty');
+    const toggles: BotAction[] = [];
+    let body = this.t(status === 'a' ? 'mine.empty' : 'mine.emptyStatus');
     if (result.items.length) {
       body = result.items
         .map((item, index) =>
@@ -168,75 +440,403 @@ export class CargoDialog implements BotDialog, OnModuleInit {
         )
         .join('\n\n');
       for (const item of result.items) {
-        actions.push(
+        const target = `${item.id}:${status}:${page}`;
+        toggles.push(
           item.status === CargoListingStatus.Taken
-            ? { id: `${Action.Reopen}${item.id}:${page}`, label: this.t('actions.reopen', { code: item.code }) }
-            : { id: `${Action.MarkTaken}${item.id}:${page}`, label: this.t('actions.markTaken', { code: item.code }) },
+            ? { id: `${Action.Reopen}${target}`, label: this.t('actions.reopen', { code: item.code }) }
+            : { id: `${Action.MarkTaken}${target}`, label: this.t('actions.markTaken', { code: item.code }) },
         );
       }
       if (pages > 1) body += `\n\n${this.t('mine.page', { page: fa(page), pages: fa(pages) })}`;
     }
-    actions.push(...this.pager(Action.MyCargo, page, pages));
-    actions.push({ id: Action.Create, label: this.t('actions.create') }, this.back());
 
-    return { text: [notice, this.t('mine.title'), body].filter(Boolean).join('\n\n'), actions };
+    const rows = new Rows()
+      .add(...this.tabs('mine'))
+      .grid(toggles)
+      .add(...this.pager(`${Action.MyCargo}${status}:`, page, pages))
+      .add(
+        ...(['a', 'o', 't'] as MineStatus[]).map((value) => ({
+          id: `${Action.MyCargo}${value}:1`,
+          label: this.selected(this.t(`actions.status.${value}`), value === status),
+        })),
+      )
+      .add({ id: Action.Create, label: this.t('actions.create') }, this.back());
+
+    return { text: [notice, this.t('mine.title'), body].filter(Boolean).join('\n\n'), actions: rows.actions };
   }
 
   private async changeStatus(ctx: BotContext, target: string, status: CargoListingStatus): Promise<BotReply> {
-    const [listingId, pageText] = target.split(':');
+    const parts = target.split(':');
+    const listingId = parts[0];
+    // دکمه‌های قدیمی: listingId:page
+    const [filter, pageText] = parts.length === 2 ? ['a', parts[1]] : [parts[1], parts[2]];
+    const mine = this.mineStatus(filter);
     const page = this.page(pageText);
     try {
       const listing = await this.listings.setStatus(ctx.userId, listingId, status);
       const notice = this.t(status === CargoListingStatus.Taken ? 'mine.markedTaken' : 'mine.reopened', {
         code: listing.code,
       });
-      return this.myCargoView(ctx, page, notice);
+      return this.myCargoView(ctx, mine, page, notice);
     } catch {
-      return this.myCargoView(ctx, page, this.t('mine.notFound'));
+      return this.myCargoView(ctx, mine, page, this.t('mine.notFound'));
     }
+  }
+
+  //#endregion
+
+  //#region ----------- Company: cargo filters ---------------------------------
+
+  private async filtersView(ctx: BotContext, notice?: string): Promise<BotReply> {
+    const driver = await this.isDriver(ctx);
+    const all = await this.filters.list(ctx.userId);
+    let body = this.t('filters.empty');
+    if (all.length) {
+      body = all
+        .map((filter, index) => `${fa(index + 1)}. ${this.filterName(filter)} — ${this.filterState(filter)}\n${this.filterSummary(filter, driver)}`)
+        .join('\n\n');
+    }
+    const open = all.map((filter, index) => ({
+      id: `${Action.FilterView}${filter.id}`,
+      label: this.t('actions.filter', { index: fa(index + 1) }),
+    }));
+    const rows = new Rows()
+      .grid(open)
+      .add({ id: Action.FilterNew, label: this.t('actions.newFilter') })
+      .add(
+        driver
+          ? { id: `${Action.OpenCargo}1`, label: this.t('actions.findCargo') }
+          : { id: `${Action.Suggestions}a:1`, label: this.t('actions.suggestions') },
+        this.back(),
+      );
+    return {
+      text: [notice, this.t('filters.title'), this.t(driver ? 'filters.driverHint' : 'filters.hint'), body].filter(Boolean).join('\n\n'),
+      actions: rows.actions,
+    };
+  }
+
+  private async filterView(ctx: BotContext, filterId: string, notice?: string): Promise<BotReply> {
+    const filter = await this.findFilter(ctx, filterId);
+    if (!filter) return this.filtersView(ctx, this.t('filters.notFound'));
+
+    const fields = this.filterFields(await this.isDriver(ctx));
+    const lines = fields.map(
+      (field) => `${this.t(`filters.field.${field}`)}: ${this.filterValue(filter, field) || this.t(`filters.none.${this.fieldKind(field)}`)}`,
+    );
+    const edits = fields.map((field) => ({
+      id: `${Action.FilterEdit}${filter.id}:${field}`,
+      label: this.t(`filters.field.${field}`),
+    }));
+    const rows = new Rows()
+      .grid(edits)
+      .add(
+        {
+          id: `${Action.FilterToggle}${filter.id}`,
+          label: this.t(filter.isActive ? 'actions.deactivate' : 'actions.activate'),
+        },
+        { id: `${Action.FilterDelete}${filter.id}`, label: this.t('actions.delete') },
+      )
+      .add({ id: Action.Filters, label: this.t('actions.backToFilters') });
+
+    const title = this.t('filters.detailTitle', { name: this.filterName(filter), state: this.filterState(filter) });
+    return {
+      text: [notice, title, lines.join('\n'), this.t('filters.editHint')].filter(Boolean).join('\n\n'),
+      actions: rows.actions,
+    };
+  }
+
+  private async toggleFilter(ctx: BotContext, filterId: string): Promise<BotReply> {
+    const filter = await this.findFilter(ctx, filterId);
+    if (!filter) return this.filtersView(ctx, this.t('filters.notFound'));
+    await this.filters.update(ctx.userId, filter.id, { isActive: !filter.isActive });
+    return this.filterView(ctx, filter.id, this.t(filter.isActive ? 'filters.deactivated' : 'filters.activated'));
+  }
+
+  private async confirmDeleteFilter(ctx: BotContext, filterId: string): Promise<BotReply> {
+    const filter = await this.findFilter(ctx, filterId);
+    if (!filter) return this.filtersView(ctx, this.t('filters.notFound'));
+    return {
+      text: this.t('filters.confirmDelete', { name: this.filterName(filter) }),
+      actions: new Rows()
+        .add(
+          { id: `${Action.FilterDeleteYes}${filter.id}`, label: this.t('actions.confirmDelete') },
+          { id: `${Action.FilterView}${filter.id}`, label: this.t('actions.cancel') },
+        ).actions,
+    };
+  }
+
+  private async deleteFilter(ctx: BotContext, filterId: string): Promise<BotReply> {
+    try {
+      await this.filters.remove(ctx.userId, filterId);
+      return this.filtersView(ctx, this.t('filters.deleted'));
+    } catch {
+      return this.filtersView(ctx, this.t('filters.notFound'));
+    }
+  }
+
+  private async startNewFilter(ctx: BotContext): Promise<BotReply> {
+    const driver = await this.isDriver(ctx);
+    const session: FilterSession = { kind: 'filter', filterId: null, field: this.newFilterSteps(driver)[0], draft: {}, driver };
+    await this.prepareCompanies(session, []);
+    await this.saveSession(ctx, session);
+    return this.askFilter(session);
+  }
+
+  private async startFilterEdit(ctx: BotContext, filterId: string, field: string): Promise<BotReply> {
+    if (!(FILTER_FIELDS as readonly string[]).includes(field)) return this.filterView(ctx, filterId);
+    const filter = await this.findFilter(ctx, filterId);
+    if (!filter) return this.filtersView(ctx, this.t('filters.notFound'));
+    const session: FilterSession = { kind: 'filter', filterId, field: field as FilterField, draft: {} };
+    await this.prepareCompanies(session, filter.companies ?? []);
+    await this.saveSession(ctx, session);
+    return this.askFilter(session, undefined, this.filterValue(filter, session.field));
+  }
+
+  private askFilter(session: FilterSession, problem?: string, current?: string): BotReply {
+    const kind = this.fieldKind(session.field);
+    const text = [
+      problem,
+      session.filterId ? '' : this.t('filters.newTitle'),
+      this.t(`filters.ask.${session.field}`),
+      current ? this.t('filters.current', { value: current }) : '',
+    ];
+    const rows = new Rows();
+    if (session.field === 'companies' && session.options?.length) {
+      const picked = new Set(session.picked ?? []);
+      text.push(this.t('filters.pickCompanies'));
+      if (picked.size) text.push(this.t('filters.picked', { value: [...picked].join('، ') }));
+      rows.grid(
+        session.options.map((name, index) => ({
+          id: `${Action.FilterPick}${index}`,
+          label: this.selected(name, picked.has(name)),
+        })),
+      );
+      if (picked.size) rows.add({ id: Action.FilterPickDone, label: this.t('actions.savePicked') });
+    } else if (session.field === 'companies') {
+      text.push(this.t('filters.typeCompanies'));
+    }
+    rows.add(
+      { id: Action.FilterClear, label: this.t(session.filterId ? `filters.clear.${kind}` : `filters.skip.${kind}`) },
+      { id: Action.FilterCancel, label: this.t('actions.cancel') },
+    );
+    return { text: text.filter(Boolean).join('\n\n'), actions: rows.actions };
+  }
+
+  /** مرحله‌ی «شرکت»: شرکت‌هایی که بار اعلام کرده‌اند (و آن‌هایی که فیلتر از قبل دارد) دکمه می‌شوند. */
+  private async prepareCompanies(session: FilterSession, current: string[]): Promise<void> {
+    if (session.field !== 'companies') return;
+    const recent = await this.listings.companyNames(COMPANY_OPTIONS);
+    session.options = [...new Set([...current, ...recent])];
+    session.picked = [...current];
+  }
+
+  private async togglePick(ctx: BotContext, session: FilterSession, index: number): Promise<BotReply> {
+    const name = session.options?.[index];
+    if (session.field !== 'companies' || !name) return this.askFilter(session);
+    const picked = new Set(session.picked ?? []);
+    if (picked.has(name)) picked.delete(name);
+    else picked.add(name);
+    session.picked = [...picked];
+    await this.saveSession(ctx, session);
+    return this.askFilter(session);
+  }
+
+  private async filterText(ctx: BotContext, session: FilterSession, value: string): Promise<BotReply> {
+    const kind = this.fieldKind(session.field);
+    if (kind === 'price') {
+      const amount = parsePriceToman(value);
+      if (amount === null) return this.askFilter(session, this.t('filters.badPrice', { price: value }));
+      return this.applyFilterValue(ctx, session, amount);
+    }
+    if (kind === 'label') {
+      if (value.length > MAX_FILTER_LABEL_LENGTH) {
+        return this.askFilter(session, this.t('create.tooLong', { max: fa(MAX_FILTER_LABEL_LENGTH) }));
+      }
+      return this.applyFilterValue(ctx, session, value);
+    }
+    const typed = value.split(/[,،\n]+/).map((item) => item.trim()).filter(Boolean);
+    // نام تایپ‌شده به شرکت‌هایی که با دکمه انتخاب شده اضافه می‌شود
+    const items = [...new Set([...(session.field === 'companies' ? session.picked ?? [] : []), ...typed])];
+    if (items.some((item) => item.length > MAX_FILTER_ITEM_LENGTH)) {
+      return this.askFilter(session, this.t('create.tooLong', { max: fa(MAX_FILTER_ITEM_LENGTH) }));
+    }
+    if (items.length > MAX_FILTER_ITEMS) {
+      return this.askFilter(session, this.t('filters.tooMany', { max: fa(MAX_FILTER_ITEMS) }));
+    }
+    return this.applyFilterValue(ctx, session, items);
+  }
+
+  /** null = «همه / بدون حد» (پاک کردن مقدار یا رد شدن از مرحله‌ی فیلتر جدید). */
+  private async applyFilterValue(
+    ctx: BotContext,
+    session: FilterSession,
+    value: string[] | string | number | null,
+  ): Promise<BotReply> {
+    const kind = this.fieldKind(session.field);
+    const cleared = kind === 'list' ? [] : null;
+    const input = { [session.field]: value ?? cleared } as CargoAlertFilterInput;
+
+    if (session.filterId) {
+      try {
+        await this.filters.update(ctx.userId, session.filterId, input);
+      } catch (error) {
+        if (error instanceof BadRequestException) return this.askFilter(session, this.t('filters.badRange'));
+        await this.clearSession(ctx);
+        return this.filtersView(ctx, this.t('filters.notFound'));
+      }
+      await this.clearSession(ctx);
+      return this.filterView(ctx, session.filterId, this.t('filters.saved'));
+    }
+
+    const { minPrice, maxPrice } = { ...session.draft, ...input };
+    if (minPrice != null && maxPrice != null && minPrice > maxPrice) {
+      return this.askFilter(session, this.t('filters.badRange'));
+    }
+    Object.assign(session.draft, input);
+    const steps = this.newFilterSteps(!!session.driver);
+    const next = steps[steps.indexOf(session.field) + 1];
+    if (next) {
+      session.field = next;
+      await this.prepareCompanies(session, []);
+      await this.saveSession(ctx, session);
+      return this.askFilter(session);
+    }
+    try {
+      const created = await this.filters.create(ctx.userId, { ...session.draft, isActive: true });
+      await this.clearSession(ctx);
+      return this.filterView(ctx, created.id, this.t('filters.created'));
+    } catch (error) {
+      if (!(error instanceof BadRequestException)) throw error;
+      return this.askFilter(session, this.t('filters.badRange'));
+    }
+  }
+
+  private async cancelFilterEdit(ctx: BotContext, session: FilterSession): Promise<BotReply> {
+    await this.clearSession(ctx);
+    return session.filterId ? this.filterView(ctx, session.filterId) : this.filtersView(ctx, this.t('filters.cancelled'));
+  }
+
+  private async findFilter(ctx: BotContext, filterId: string): Promise<CargoAlertFilter | undefined> {
+    return (await this.filters.list(ctx.userId)).find((filter) => filter.id === filterId);
+  }
+
+  private fieldKind(field: FilterField): 'list' | 'price' | 'label' {
+    if ((PRICE_FIELDS as readonly string[]).includes(field)) return 'price';
+    return field === 'label' ? 'label' : 'list';
+  }
+
+  private filterValue(filter: CargoAlertFilter, field: FilterField): string {
+    if (field === 'label') return filter.label ?? '';
+    if (field === 'minPrice' || field === 'maxPrice') {
+      const amount = filter[field];
+      return amount == null ? '' : this.t('filters.toman', { amount: fa(amount.toLocaleString('en-US')) });
+    }
+    return (filter[field as ListField] ?? []).join('، ');
+  }
+
+  private filterName(filter: CargoAlertFilter): string {
+    return filter.label || this.t('filters.unnamed');
+  }
+
+  private filterState(filter: CargoAlertFilter): string {
+    return this.t(filter.isActive ? 'filters.active' : 'filters.inactive');
+  }
+
+  /** فیلدهای فیلتر برای این کاربر؛ «شرکت» فقط برای راننده. */
+  private filterFields(driver: boolean): FilterField[] {
+    return FILTER_FIELDS.filter((field) => driver || field !== 'companies');
+  }
+
+  /** فیلتر جدید: همین فیلدها به ترتیب؛ عنوان بعداً از صفحه‌ی فیلتر. */
+  private newFilterSteps(driver: boolean): FilterField[] {
+    return this.filterFields(driver).filter((field) => field !== 'label');
+  }
+
+  private async isDriver(ctx: BotContext): Promise<boolean> {
+    const user = await this.users.findById(ctx.userId);
+    return !!user?.userRoles?.some((item) => DRIVER_ROLES.includes(item.role?.name ?? ''));
+  }
+
+  private filterSummary(filter: CargoAlertFilter, driver: boolean): string {
+    const parts = this.newFilterSteps(driver)
+      .map((field) => [field, this.filterValue(filter, field)] as const)
+      .filter(([, value]) => value)
+      .map(([field, value]) => `${this.t(`filters.field.${field}`)}: ${value}`);
+    return parts.join(' | ') || this.t('filters.any');
   }
 
   //#endregion
 
   //#region ----------- Driver: find cargo -------------------------------------
 
-  private async openCargoView(page: number): Promise<BotReply> {
-    const result = await this.listings.listOpen({ page, pageSize: FIND_PAGE_SIZE });
+  /** بارهای باز با فیلترهای فعال خود راننده (همان‌هایی که اعلانشان برایش می‌رود). */
+  private async openCargoView(ctx: BotContext, page: number): Promise<BotReply> {
+    const result = await this.listings.listOpen({ page, pageSize: FIND_PAGE_SIZE, userId: ctx.userId });
     const pages = Math.max(1, Math.ceil(result.total / FIND_PAGE_SIZE));
-    if (page > pages && result.total > 0) return this.openCargoView(pages);
+    if (page > pages && result.total > 0) return this.openCargoView(ctx, pages);
 
     let body = this.t('find.empty');
+    const requests: BotAction[] = [];
     if (result.items.length) {
-      body = result.items.map((item) => item.text).join('\n\n➖➖➖\n\n');
+      body = result.items
+        .map((item, i) => {
+          const index = fa((page - 1) * FIND_PAGE_SIZE + i + 1);
+          // جزئیات: مسیرها، مسافت، سوخت، جایگاه‌ها و بار برگشتی؛ «درخواست» همان‌جاست
+          requests.push({ id: `${TripAction.Detail}${item.id}`, label: this.t('actions.detail', { index }) });
+          return `${index})\n${item.text}`;
+        })
+        .join('\n\n➖➖➖\n\n');
       if (pages > 1) body += `\n\n${this.t('find.page', { page: fa(page), pages: fa(pages) })}`;
     }
     return {
       text: `${this.t('find.title')}\n\n${body}`,
-      actions: [...this.pager(Action.OpenCargo, page, pages), this.back()],
+      actions: new Rows()
+        .grid(requests)
+        .add(...this.pager(Action.OpenCargo, page, pages))
+        .add({ id: Action.Filters, label: this.t('actions.filters') }, this.back()).actions,
     };
   }
 
   //#endregion
 
-  //#region ----------- Company: create cargo (form) ---------------------------
+  //#region ----------- Company: create / announce cargo (form) -----------------
 
   private async startCreate(ctx: BotContext): Promise<BotReply> {
-    const session: CreateSession = { step: 'origin', draft: {} };
+    const session: CargoSession = { kind: 'cargo', step: 'origin', draft: {} };
     await this.saveSession(ctx, session);
     return this.askStep(session);
   }
 
-  private async cancelCreate(ctx: BotContext): Promise<BotReply> {
+  /** ویرایش پیش‌نمایش: همه‌ی مرحله‌ها با مقدار فعلی؛ «بدون تغییر» نگهش می‌دارد. */
+  private async startEdit(ctx: BotContext, session: CargoSession): Promise<BotReply> {
+    if (!session.draft.contactPhones?.length) session.draft.contactPhones = await this.defaultPhones(ctx);
+    session.editing = true;
+    delete session.fillMissing;
+    session.step = STEPS[0];
+    await this.saveSession(ctx, session);
+    return this.askStep(session);
+  }
+
+  private async cancelCreate(ctx: BotContext, session: CargoSession | null): Promise<BotReply> {
     await this.clearSession(ctx);
-    return this.myCargoView(ctx, 1, this.t('create.cancelled'));
+    if (session?.notificationId) return this.suggestionsView(ctx, 'a', 1, this.t('announce.cancelled'));
+    return this.myCargoView(ctx, 'a', 1, this.t('create.cancelled'));
   }
 
   /** مرحله‌ی بعدی که جواب ندارد؛ شماره‌ی تماس فقط اگر پروفایل نداشت پرسیده می‌شود. */
-  private async nextStep(ctx: BotContext, session: CreateSession): Promise<BotReply> {
+  private async nextStep(ctx: BotContext, session: CargoSession): Promise<BotReply> {
+    if (session.fillMissing) {
+      session.step = REQUIRED.find((step) => !this.currentValue(session, step)) ?? null;
+      if (!session.step) delete session.fillMissing;
+      await this.saveSession(ctx, session);
+      return session.step ? this.askStep(session) : this.preview(ctx, session);
+    }
     const from = session.step ? STEPS.indexOf(session.step) + 1 : STEPS.length;
     let next: Step | null = null;
     for (const step of STEPS.slice(from)) {
-      if (step === 'phone' && (session.draft.contactPhones?.length || (await this.defaultPhones(ctx)).length)) continue;
+      if (step === 'phone' && !session.editing) {
+        if (session.draft.contactPhones?.length || (await this.defaultPhones(ctx)).length) continue;
+      }
       next = step;
       break;
     }
@@ -245,36 +845,76 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     return next ? this.askStep(session) : this.preview(ctx, session);
   }
 
-  private askStep(session: CreateSession, problem?: string): BotReply {
-    const step = session.step!;
-    const actions: BotAction[] = [];
-    if (!REQUIRED.includes(step)) actions.push({ id: Action.Skip, label: this.t('actions.skip') });
-    actions.push({ id: Action.Cancel, label: this.t('actions.cancel') });
-    return { text: [problem, this.t(`create.ask.${step}`)].filter(Boolean).join('\n\n'), actions };
+  private currentValue(session: CargoSession, step: Step): string {
+    return step === 'phone' ? (session.draft.contactPhones ?? []).join('، ') : (session.draft[step] ?? '');
   }
 
-  private async preview(ctx: BotContext, session: CreateSession): Promise<BotReply> {
+  private canSkip(session: CargoSession): boolean {
+    const step = session.step!;
+    return !REQUIRED.includes(step) || (!!session.editing && !!this.currentValue(session, step));
+  }
+
+  private askStep(session: CargoSession, problem?: string): BotReply {
+    const step = session.step!;
+    const current = session.editing ? this.currentValue(session, step) : '';
+    const rows = new Rows();
+    if (this.canSkip(session)) {
+      rows.add({ id: Action.Skip, label: this.t(current ? 'actions.keep' : 'actions.skip') });
+    }
+    rows.add({ id: Action.Cancel, label: this.t('actions.cancel') });
+    const ask = this.t(`create.ask.${step}`);
+    const text = [
+      problem,
+      // عنوان «ثبت بار جدید» در سؤال اول فقط برای بار دستی است
+      session.notificationId && step === 'origin' ? ask.split('\n\n').pop() : ask,
+      current ? this.t('create.current', { value: current }) : '',
+    ];
+    return { text: text.filter(Boolean).join('\n\n'), actions: rows.actions };
+  }
+
+  private async preview(ctx: BotContext, session: CargoSession): Promise<BotReply> {
     const fields = await this.fields(ctx, session.draft);
+    const announce = !!session.notificationId;
+    const text = buildCargoListingText({ ...fields, code: session.code ?? null });
     return {
-      text: this.t('create.preview', { text: buildCargoListingText(fields) }),
-      actions: [
-        { id: Action.Confirm, label: this.t('actions.confirm') },
-        { id: Action.Restart, label: this.t('actions.restart') },
-        { id: Action.Cancel, label: this.t('actions.cancel') },
-      ],
+      text: this.t(announce ? 'announce.preview' : 'create.preview', { text }),
+      actions: new Rows()
+        .add({ id: Action.Confirm, label: this.t(announce ? 'actions.announceConfirm' : 'actions.confirm') })
+        .add(
+          announce
+            ? { id: Action.Edit, label: this.t('actions.edit') }
+            : { id: Action.Restart, label: this.t('actions.restart') },
+          { id: Action.Cancel, label: this.t('actions.cancel') },
+        ).actions,
     };
   }
 
-  private async publish(ctx: BotContext, session: CreateSession): Promise<BotReply> {
-    const created = await this.listings.createManual(ctx.userId, await this.fields(ctx, session.draft));
+  private async publish(ctx: BotContext, session: CargoSession): Promise<BotReply> {
+    const fields = await this.fields(ctx, session.draft);
+    let created: { code?: string | null; recipients: number };
+    if (session.notificationId) {
+      try {
+        created = await this.listings.publish(ctx.userId, session.notificationId, fields);
+      } catch (error) {
+        if (!(error instanceof ConflictException)) throw error;
+        await this.clearSession(ctx);
+        return this.suggestionsView(ctx, 'a', 1, this.t('announce.already'));
+      }
+    } else {
+      created = await this.listings.createManual(ctx.userId, fields);
+    }
     await this.clearSession(ctx);
     return {
-      text: this.t('create.created', { code: created.code, recipients: fa(created.recipients) }),
-      actions: [
-        { id: `${Action.MyCargo}1`, label: this.t('actions.mine') },
-        { id: Action.Create, label: this.t('actions.create') },
-        this.back(),
-      ],
+      text: this.t(session.notificationId ? 'announce.done' : 'create.created', {
+        code: created.code ?? '',
+        recipients: fa(created.recipients),
+      }),
+      actions: new Rows()
+        .add(
+          { id: `${Action.Suggestions}a:1`, label: this.t('tabs.suggestions') },
+          { id: `${Action.MyCargo}a:1`, label: this.t('tabs.mine') },
+        )
+        .add({ id: Action.Create, label: this.t('actions.create') }, this.back()).actions,
     };
   }
 
@@ -326,6 +966,14 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     return Number.isInteger(page) && page >= 1 ? page : 1;
   }
 
+  private suggestionFilter(value: string | undefined): SuggestionFilter {
+    return value === 'u' ? 'u' : 'a';
+  }
+
+  private mineStatus(value: string | undefined): MineStatus {
+    return value === 'o' || value === 't' ? value : 'a';
+  }
+
   private t(key: string, args?: Record<string, string | number>): string {
     return this.i18n.translate(`cargo.${key}`, { lang: 'fa', args }) as string;
   }
@@ -334,11 +982,11 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     return RedisService.key('cargoDialog', ctx.platform, ctx.externalUserId);
   }
 
-  private getSession(ctx: Pick<BotContext, 'platform' | 'externalUserId'>): Promise<CreateSession | null> {
-    return this.redis.getJson<CreateSession>(this.sessionKey(ctx));
+  private getSession(ctx: Pick<BotContext, 'platform' | 'externalUserId'>): Promise<Session | null> {
+    return this.redis.getJson<Session>(this.sessionKey(ctx));
   }
 
-  private saveSession(ctx: BotContext, session: CreateSession): Promise<void> {
+  private saveSession(ctx: BotContext, session: Session): Promise<void> {
     return this.redis.setJson(this.sessionKey(ctx), session, SESSION_TTL_SECONDS);
   }
 

@@ -9,6 +9,13 @@ import { ISubscriptionRepository } from '../../../domain/repositories/subscripti
 export class SubscriptionRepository implements ISubscriptionRepository {
   constructor(@InjectRepository(Subscription) private readonly repository: Repository<Subscription>) {}
 
+  /**
+   * بررسی اینکه آیا کاربر سابسکریپشن فعال دارد یا نه
+   * @param userId 
+   * @returns 
+   */
+
+  //#region --------------------- ایا سابسمریپشن فعال دارد؟ ---------------------------
   findActiveByUserId(userId: string): Promise<Subscription | null> {
     const now = new Date();
     return this.repository.findOne({
@@ -16,7 +23,16 @@ export class SubscriptionRepository implements ISubscriptionRepository {
       order: { expireAt: 'DESC' },
     });
   }
+  //#endregion ------------------------------------------------------------------------
 
+  /**
+   * سابسکریپشن کاربر به همراه اطلاعات خود سابسکریپشن بر میگردونه
+   * هم رکورد ازsubscription و هم subscriptionplan  با استفاده از SubscriptionPlanId
+   * @param userId 
+   * @returns 
+   */
+
+  //#region --------------------------- به دست آوردن سابسکریپشن پلن به همرا اطلاعات خود ساب ------------
   findActiveWithPlanByUserId(userId: string): Promise<Subscription | null> {
     const now = new Date();
     return this.repository.findOne({
@@ -25,8 +41,17 @@ export class SubscriptionRepository implements ISubscriptionRepository {
       order: { expireAt: 'DESC' },
     });
   }
+  //#endregion ----------------------------------------------------------------------------------------
 
+  /**
+   * ذخیره سابسکریپشن جدید برای کاربر در جدول Subscription
+   * @param subscription 
+   * @returns 
+   */
+
+  //#region ---------------------------- ثبت سابسکریپشن جدید برای کاربر ---------------------
   save(subscription: Subscription): Promise<Subscription> {
     return this.repository.save(subscription);
   }
+  //#endregion --------------------------------------------------------------------------------
 }

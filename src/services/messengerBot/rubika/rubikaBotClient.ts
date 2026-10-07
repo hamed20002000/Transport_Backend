@@ -9,6 +9,7 @@ import TelegramBot from 'node-telegram-bot-api';
 
 /** id دکمه‌ی «اشتراک شماره» -- فقط contact رسیده از همین دکمه شماره‌ی خود کاربر حساب می‌شود. */
 const SHARE_PHONE_BUTTON_ID = 'share_phone';
+const SHARE_LOCATION_BUTTON_ID = 'share_location';
 const PHONE_TEXT = /^\+?\d{10,15}$/;
 
 // پیام‌هایی که بعد از قطعی/ری‌استارت دیر می‌رسند و از این قدیمی‌ترند پردازش نمی‌شوند.
@@ -21,7 +22,7 @@ const AUDIO_EXTENSIONS = new Set(['.ogg', '.oga', '.opus', '.mp3', '.m4a', '.wav
 
 interface RubikaButton {
   id: string;
-  type: 'Simple' | 'AskMyPhoneNumber';
+  type: 'Simple' | 'AskMyPhoneNumber' | 'AskLocation';
   button_text: string;
 }
 
@@ -41,6 +42,7 @@ interface RubikaMessage {
   file?: { file_id: string; file_name?: string; size?: string };
   forwarded_from?: unknown;
   contact_message?: { phone_number: string; first_name?: string; last_name?: string };
+  location?: { latitude: string | number; longitude: string | number };
 }
 
 interface RubikaUpdate {
@@ -194,7 +196,7 @@ export class RubikaBotClient extends EventEmitter {
 
     // حالت polling: زدن دکمه‌ی کیبورد پایین = زدن دکمه‌ی شیشه‌ای پیام.
     const buttonId = message.aux_data?.button_id;
-    if (buttonId && buttonId !== SHARE_PHONE_BUTTON_ID && !message.contact_message) {
+    if (buttonId && buttonId !== SHARE_PHONE_BUTTON_ID && !message.contact_message && !message.location) {
       this.emitCallback(chatId, buttonId, this.keypadMessage.get(chatId) ?? message.message_id, message.message_id);
       return;
     }
@@ -256,6 +258,11 @@ export class RubikaBotClient extends EventEmitter {
       return result as unknown as TelegramBot.Message;
     }
 
+    if (message.location) {
+      result.location = { latitude: Number(message.location.latitude), longitude: Number(message.location.longitude) };
+      return result as unknown as TelegramBot.Message;
+    }
+
     const file = message.file;
     if (file) {
       const extension = extname(file.file_name ?? '').toLowerCase();
@@ -281,6 +288,11 @@ export class RubikaBotClient extends EventEmitter {
 
   async sendMessage(chatId: string, text: string, options?: TelegramBot.SendMessageOptions): Promise<TelegramBot.Message> {
     const markup = options?.reply_markup as ReplyMarkup | undefined;
+    // روبیکا دکمه‌ی لینک ندارد: لینک‌ها زیر متن می‌آیند.
+    const links = (markup?.inline_keyboard ?? [])
+      .flat()
+      .filter((button): button is TelegramBot.InlineKeyboardButton & { url: string } => 'url' in button && !!button.url);
+    if (links.length) text = `${text}\n\n${links.map((button) => `${button.text}: ${button.url}`).join('\n')}`;
     const body: Record<string, unknown> = { chat_id: chatId, text };
     let keypadAttached = false;
 
@@ -308,6 +320,21 @@ export class RubikaBotClient extends EventEmitter {
       chat: this.toChat(chatId),
       text,
     } as unknown as TelegramBot.Message;
+  }
+
+  /** عکس: درخواست آدرس آپلود، آپلود فایل و فرستادن file_id (روال فایل در API ربات روبیکا). */
+  async sendPhoto(chatId: string, photo: Buffer, options?: { caption?: string }): Promise<void> {
+    const { upload_url } = await this.call<{ upload_url: string }>('requestSendFile', { type: 'Image' });
+    const form = new FormData();
+    form.append('file', new Blob([new Uint8Array(photo)], { type: 'image/jpeg' }), 'map.jpg');
+    const { data } = await axios.post<{ data?: { file_id?: string } }>(upload_url, form, { timeout: 60_000 });
+    const fileId = data?.data?.file_id;
+    if (!fileId) throw new RubikaBotApiError('upload', 'NO_FILE_ID');
+    await this.call('sendFile', { chat_id: chatId, file_id: fileId, ...(options?.caption ? { text: options.caption } : {}) });
+  }
+
+  async sendLocation(chatId: string, latitude: number, longitude: number): Promise<void> {
+    await this.call('sendLocation', { chat_id: chatId, latitude: String(latitude), longitude: String(longitude) });
   }
 
   async editMessageText(text: string, options: TelegramBot.EditMessageTextOptions): Promise<boolean> {
@@ -413,9 +440,13 @@ function toKeypad(rows: (TelegramBot.InlineKeyboardButton | TelegramBot.Keyboard
           if ('request_contact' in button && button.request_contact) {
             return { id: SHARE_PHONE_BUTTON_ID, type: 'AskMyPhoneNumber' as const, button_text: button.text };
           }
+          if ('request_location' in button && button.request_location) {
+            return { id: SHARE_LOCATION_BUTTON_ID, type: 'AskLocation' as const, button_text: button.text };
+          }
           const id = ('callback_data' in button && button.callback_data) || button.text;
           return { id, type: 'Simple' as const, button_text: button.text };
-        }),
+        })
+        .filter((button, i) => !('url' in (row[i] as object) && (row[i] as { url?: string }).url)),
       }))
       .filter((row) => row.buttons.length > 0),
   };

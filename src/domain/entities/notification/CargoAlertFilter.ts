@@ -51,6 +51,10 @@ export class CargoAlertFilter {
   @Column('text', { array: true, default: () => "'{}'" })
   vehicleTypes!: string[];
 
+  // نام شرکت منتشرکننده (برای بارهایی که شرکت‌ها برای راننده‌ها اعلام می‌کنند)
+  @Column('text', { array: true, default: () => "'{}'" })
+  companies!: string[];
+
   // بازه‌ی کرایه به تومان؛ null یعنی بدون حد. bigint در pg به‌صورت رشته برمی‌گردد، پس عدد می‌شود.
   @Column({ type: 'bigint', nullable: true, transformer: bigintNumber })
   minPrice?: number | null;

@@ -12,6 +12,8 @@ export const BotCallback = {
   DriverLoadRequests: 'driver_load_requests',
   DriverActiveTrip: 'driver_active_trip',
   DriverReturnLoads: 'driver_return_loads',
+  DriverMyLocation: 'driver_my_location',
+  DriverSendLocation: 'driver_send_location',
 
   CompanyCreateLoad: 'company_create_load',
   CompanyLoads: 'company_loads',

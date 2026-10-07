@@ -54,12 +54,20 @@ export class BotAccessService {
     callback?: string,
   ): Promise<boolean> {
     // Contact requests and Web credentials belong only in the user's private chat.
-    if (message.chat.type !== 'private' || message.chat.id !== from.id) return true;
+    //بررسی اینکه پیغام از چت خصوصی آمده یا نه و اینکه چون چت هاخصوصی هیتند با شناسه کاربر با شناسه جت یکی باشند در غیر اینصورت ادامه نمیدهیم
+    if (message.chat.type !== 'private' || message.chat.id !== from.id) return true;// 
+    
+    //#region ----------------------------  ذخیره شناسه کاربر و شناسه چت که باید با هم برابر باشند ---------------
     const externalUserId = String(from.id);
     const chatId = String(message.chat.id);
+    //#endregion -------------------------------------------------------------------------------------------------
+    
+    //#region ------------------------------ بررسی اینکه کاربر قبلا در سیستم ثبت نام کرده یا نه --------------------
     if (await this.identity.getUserId(externalUserId)) {
       return this.handleIdentifiedUser(chatId, externalUserId, callback);
     }
+    //#endregion -------------------------------------------------------------------------------------------------
+    
     const namespace = botNamespace(this.config);
     const lock = RedisService.key('telegramAccessLock', namespace, externalUserId);
     const owner = randomBytes(16).toString('hex');

@@ -24,21 +24,45 @@ export class BotIdentityService {
     private readonly config: ConfigService,
   ) {}
 
+ /**
+  * کش کردن شناسه کاربر در ردیس که بعدا برای بررسی اینکه کاربر به سیستم وصل هست یا نه استفاده میشود
+  * @param externalUserId 
+  * @param userId 
+  */
+
+  //#region ----------------------------  ذخیره شناسه کاربر و شناسه چت که باید با هم برابر باشند ---------------
   async cacheUserId(externalUserId: string, userId: string): Promise<void> {
     const namespace = botNamespace(this.config);
     await this.redis.delete(RedisService.key('telegramIdentityRoles', namespace, externalUserId));
     await this.redis.set(RedisService.key('telegramIdentity', namespace, externalUserId), userId, 86400);
   }
+  //#endregion -------------------------------------------------------------------------------------------------
 
-  /** نقش‌های کش‌شده‌ی منو در همه‌ی ربات‌های کاربر پاک می‌شود (مثلاً بعد از خرید نقش جدید). */
+
+  /**
+   * نقش‌های کش‌شده‌ی منو در همه‌ی ربات‌های کاربر پاک می‌شود (مثلاً بعد از خرید نقش جدید). 
+   * به عنوان مثال زمانی که نقش کاربر تغییر کرده و نقش موجود در ردیس نامعتبر هست
+   * دفعه بعد که نقش لازم بود از دیتابیس مقدار جدیدخوانده شود
+   * @param userId 
+   * @returns 
+   */
+
+  //#region ----------------------------  پاک کردن نقش های کش شده ---------------
   async forgetRoles(userId: string): Promise<void> {
     const namespace = botNamespace(this.config);
     const links = await this.repository.findAllByUserId(userId);
     if (!links.length) return;
     await this.redis.delete(...links.map(link => RedisService.key('telegramIdentityRoles', namespace, link.externalUserId)));
   }
+  //#endregion -------------------------------------------------------------------------------------------------
 
-  /** Menu presentation only; business authorization must still check current permissions. */
+  
+/**
+ * به دست آوردن نقش های کاربر
+ * در ضمن اگه کاربر قبلا نقشش در ردیس نباشه در اون ثبت میکنه
+ */
+  
+//#region ----------------------------  گرفتن نقش های کاربر ---------------
   async getMenuRoles(externalUserId: string): Promise<string[] | null> {
     const namespace = botNamespace(this.config);
     const key = RedisService.key('telegramIdentityRoles', namespace, externalUserId);
@@ -50,13 +74,19 @@ export class BotIdentityService {
     await this.redis.setJson(key, names, 86400);
     return names;
   }
+  //#endregion ---------------------------------------------------------------
+ 
 
-  /*
-   * =====================================================
-   * Find Telegram Link
-   * =====================================================
+  /**
+   * به دست آوردن اطلاعات باتی که کاربر با آن درخواست داده
+   * در حقیقت اینجا اطلاعات مسنجر کاربر که یا تلگرام هست یا روبیکا یا بله رو استخراج میکنیم
+   * مانند firstname و lastname
+   * اینجا externalUserId همون شناسه چت هست یعنی شناسه باتی که با برنامه در تماس هست
+   * @param externalUserId 
+   * @returns 
    */
 
+  //#region ----------------------------  گرفتن اطلاعات بات کاربر ---------------
   async findByExternalUserId(
     externalUserId: string,
   ): Promise<BotLink | null> {
@@ -64,41 +94,52 @@ export class BotIdentityService {
       externalUserId,
     );
   }
+  //#endregion --------------------------------------------------------------------
 
-  /*
-   * =====================================================
-   * Find Telegram Link By System User
-   * =====================================================
-   */
 
-  /** اتصالی از کاربر (تلگرام، بله یا روبیکا) که آخرین بار با آن پیام داده است. */
+ /**
+  * اطلاعات بات رو از رو شناسه کاربر 
+  * @param userId 
+  * @returns 
+  */
+
+ //#region ----------------------------  گرفتن اطلاعات بات کاربر از روی شناسه کاربر ---
   async findByUserId(
     userId: string,
   ): Promise<BotLink | null> {
     const links = await this.repository.findAllByUserId(userId);
     return links[0] ?? null;
   }
+  //#endregion --------------------------------------------------------------------
 
-  /*
-   * =====================================================
-   * Get System User Id
-   * =====================================================
+
+  /**
+   * کاربر را ابتدا در ردیس جستجو میکنه اکه نبود از جدول botlink دنبالش میگرده اگه بود تو ردیس دوباره کش میکنه و اگه نبود null برمیگردونه
+   *اگه تو botlinkپیدا کنه به همراه نقش ها در ردیس ذخیره میکنه 
+  * @param externalUserId 
+   * @returns 
    */
 
+   //#region ----------------------------  گرفتن شناسه کاربر از روی شناسه بات ---------------
   async getUserId(
     externalUserId: string,
   ): Promise<string | null> {
-    const namespace = botNamespace(this.config);
+    const namespace = botNamespace(this.config);// ذخیره فضای نام که همون ایدی تلگرام هست
     try {
+      //ابتدا redisرو بررسی میکنیم که کاربر اکه اونجا بود همون مقدار redisبرگشت داده میشه 
       const cached = await this.redis.get(RedisService.key('telegramIdentity', namespace, externalUserId));
       if (cached) return cached;
     } catch {
       // Redis unavailable: fall back to the database.
     }
-    const link = await this.repository.findByExternalUserId(externalUserId);
+
+    //اگه کاربر تو redisنبود دیتابیس رو بررسی میکنیم باید تو جدول botlink باشه
+   
+    const link = await this.repository.findByExternalUserId(externalUserId);//این متد اگه کاربر تو botlink باشه به همرا نقش هاش برمیگردونه
     if (link?.userId) {
       try {
-        await this.cacheUserId(externalUserId, link.userId);
+        await this.cacheUserId(externalUserId, link.userId);//کاربر رو به همراه نقش در redis دخیره میکنه
+        //اگه کاربر نقش داشته باشه نقش هارو هم تو redisذخیره میکنه
         if (link.user) {
           const roles = link.user.userRoles?.filter(item => item.role != null).map(item => item.role.name) ?? [];
           await this.redis.setJson(RedisService.key('telegramIdentityRoles', namespace, externalUserId), roles, 86400);
@@ -109,42 +150,33 @@ export class BotIdentityService {
     }
     return link?.userId ?? null;
   }
+  //#endregion --------------------------------------------------------------------
 
-  /*
-   * =====================================================
-   * Is Registered
-   * =====================================================
+
+
+  /**
+   * آیا کاربر قبلا ثبت نام کرده است
+   * باید شناسه بات در ردیس و یا در جدول BotLinkباشد
+   * @param externalUserId 
+   * @returns 
    */
 
+  //#region ----------------------------  بررسی ثبت نام کاربر ---------------
   async isRegistered(
     externalUserId: string,
   ): Promise<boolean> {
     return Boolean(await this.getUserId(externalUserId));
   }
+  //#endregion --------------------------------------------------------------------
+  
 
-  /*
-   * =====================================================
-   * Touch Existing Link
-   * =====================================================
-   *
-   * IMPORTANT:
-   *
-   * This method MUST NOT create BotLink.
-   *
-   * A random Telegram user may send a message to the bot
-   * and never use the application again.
-   *
-   * BotLink represents a real connection between
-   * messenger identity (Telegram, Bale or Rubika) and a User in our system.
-   *
-   * Therefore:
-   *
-   * - Existing BotLink -> update metadata
-   * - Unknown messenger user -> do nothing
-   *
-   * BotLink is created only by linkUser().
+  /**
+   * اگه کاربر قبلا از طریق بات ثبت نام کرده اطلاعاتش بروز میشود وگرنه هیچ کاری انجام  نمیدهد
+   * @param params 
+   * @returns 
    */
 
+  //#region ----------------------------  بروز رسانی اطلاعات بات کاربر ---------------
   async touch(params: {
     externalUserId: string;
     chatId: string;
@@ -184,26 +216,18 @@ export class BotIdentityService {
       link,
     );
   }
+  //#endregion --------------------------------------------------------------------
 
-  /*
-   * =====================================================
-   * Link Telegram Account To System User
-   * =====================================================
-   *
-   * This is the ONLY place in this service where
-   * BotLink can be created.
-   *
-   * One system User can use:
-   *
-   * User
-   *  ├── Telegram
-   *  ├── WhatsApp
-   *  └── Web/PWA
-   *
-   * BotLink only maps Telegram identity
-   * to the existing User.
+
+
+  /**
+   * ابتدا بررسی میکند بات با شناسه داده شده برای کاربر ثبت نباشد اگه ثبت نشده در اون صورت ثبت میکند
+   * در نظر داشته باشید یک کاربر امکان داره از جند بات  متفاوت یعنی تلگرام وبله و روبیکا ثبت نام کنه که موردی ندارد 
+   * ولی ثبت از همان بات با کاربر متفاوت نمیشود
+   * @param params 
+   * @returns 
    */
-
+  //#region ----------------------------- ثبت بات جدید برای کاربر موجود -----------------
   async linkUser(params: {
     externalUserId: string;
     chatId: string;
@@ -212,6 +236,7 @@ export class BotIdentityService {
     firstName?: string;
     lastName?: string;
   }): Promise<BotLink> {
+
     let link =
       await this.repository.findByExternalUserId(
         params.externalUserId,
@@ -262,4 +287,5 @@ export class BotIdentityService {
     await this.cacheUserId(params.externalUserId, params.userId);
     return saved;
   }
+  //#endregion ----------------------------------------------------------------------------------------
 }

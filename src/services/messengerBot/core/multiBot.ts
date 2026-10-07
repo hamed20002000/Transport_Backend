@@ -9,6 +9,8 @@ type PlatformClient = Pick<
   TelegramBot,
   'sendMessage' | 'editMessageText' | 'editMessageReplyMarkup' | 'deleteMessage' | 'setMyCommands' | 'getFileLink'
 > & {
+  sendLocation(chatId: string, latitude: number, longitude: number): Promise<unknown>;
+  sendPhoto(chatId: string, photo: Buffer, options?: { caption?: string }, fileOptions?: object): Promise<unknown>;
   answerCallbackQuery(id: string): Promise<boolean>;
   getFileStream(fileId: string): Readable;
   downloadFile(fileId: string, directory: string): Promise<string>;
@@ -41,6 +43,10 @@ export class MultiBot extends EventEmitter {
     typed.on('message', (message: TelegramBot.Message) => {
       this.emit('message', prefixMessage(platform, message));
     });
+    // Live Location تلگرام: هر به‌روزرسانی موقعیت یک edited_message است.
+    typed.on('edited_message', (message: TelegramBot.Message) => {
+      this.emit('edited_message', prefixMessage(platform, message));
+    });
     typed.on('callback_query', (query: TelegramBot.CallbackQuery) => {
       this.emit('callback_query', prefixCallbackQuery(platform, query));
     });
@@ -63,6 +69,17 @@ export class MultiBot extends EventEmitter {
     const { platform, client, nativeId } = this.route(chatId);
     const message = await client.sendMessage(nativeId, text, options);
     return prefixMessage(platform, message);
+  }
+
+  async sendLocation(chatId: string | number, latitude: number, longitude: number) {
+    const { client, nativeId } = this.route(chatId);
+    await client.sendLocation(nativeId, latitude, longitude);
+  }
+
+  /** عکس (مثلاً نقشه‌ی مسیر و جایگاه‌های سوخت) با زیرنویس. */
+  async sendPhoto(chatId: string | number, photo: Buffer, caption?: string) {
+    const { client, nativeId } = this.route(chatId);
+    await client.sendPhoto(nativeId, photo, caption ? { caption } : {}, { filename: 'map.jpg', contentType: 'image/jpeg' });
   }
 
   async editMessageText(text: string, options: TelegramBot.EditMessageTextOptions) {

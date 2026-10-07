@@ -322,6 +322,27 @@ export class BotMenuService {
               {
                 text:
                   this.messages.get(
+                    'menu.driver.sendLocation',
+                  ),
+
+                callback_data:
+                  BotCallback.DriverSendLocation,
+              },
+              {
+                text:
+                  this.messages.get(
+                    'menu.driver.myLocation',
+                  ),
+
+                callback_data:
+                  BotCallback.DriverMyLocation,
+              },
+            ],
+
+            [
+              {
+                text:
+                  this.messages.get(
                     'menu.driver.subscription',
                   ),
 
