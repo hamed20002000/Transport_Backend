@@ -21,6 +21,15 @@ export class BotLinkRepository
       Repository<BotLink>,
   ) {}
 
+
+  /**
+   * از BotLink بات مربوط به کاربر رو به همراه کاربر و نقش  کاربر برمیگردونه
+   * externalUserId همون chatidهستش
+   * @param externalUserId 
+   * @returns 
+   */
+
+  //#region -------------------------- به دست آوردن بات مربوط به chatid که همون externalUserId هست -----------
   async findByExternalUserId(
     externalUserId: string,
   ): Promise<BotLink | null> {
@@ -37,7 +46,16 @@ export class BotLinkRepository
       },
     });
   }
+  //#endregion -----------------------------------------------------------------------------------------------
 
+  /**
+   * بات کاربر رو با استفاده از آیدی کاربر و پلتفرم(روبیکا-تلگرام-بله) به دست میاره
+   * @param userId
+   * @param platform 
+   * @returns 
+   */
+
+  //#region ------------------------- به دست آوردن بات کاربر با آیدیه کاربر ---------------------
   async findByUserId(
     userId: string,
     platform: BotPlatform = 'telegram',
@@ -56,11 +74,28 @@ export class BotLinkRepository
       },
     });
   }
+  //#endregion ---------------------------------------------------------------------------------------
 
+
+  /**
+   * همه بات های کاربر رو با استفاده از آیدیه کاربر به دست میاره 
+   * @param userId 
+   * @returns 
+   */
+  //#region -------------------------- به دست آوردن بات های کاربر -------------------------------------
   async findAllByUserId(userId: string): Promise<BotLink[]> {
     return this.repository.find({ where: { userId }, order: { lastInteractionAt: { direction: 'DESC', nulls: 'LAST' } } });
   }
+  //#endregion -----------------------------------------------------------------------------------------
 
+  /**
+   * کاربر و بات مربوطه رو همزمان به صورت اتمیک دخیره میکنه
+   * ابتدا کاربر رو دخیره بعد بات کاربر رو در جدول BotLink ثبت میکنه
+   * @param user
+   * @param link 
+   * @returns 
+   */
+  //#region --------------------------- ثبت کاربر و نقش کاربر -------------------------------------------
   async createUserWithLink(user: User, link: BotLink): Promise<BotLink> {
     return this.repository.manager.transaction(async manager => {
       const saved = await manager.save(User, user);
@@ -69,7 +104,23 @@ export class BotLinkRepository
       return manager.save(BotLink, link);
     });
   }
+  //#endregion -------------------------------------------------------------------------------------------
 
+
+  /**
+   * نقش کاربر رو ثبت میکنه
+   * ابتدا از BotLink آیدی رو به دست میاره
+   * از روی  آیدی خود کاربر رو به دست میاره
+   * از کاربر نقش ها رو بررسی میکنه
+   * اگه نقش داره که همون آیدی کاربر رو برمیگردنه
+   * وگرنه نقش رو برای کاربر در جدول UserRole ثبت میکنه
+   * در این مراحل چنانچه کاربر در  botlinkنباشه یا در کاربر ها نباشه یا نقش در جدول نقش اه نباشه exception مربوطه تولید میشه
+   * @param externalUserId 
+   * @param roleName 
+   * @returns 
+   */
+
+  //#region --------------------------- ثبت نقش برای کاربر --------------------------------
   async assignInitialRole(externalUserId: string, roleName: string): Promise<string> {
     return this.repository.manager.transaction(async manager => {
       const link = await manager.findOne(BotLink, { where: { externalUserId } });
@@ -88,7 +139,16 @@ export class BotLinkRepository
       return user.id;
     });
   }
+  //#endregion --------------------------------------------------------------------------------
 
+
+  /**
+   * بات کاربر رودر جدول BotLink ذخیره میکنه
+   * @param entity 
+   * @returns 
+   */
+
+  //#region ----------------------------- ذخیره بات کاربر  -------------------------------------
   async save(
     entity: BotLink,
   ): Promise<BotLink> {
@@ -97,4 +157,5 @@ export class BotLinkRepository
       entity,
     );
   }
+  //#endregion ------------------------------------------------------------------------------------
 }

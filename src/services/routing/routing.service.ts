@@ -106,6 +106,31 @@ export class RoutingService {
     this.userAgent = config.get<string>('ROUTING_USER_AGENT', 'TransportBot/1.0');
   }
 
+  //#region ----------- Cache ----------------------------------------------------
+
+  /**
+   * کش فقط برای سرعت و کم کردن درخواست به نشان/OSRM است؛ اگر Redis در دسترس
+   * نباشد، مسیر بدون کش محاسبه می‌شود و درخواست راننده خطا نمی‌دهد.
+   */
+  private async cacheGet<T>(key: string): Promise<T | null> {
+    try {
+      return await this.redis.getJson<T>(key);
+    } catch (error) {
+      this.logger.warn(`Routing cache read failed: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
+  private async cacheSet(key: string, value: unknown, ttlSeconds: number): Promise<void> {
+    try {
+      await this.redis.setJson(key, value, ttlSeconds);
+    } catch (error) {
+      this.logger.warn(`Routing cache write failed: ${(error as Error).message}`);
+    }
+  }
+
+  //#endregion
+
   //#region ----------- Geocoding -------------------------------------------------
 
   /**
@@ -116,13 +141,13 @@ export class RoutingService {
     const candidates = placeCandidates(place);
     for (const candidate of candidates) {
       const key = RedisService.key('routingGeocode', normalizePersianText(candidate));
-      const cached = await this.redis.getJson<{ point: GeoPoint | null }>(key);
+      const cached = await this.cacheGet<{ point: GeoPoint | null }>(key);
       if (cached) {
         if (cached.point) return cached.point;
         continue;
       }
       const point = await this.lookup(candidate);
-      await this.redis.setJson(key, { point }, point ? GEOCODE_TTL : GEOCODE_MISS_TTL);
+      await this.cacheSet(key, { point }, point ? GEOCODE_TTL : GEOCODE_MISS_TTL);
       if (point) return point;
     }
     return null;
@@ -155,7 +180,7 @@ export class RoutingService {
   /** نام شهر/شهرستان نزدیک یک نقطه (برای «از طریق …»). */
   async placeName(point: GeoPoint): Promise<string | null> {
     const key = RedisService.key('routingPlace', `${point.lat.toFixed(2)},${point.lng.toFixed(2)}`);
-    const cached = await this.redis.getJson<{ name: string | null }>(key);
+    const cached = await this.cacheGet<{ name: string | null }>(key);
     if (cached) return cached.name;
     let name: string | null = null;
     try {
@@ -171,7 +196,7 @@ export class RoutingService {
       this.logger.warn(`Reverse geocoding failed: ${(error as Error).message}`);
       return null;
     }
-    await this.redis.setJson(key, { name }, GEOCODE_TTL);
+    await this.cacheSet(key, { name }, GEOCODE_TTL);
     return name;
   }
 
@@ -188,7 +213,7 @@ export class RoutingService {
    */
   async routes(origin: GeoPoint, destination: GeoPoint): Promise<RoutePlan[]> {
     const key = RedisService.key('routingRoutes', `${fixed(origin)};${fixed(destination)}`);
-    const cached = await this.redis.getJson<RoutePlan[]>(key);
+    const cached = await this.cacheGet<RoutePlan[]>(key);
     if (cached) return cached;
 
     const accepted: Candidate[] = [];
@@ -217,7 +242,7 @@ export class RoutingService {
       }
       if (plan.via) used.add(plan.via);
     }
-    await this.redis.setJson(key, plans, ROUTE_TTL);
+    await this.cacheSet(key, plans, ROUTE_TTL);
     return plans;
   }
 
@@ -237,7 +262,7 @@ export class RoutingService {
     const destination = points[points.length - 1];
     const waypoints = [pointAtFraction(points, 1 / 3), pointAtFraction(points, 2 / 3)];
     const key = RedisService.key('routingTraffic', [origin, ...waypoints, destination].map(fixed).join(';'));
-    const cached = await this.redis.getJson<RouteTraffic>(key);
+    const cached = await this.cacheGet<RouteTraffic>(key);
     if (cached) return cached;
 
     const query = `type=car&origin=${latLng(origin)}&destination=${latLng(destination)}&waypoints=${encodeURIComponent(waypoints.map(latLng).join('|'))}`;
@@ -250,7 +275,7 @@ export class RoutingService {
       const freeMin = totalMinutes(free.routes?.[0]);
       if (liveMin === null || freeMin === null) return null;
       const result = { liveMin, freeMin, delayMin: Math.max(0, liveMin - freeMin) };
-      await this.redis.setJson(key, result, TRAFFIC_TTL);
+      await this.cacheSet(key, result, TRAFFIC_TTL);
       return result;
     } catch (error) {
       this.logger.warn(`Neshan traffic failed: ${(error as Error).message}`);
@@ -261,7 +286,7 @@ export class RoutingService {
   /** فاصله و زمان رانندگی (مثلاً از موقعیت راننده تا مبدأ بار)؛ با نشان، با ترافیک الان. */
   async drivingDistance(from: GeoPoint, to: GeoPoint): Promise<DrivingDistance | null> {
     const key = RedisService.key('routingDistance', `${from.lat.toFixed(2)},${from.lng.toFixed(2)};${fixed(to)}`);
-    const cached = await this.redis.getJson<DrivingDistance>(key);
+    const cached = await this.cacheGet<DrivingDistance>(key);
     if (cached) return cached;
     try {
       let result: DrivingDistance | null = null;
@@ -277,7 +302,7 @@ export class RoutingService {
         if (route) result = { distanceKm: route.distance / 1000, durationMin: route.duration / 60 };
       }
       if (!result) return null;
-      await this.redis.setJson(key, result, this.neshanKey ? TRAFFIC_TTL : DISTANCE_TTL);
+      await this.cacheSet(key, result, this.neshanKey ? TRAFFIC_TTL : DISTANCE_TTL);
       return result;
     } catch (error) {
       this.logger.warn(`Driving distance failed: ${(error as Error).message}`);

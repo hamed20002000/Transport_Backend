@@ -190,8 +190,15 @@ export class FuelStationService implements OnApplicationBootstrap, OnModuleDestr
   async coverage(route: GeoPoint[]): Promise<'none' | 'partial' | 'complete'> {
     const regions = new Set(resample(route, 5).points.map(regionOf).filter((region): region is string => !!region));
     let done = 0;
-    for (const region of regions) {
-      if (await this.redis.exists(RedisService.key('fuelStationChunk', region))) done++;
+    try {
+      for (const region of regions) {
+        if (await this.redis.exists(RedisService.key('fuelStationChunk', region))) done++;
+      }
+    } catch (error) {
+      // بدون Redis معلوم نیست کدام منطقه دریافت شده؛ جایگاه‌های موجود نشان داده
+      // می‌شوند ولی هشدار «فاصله‌ی بی‌جایگاه» نه.
+      this.logger.warn(`Fuel station coverage check failed: ${(error as Error).message}`);
+      return 'partial';
     }
     return done === 0 ? 'none' : done === regions.size ? 'complete' : 'partial';
   }

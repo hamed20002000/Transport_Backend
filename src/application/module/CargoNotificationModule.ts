@@ -8,6 +8,8 @@ import { CargoAlertFilter } from '../../domain/entities/notification/CargoAlertF
 import { CargoListing } from '../../domain/entities/notification/CargoListing';
 import { CargoNotification } from '../../domain/entities/notification/CargoNotification';
 import { CargoRequest } from '../../domain/entities/notification/CargoRequest';
+import { DriverProfile } from '../../domain/entities/driver/DriverProfile';
+import { DriverProfileService } from '../../services/driver/driverProfile.service';
 import { DriverLocation } from '../../domain/entities/notification/DriverLocation';
 import { DriverLocationLog } from '../../domain/entities/notification/DriverLocationLog';
 import { CargoAlertFilterRepository } from '../../infrastructure/repositories/notification/cargoAlertFilter.repository';
@@ -23,6 +25,7 @@ import {
   CargoListingController,
   CargoNotificationController,
 } from '../../presentation/controllers/notification/cargo-notification.controller';
+import { DriverController } from '../../presentation/controllers/notification/driver.controller';
 import { CargoAlertFilterService } from '../../services/notification/cargoAlertFilter.service';
 import { CargoDeliveryRetryWorker } from '../../services/notification/cargoDeliveryRetryWorker.service';
 import { CargoEventConsumer } from '../../services/notification/cargoEventConsumer.service';
@@ -53,7 +56,7 @@ import { CompanyFilterTools } from '../../services/notification/companyFilterToo
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([CargoNotification, CargoAlertFilter, CargoListing, CargoRequest, DriverLocation, DriverLocationLog]),
+    TypeOrmModule.forFeature([CargoNotification, CargoAlertFilter, CargoListing, CargoRequest, DriverLocation, DriverLocationLog, DriverProfile]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -69,7 +72,7 @@ import { CompanyFilterTools } from '../../services/notification/companyFilterToo
     // مسیر، مسافت، سوخت و جایگاه‌های سوخت برای جزئیات بار راننده
     RoutingModule,
   ],
-  controllers: [CargoNotificationController, CargoListingController, CargoAlertFilterController],
+  controllers: [CargoNotificationController, CargoListingController, CargoAlertFilterController, DriverController],
   providers: [
     CargoNotificationRepository,
     CargoAlertFilterRepository,
@@ -80,6 +83,8 @@ import { CompanyFilterTools } from '../../services/notification/companyFilterToo
     CargoAlertFilterService,
     // درخواست راننده، سفر فعال و موقعیت راننده
     CargoTripService,
+    // پروفایل، مدارک و عکس‌های راننده
+    DriverProfileService,
     CargoInsightService,
     CargoNotificationService,
     CargoListingService,

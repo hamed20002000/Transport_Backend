@@ -107,9 +107,22 @@ export class BotMenuService {
     );
   }
 
-  ensureActiveSubscription(chatId: string, externalUserId: string): Promise<boolean> {
-    return this.botSubscriptionService.ensureActiveSubscription(chatId, externalUserId);
-  }
+  /**
+   * سابسکریپشن کاربر را بررسی می کند
+   * برای این کار ابتدا بررسی میکند اصلا سابسکرپشن فعال هست یا نه
+   * کاربر سابسکرپشن دارد؟
+   * اگر نقش دارد منوی انتخاب سابسکرپشن نمایش داده میشود
+   * اگر برای اون نقش  سابسکریپشن تعریف نشده باشدپیغام فعلا سابسکرپشن ندارد نمایش داده میشود به همراه دوتا دکمه دیگه
+   * @param chatId 
+   * @param externalUserId 
+   * @returns 
+   */
+
+  //#region ---------------------------- ایا کاربر سابسکرپشن دارد؟ -----------------------
+      ensureActiveSubscription(chatId: string, externalUserId: string): Promise<boolean> {
+        return this.botSubscriptionService.ensureActiveSubscription(chatId, externalUserId);
+      }
+  //#endregion ----------------------------------------------------------------------------
 
   /*
    * =====================================================

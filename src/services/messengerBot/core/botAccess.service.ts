@@ -74,6 +74,8 @@ export class BotAccessService {
     if (!(await this.redis.setIfAbsent(lock, owner, ACCESS_LOCK_TTL_SECONDS))) return true;
     try {
       // A concurrent contact/callback may have completed before we acquired the lock.
+      //برای جلوگیری از دوبار ثبت نام که در اون صورت خطای نقض منحصربفرد بودن رو میده
+      //این حالت زمانی پیش میاد که کاربر دو بار پشت سر هم کلیک کنه
       if (await this.redis.get(RedisService.key('telegramIdentity', namespace, externalUserId))) {
         return await this.handleIdentifiedUser(chatId, externalUserId, callback);
       }
@@ -93,6 +95,19 @@ export class BotAccessService {
     }
   }
 
+  /**
+   * نقش کاربر رو به دست میاره اگه نقش داشت و در مرحله ثبت حساب کاربری نبود false برمیگردونه تا برنامه به کارش ادامه بده
+   * اگه کاربر بروی دکمه  نوع کاربری کلیک کرده منوی انتخاب نوع کاربر نمایش داده میشه
+   * وگرنه نقش جدید برای کاربر ثبت میشه در ردیس کش میشه 
+   * نشست قبلی کاربر پاک میشه 
+   * پیغام حساب شما به ربات متصل شد رو به کاربر نشون میده
+   * @param chatId 
+   * @param externalUserId 
+   * @param callback 
+   * @returns 
+   */
+
+  //#region ------------------------------ کاربر قبلا ثبت کرده است یا نه ---------------------------
   private async handleIdentifiedUser(
     chatId: string,
     externalUserId: string,
@@ -105,6 +120,8 @@ export class BotAccessService {
       await this.menu.showMenuForRoles(chatId, externalUserId, roles);
       return true;
     }
+
+    //#region ------------------- آیا کاربر همین الان روی  یکی از دکمه های نوع حساب کلیک کرده؟ ---------------
     const accountType = Object.values(AccountType).find(
       type => callback === `${BotCallback.RegisterAccountTypePrefix}${type}`,
     );
@@ -112,12 +129,23 @@ export class BotAccessService {
       await this.showAccountTypes(chatId);
       return true;
     }
+    //#endregion ---------------------------------------------------------------------------------------------
+    
     const userId = await this.links.assignInitialRole(externalUserId, accountType);
     await this.identity.cacheUserId(externalUserId, userId);
     await this.completeAccountSetup(chatId, externalUserId);
     return true;
   }
-
+  //#endregion -----------------------------------------------------------------------------------------
+   
+  /**
+   * اگر کاربر قبلا ثبت نام نکرده مراحل ثبت نام رو پساده سازی می کند
+   * @param message
+   * @param from 
+   * @param callback 
+   * @returns 
+   */
+  //#region --------------------------------- ثبت نام کار -----------------------------------------------
   private async handleUnidentifiedUser(
     message: TelegramBot.Message,
     from: TelegramBot.User,
@@ -138,17 +166,33 @@ export class BotAccessService {
     }
     await this.requestContact(chatId);
   }
+  //#endregion ---------------------------------------------------------------------------------------------
 
+  /**
+   * شماره دریافتی از کاربر برای ثبت رو هندل میکنه
+   * اعتبار شماره تلفن رو بررسی میکنه
+   * اکر قبلا بات براش ثبت شده ادامه نمیده
+   * اگر بات نداشته باشه هم ثبت میکنه و هم بات رو براش ثبت میکنه
+   * @param contact 
+   * @param metadata 
+   * @returns 
+   */
+
+  //#region ------------------------------ شماره موبایل دریافتی از کاربر رو هندل میکنه -----------------
   private async handleContact(
     contact: TelegramBot.Contact,
     metadata: BotIdentityMetadata,
   ): Promise<void> {
     const { chatId, externalUserId } = metadata;
     // مقایسه‌ی رشته‌ای: شناسه‌های بله/روبیکا پیشوند دارند (bale:123) و عدد نیستند.
+    //برای اینکه کاربری با شماره دیگری دوبار ثبت نکند 
+    //کاربر دکمهٔ «ارسال شماره» را می‌زند. تلگرام شمارهٔ خود کاربر را می‌فرستد و contact.user_id را برابر شناسهٔ خود کاربر می‌گذارد.
+    //کاربر از منوی پیوست، کارت تماس یک نفر دیگر را می‌فرستد یا یک contact را forward می‌کند. در این حالت user_id یا وجود ندارد، یا شناسهٔ صاحب آن شماره است و با فرستنده فرق دارد.
     if (contact.user_id === undefined || contact.user_id === null || String(contact.user_id) !== metadata.externalUserId) {
       await this.bot.sendMessage(chatId, this.messages.get('account.invalidContactOwner'));
       return;
     }
+
     const phone = normalizePhoneNumber(contact.phone_number);
     if (typeof phone !== 'string' || !/^09[0-9]{9}$/.test(phone)) {
       await this.bot.sendMessage(chatId, this.messages.get('identity.invalidPhone'));
@@ -162,7 +206,21 @@ export class BotAccessService {
     await this.registerNewUser(metadata, phone);
     await this.showAccountTypes(chatId);
   }
+  //#endregion ------------------------------------------------------------------------------------------
 
+
+  /**
+   * بررسی وجود کاربر در BotLink 
+   * اگر کاربر فعال نباشد پیغام غیرفعال به کاربر ارسال میشه
+   * وجود کاربر در botlink رو بررسی میکنه اگه نباشه ثبت میکنه
+   * بررسی میکند نقش دارد یا نه اگه داشته باشد منوی کاربر را نشان میدهد
+   * در اخر تکمیل فرایند ثبت کاربر
+   * @param metadata 
+   * @param user 
+   * @returns 
+   */
+
+  //#region ----------------------- ثبت کاربر در BotLink اگه کاربر قبلا ثبت نکرده باشد -----------
   private async linkExistingUser(metadata: BotIdentityMetadata, user: User): Promise<void> {
     if (user.recordStatus !== RecordStatus.Active) {
       await this.bot.sendMessage(metadata.chatId, this.messages.get('identity.inactive'));
@@ -176,7 +234,16 @@ export class BotAccessService {
     }
     await this.completeAccountSetup(metadata.chatId, metadata.externalUserId);
   }
+  //#endregion -----------------------------------------------------------------------------------
 
+  /**
+   * کاربر و بات مربوطه رو ثبت میکنه
+   * بعد از ثبت اطلاعات ورود به وب نیز ارسال میشود
+   * @param metadata 
+   * @param phoneNumber 
+   */
+
+  //#region ------------------------ ثبت کاربر و بات برای کاربر --------------------------------------
   private async registerNewUser(
     metadata: BotIdentityMetadata,
     phoneNumber: string,
@@ -193,9 +260,10 @@ export class BotAccessService {
       recordStatus: RecordStatus.Active,
       mustChangePassword: false,
     });
-    const oldLink = await this.links.findByExternalUserId(externalUserId);
-    if (oldLink?.userId) throw new ConflictException('Messenger account is already linked.');
-    const link = Object.assign(oldLink ?? new BotLink(), {
+    if (await this.links.findByExternalUserId(externalUserId)) {
+      throw new ConflictException('Messenger account is already linked.');
+    }
+    const link = Object.assign(new BotLink(), {
       externalUserId,
       chatId,
       externalUsername: metadata.username,
@@ -205,9 +273,18 @@ export class BotAccessService {
     });
     const saved = await this.links.createUserWithLink(user, link);
     await this.sendWebCredentials(chatId, user.username, password);
-    await this.identity.cacheUserId(externalUserId, saved.userId!);
+    await this.identity.cacheUserId(externalUserId, saved.userId);
   }
+  //#endregion --------------------------------------------------------------------------------------
 
+  /**
+   * ارسال اطلاعات ورود کاربر به بات در حال استفاده
+   * @param chatId
+   * @param username 
+   * @param password 
+   */
+
+  //#region ------------------------- ارسال اطلاعات کاربر برای ورود به وب -------------------------------
   private async sendWebCredentials(
     chatId: string,
     username: string,
@@ -228,13 +305,30 @@ export class BotAccessService {
       throw new Error('Could not deliver Web credentials through the messenger bot.');
     }
   }
+  //#endregion ------------------------------------------------------------------------------------------
 
+  /**
+   * نشست قبلی رو پاک میکنه 
+   * پیغام حساب وصل شد رو میفرسته
+   * منوی کاربر رو نشون میده
+   * @param chatId
+   * @param externalUserId 
+   */
+  //#region ----------------------------- تکمیل ثبت اکانت -------------------------------------
   private async completeAccountSetup(chatId: string, externalUserId: string): Promise<void> {
     await this.sessions.delete(externalUserId);
     await this.bot.sendMessage(chatId, this.messages.get('identity.connected'), { reply_markup: { remove_keyboard: true } });
     await this.menu.showMenuForUser(chatId, externalUserId);
   }
+  //#endregion ----------------------------------------------------------------------------------
 
+  /**
+   * از کاربر شماره موبایل رو میخواد
+   * برای این کار دکمه ارسال شماره موبایل رو برای کاربر نمایش میده
+   * @param chatId 
+   */
+
+  //#region ---------------------------- درخواست شماره موبایل از کاربر --------------------------
   private async requestContact(chatId: string): Promise<void> {
     await this.bot.sendMessage(chatId, this.messages.get('identity.requestPhone'), {
       reply_markup: {
@@ -244,7 +338,13 @@ export class BotAccessService {
       },
     });
   }
+  //#endregion ------------------------------------------------------------------------------------
 
+  /**
+   * نمایش منوی نوع کاربر
+   * @param chatId
+   */
+  //#region ----------------------------- نمایش منوی نوع کاربر -----------------------------
   private async showAccountTypes(chatId: string): Promise<void> {
     await this.bot.sendMessage(chatId, this.messages.get('identity.selectAccountType'), {
       reply_markup: {
@@ -257,4 +357,5 @@ export class BotAccessService {
       },
     });
   }
+  //#endregion ------------------------------------------------------------------------------
 }

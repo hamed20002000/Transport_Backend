@@ -9,11 +9,11 @@ import { ISubscriptionRepository } from '../../../domain/repositories/subscripti
 export class SubscriptionRepository implements ISubscriptionRepository {
   constructor(@InjectRepository(Subscription) private readonly repository: Repository<Subscription>) {}
 
-  /**
-   * بررسی اینکه آیا کاربر سابسکریپشن فعال دارد یا نه
-   * @param userId 
-   * @returns 
-   */
+/**
+ * بررسی اینکه آیا کاربر سابسکریپشن فعال دارد یا نه
+ * @param userId
+ * @returns 
+ */
 
   //#region --------------------- ایا سابسمریپشن فعال دارد؟ ---------------------------
   findActiveByUserId(userId: string): Promise<Subscription | null> {

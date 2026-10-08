@@ -45,6 +45,12 @@ export class CargoRequestRepository {
     });
   }
 
+  /** درخواست‌های راننده برای چند بار (وضعیت «درخواست من» روی کارت بارها). */
+  findForDriverByListings(driverUserId: string, listingIds: string[]): Promise<CargoRequest[]> {
+    if (listingIds.length === 0) return Promise.resolve([]);
+    return this.repository.find({ where: { driverUserId, listingId: In(listingIds) } });
+  }
+
   /** درخواست‌ها/سفرهای بارهای یک شرکت، قدیمی‌ترین اول (اول آمده، اول جواب). */
   findPageForCompany(
     companyUserId: string,

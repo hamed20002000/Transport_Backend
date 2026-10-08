@@ -5,7 +5,7 @@ import { IsEnum, IsOptional, IsString, Matches, MaxLength } from 'class-validato
 import { CustomerType } from 'src/domain/enums/company.enum';
 
 // رشته خالی یعنی پاک کردن مقدار؛ به null تبدیل می‌شود تا ستون خالی شود.
-const trimToNull = ({ value }: { value: unknown }) => {
+export const trimToNull = ({ value }: { value: unknown }) => {
   if (typeof value !== 'string') return value;
   const trimmed = value
     .trim()

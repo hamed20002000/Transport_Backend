@@ -302,7 +302,7 @@ export class CargoListingService {
     }
   }
 
-  private toView(listing: CargoListing) {
+  toView(listing: CargoListing) {
     return {
       id: listing.id,
       code: listing.code,

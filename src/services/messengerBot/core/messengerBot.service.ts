@@ -145,7 +145,7 @@ export class MessengerBotService implements OnModuleInit {
 
     if (await this.botAccessService.handle(message, from)) return;// بررسی اینکه آیا کاربر به سیستم وصل هست یعنی از قبل حساب دارد یا نه
 
-    if (message.location) {
+    if (message.location) { // کاربر لوکیشن معمولی  فرستاده(live location نیست)
       await this.handleLocation(message, false);
       return;
     }
@@ -1137,6 +1137,13 @@ ${order.text}`, {
     if (!edited) await this.sendNotice(chatId, this.messages.get('errors.unsupportedMessage'));
   }
 
+
+  /**
+   * منوی کاربر رو بر حسب شرایط ثبت نامش نشون میده
+   * @param chatId 
+   * @param externalUserId 
+   */
+  //#region ------------------------------------- منوی کاربر -------------------------------
   private async openMainMenu(
     chatId: string,
     externalUserId: string,
@@ -1149,11 +1156,12 @@ ${order.text}`, {
       case BotSessionState.UnderReview:
         break;
       default:
-        await this.botSessionService.reset(externalUserId);
+        await this.botSessionService.reset(externalUserId);//برای مواردی که کاربر در وسط عملیات باشد بعد کاربر start رو بزنه در این حالت نشست قبلی به در نمیخوره
     }
 
     await this.botMenuService.showMenuForUser(chatId, externalUserId);
   }
+  //#endregion --------------------------------------------------------------------------------
 
   private mainMenuKeyboard():
     TelegramBot.SendMessageOptions {

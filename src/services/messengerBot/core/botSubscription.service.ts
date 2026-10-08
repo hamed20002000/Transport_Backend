@@ -24,15 +24,25 @@ export class BotSubscriptionService {
   ) {}
 
   /** Show available plans and return false when a subscription is required. */
+
+  /**
+   * بررسی میکند که آیا کاربر سابسکریپشن دارد یا نه
+   * اول بررسی می کند که آیا اصلا سابسکریپشن فعال هستت یا نه
+   * بررسی می کند که آیا سابسکریپشن دارد یا نه؟
+   * بررسی میکند که آیا اصلا برای نقش سابسکریپشن تعریف شده است؟
+   * 
+   * @param chatId 
+   * @param externalUserId 
+   * @returns 
+   */
+
+  //#region ---------------------------- بررسی وضعیت سابسکریپشن -----------------------------------
   async ensureActiveSubscription(chatId: string, externalUserId: string): Promise<boolean> {
     if (!(await this.policy.isRequired())) return true;
     const userId = await this.identity.getUserId(externalUserId);
     if (userId && await this.subscriptions.findActiveByUserId(userId)) return true;
     
-    const roles = await this.identity.getMenuRoles(externalUserId) ?? [];
-    const accountType = roles.includes('DRIVER') ? AccountType.Driver
-      : roles.includes('COMPANY') || roles.includes('COMPANY_ADMIN') ? AccountType.Company
-      : roles.includes('BROKER') ? AccountType.Broker : null;
+    const accountType = accountTypeForRoles(await this.identity.getMenuRoles(externalUserId));
     const plans = accountType ? await this.plans.findActiveByAccountType(accountType) : [];
     if (accountType) {
       const session = await this.sessions.get(externalUserId);
@@ -56,4 +66,18 @@ export class BotSubscriptionService {
       });
     return false;
   }
+  //#endregion ------------------------------------------------------------------------------------------
+}
+
+/**
+ * نوع حسابی که پلن‌هایش به کاربر نشان داده می‌شود
+ * botAccess کاربر لینک‌نشده یا بدون نقش را قبل از اینجا متوقف می‌کند؛
+ * null یعنی برای نقش‌های این کاربر پلنی تعریف نشده است
+ */
+function accountTypeForRoles(roles: string[] | null): AccountType | null {
+  if (!roles) return null;
+  if (roles.includes('DRIVER')) return AccountType.Driver;
+  if (roles.includes('COMPANY') || roles.includes('COMPANY_ADMIN')) return AccountType.Company;
+  if (roles.includes('BROKER')) return AccountType.Broker;
+  return null;
 }

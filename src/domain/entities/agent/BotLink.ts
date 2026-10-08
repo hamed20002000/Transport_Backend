@@ -48,16 +48,15 @@ export class BotLink {
   })
   platform!: BotPlatform;
 
+  // اتصال فقط بعد از ساخته شدن کاربر سامانه ثبت می‌شود؛ کاربر ناشناس رکورد ندارد.
   @Column({
     type: 'uuid',
-    nullable: true,
   })
-  userId?: string;
+  userId!: string;
 
   @ManyToOne(
     () => User,
     {
-      nullable: true,
       onDelete: 'CASCADE',
     },
   )

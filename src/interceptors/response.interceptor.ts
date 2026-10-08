@@ -4,6 +4,7 @@ import {
   HttpStatus,
   Injectable,
   NestInterceptor,
+  StreamableFile,
 } from '@nestjs/common';
 
 import type {
@@ -53,6 +54,9 @@ export class ResponseInterceptor<T>
 
     return next.handle().pipe(
       map((data: T) => {
+        // فایل (مثل عکس ماشین راننده) همان‌طور فرستاده می‌شود.
+        if (data instanceof StreamableFile) return data;
+
         const statusCode =
           response.statusCode ??
           HttpStatus.OK;

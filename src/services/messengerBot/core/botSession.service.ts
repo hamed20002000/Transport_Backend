@@ -116,6 +116,8 @@ export class BotSessionService {
    * Runs `task` only if no other receipt for this user is being processed.
    * Returns `locked: true` without running it otherwise.
    */
+
+  //#region ----------------------- قفل کردن پردازش رسید ---------------------------------
   async withReceiptLock<T>(
     externalUserId: string,
     task: () => Promise<T>,
@@ -130,6 +132,7 @@ export class BotSessionService {
       await this.redis.deleteIfValue(key, owner);
     }
   }
+  //#endregion ------------------------------------------------------------------------
 
   /**
    * نشست کاربر رو پاک میکنه

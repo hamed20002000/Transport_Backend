@@ -242,7 +242,7 @@ export class BotIdentityService {
         params.externalUserId,
       );
 
-    if (link?.userId && link.userId !== params.userId) {
+    if (link && link.userId !== params.userId) {
       throw new ConflictException('Messenger account is already linked.');
     }
     // هر کاربر در هر پیام‌رسان یک اتصال دارد (تلگرام، بله و روبیکا جدا).
