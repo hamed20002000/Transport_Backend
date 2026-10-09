@@ -620,7 +620,7 @@ export class MessengerBotService implements OnModuleInit {
 
     if (
       data === BotCallback.CompanyChannels ||
-      this.channelsDialog.isAction(data)
+      this.channelsDialog.ownsAction(data)
     ) {
       await this.handleChannelAction(chatId, externalUserId, data);
 
@@ -1118,7 +1118,7 @@ ${order.text}`, {
     const chatId = message.chat.id.toString();
     const userId = await this.botIdentityService.getUserId(externalUserId);
     if (!userId) {
-      if (!edited) await this.openMainMenu(chatId, externalUserId);
+      if (!edited) await this.openMainMenu(chatId, externalUserId);// این شرط تقریبا هیچ وقت اتفاق نمیفتد چون اگه کاربر از طریق بات ثبت نکند نمیتونه لوکیشن بفرسته
       return;
     }
     const ctx = { platform: MessengerPlatform.Bot, externalUserId, userId };
@@ -1128,6 +1128,9 @@ ${order.text}`, {
       livePeriod: (location as { live_period?: number }).live_period,
       edited,
     };
+
+    //چون لوکیشن بدون پیشوند می اید برنامه مجبور هست همه دیالوگ ها رو بررسی کند و اولین دیالوگی که handleLocationرا پیاده سازی کرده اجرا کند
+    //اگه مقدار برنگرداند میره به دیالوگ بعدی وگرنه 
     for (const dialog of this.dialogs.all()) {
       const reply = await dialog.handleLocation?.(ctx, point);
       if (!reply) continue;

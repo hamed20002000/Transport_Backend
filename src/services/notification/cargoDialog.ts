@@ -162,16 +162,25 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     this.registry.register(this);
   }
 
-  isAction(id: string): boolean {
+  /**
+   * آیا این callback که اومده از اکشن های این دیالوگ هست یا نه
+   * برای تشخیص هر دیالوگ پیشوند مربوط به خودش رو داره
+   * @param id 
+   * @returns 
+   */
+
+  //#region ------------------------------- آیا اکشن ماله من هست ---------------------
+  ownsAction(id: string): boolean {
     return id.startsWith(PREFIX);
   }
+  //#endregion -----------------------------------------------------------------------
 
   async hasSession(ctx: Pick<BotContext, 'platform' | 'externalUserId'>): Promise<boolean> {
     return (await this.getSession(ctx)) !== null;
   }
 
   async handleAction(ctx: BotContext, id: string): Promise<BotReply | null> {
-    if (!this.isAction(id)) return null;
+    if (!this.ownsAction(id)) return null;
     try {
       return await this.route(ctx, id);
     } catch (error) {
@@ -978,21 +987,54 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     return this.i18n.translate(`cargo.${key}`, { lang: 'fa', args }) as string;
   }
 
+  /**
+   *  کلید نشست رو برای این دیالوگ میسازد 
+   * @param ctx 
+   * @returns 
+   */
+
+  //#region -----------------------------  ساختن کلید نشست برای دیالوگ -------------------
   private sessionKey(ctx: Pick<BotContext, 'platform' | 'externalUserId'>): string {
     return RedisService.key('cargoDialog', ctx.platform, ctx.externalUserId);
   }
+  //#endregion ----------------------------------------------------------------------------
 
+
+  /**
+   * نشست رو برای دیالوگ از ردیس برمیگردونه
+   * @param ctx 
+   * @returns 
+   */
+
+  //#region --------------------------- به دست آوردن نشست دیالوگ -----------------------------
   private getSession(ctx: Pick<BotContext, 'platform' | 'externalUserId'>): Promise<Session | null> {
     return this.redis.getJson<Session>(this.sessionKey(ctx));
   }
+  //#endregion --------------------------------------------------------------------------------
 
+  /**
+   * نشست برای دیالوگ در ردیس ذخیره میشه
+   * @param ctx 
+   * @param session 
+   * @returns 
+   */
+
+  //#region ----------------------------- ذخیره نشست برای دیالوگ --------------------------------
   private saveSession(ctx: BotContext, session: Session): Promise<void> {
     return this.redis.setJson(this.sessionKey(ctx), session, SESSION_TTL_SECONDS);
   }
+  //#endregion ----------------------------------------------------------------------------------
 
+  /**
+   * نشست رو برای دیالوگ پاک میکنه
+   * @param ctx 
+   */
+
+  //#region -------------------------------  پاک کردن نشست دیالوگ ---------------------------------
   private async clearSession(ctx: Pick<BotContext, 'platform' | 'externalUserId'>): Promise<void> {
     await this.redis.delete(this.sessionKey(ctx));
   }
+  //#endregion -------------------------------------------------------------------------------------
 
   //#endregion
 }

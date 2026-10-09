@@ -55,6 +55,9 @@ export interface BotLocation {
   edited: boolean;
 }
 
+/**
+ *  برای مشخص کردن اینکه درخواست از کدام پیام رسان و توسط چه کسی ارسال شده است
+ */
 export interface BotContext {
   platform: MessengerPlatform;
   // شناسه‌ی کاربر در همان پیام‌رسان (externalUserId یا jid واتساپ)
@@ -75,7 +78,7 @@ export interface BotContext {
 export interface BotDialog {
   /** دکمه‌های منوی اصلی که این گفتگو را باز می‌کنند: callback منو → اولین action گفتگو. */
   readonly entries: Record<string, string>;
-  isAction(id: string): boolean;
+  ownsAction(id: string): boolean;
   /** null یعنی این action مال این گفتگو نیست. */
   handleAction(ctx: BotContext, id: string): Promise<BotReply | null>;
   /** گفتگو منتظر متن کاربر است (مثلاً مرحله‌ی فرم). */
@@ -95,21 +98,36 @@ export interface BotDialog {
 export class BotDialogRegistry {
   private readonly dialogs: BotDialog[] = [];
 
+  /**
+   * ثبت botdialog جدید 
+   * در خقیقت ایتم جدید در منوی رو اضافه میکند
+   * @param dialog 
+   */
+
+  //#region -------------------- افزودن botdialog جدید -------------------------------
   register(dialog: BotDialog): void {
     this.dialogs.push(dialog);
   }
+  //#endregion ------------------------------------------------------------------------
 
   /** گفتگو و action ای که این callback (دکمه‌ی منو یا action خود گفتگو) اجرا می‌کند. */
   resolve(callback: string): { dialog: BotDialog; action: string } | null {
     for (const dialog of this.dialogs) {
-      if (dialog.isAction(callback)) return { dialog, action: callback };
+      if (dialog.ownsAction(callback)) return { dialog, action: callback };
       const entry = dialog.entries[callback];
       if (entry) return { dialog, action: entry };
     }
     return null;
   }
 
+  /**
+   * لیست همه دیالوگ ها Botdialog ها رو برمیگردونه
+   * @returns 
+   */
+
+  //#region ------------------------------- لیست همه دیالوگ ها ----------------------
   all(): readonly BotDialog[] {
     return this.dialogs;
   }
+  //#endregion -----------------------------------------------------------------------
 }

@@ -17,6 +17,7 @@ import { CargoNotificationService } from './cargoNotification.service';
 import { SubscriptionPolicyService } from '../subscription/subscriptionPolicy.service';
 import { buildCargoListingText, buildCargoTakenText, CargoListingFields } from './cargoNotificationText';
 import {
+  CARGO_LISTING_CHANGED_SOCKET_EVENT,
   CARGO_NOTIFICATION_SOCKET_EVENT,
   CARGO_STATUS_SOCKET_EVENT,
   NotificationsGateway,
@@ -150,6 +151,7 @@ export class CargoListingService {
     for (const row of rows) {
       this.gateway.sendToUser(row.userId, CARGO_NOTIFICATION_SOCKET_EVENT, this.delivery.toView(row));
     }
+    this.announceChange(listing);
 
     // تلگرام/واتساپ برای تعداد زیاد راننده زمان می‌برد؛ درخواست شرکت منتظر نمی‌ماند.
     void this.dispatch(listing, rows);
@@ -174,6 +176,11 @@ export class CargoListingService {
    */
   findById(listingId: string): Promise<CargoListing | null> {
     return this.listings.findById(listingId);
+  }
+
+  async findMineByCode(userId: string, code: string) {
+    const listing = await this.listings.findByCodeForPublisher(code, userId);
+    return listing ? this.toView(listing) : null;
   }
 
   async setStatus(userId: string, listingId: string, status: CargoListingStatus) {
@@ -235,8 +242,18 @@ export class CargoListingService {
     return { items: items.map((listing) => this.toView(listing)), total, page: options.page, pageSize: options.pageSize };
   }
 
+  /** لیست بارهای باز همه‌ی راننده‌ها (نه فقط گیرنده‌های اعلان) بروز شود. */
+  private announceChange(listing: CargoListing): void {
+    this.gateway.broadcast(CARGO_LISTING_CHANGED_SOCKET_EVENT, {
+      listingId: listing.id,
+      status: listing.status,
+      takenAt: listing.takenAt ?? null,
+    });
+  }
+
   private async propagateStatus(listing: CargoListing): Promise<void> {
     const taken = listing.status === CargoListingStatus.Taken;
+    this.announceChange(listing);
     const rows = await this.notifications.findByListing(listing.id);
 
     for (const row of rows) {

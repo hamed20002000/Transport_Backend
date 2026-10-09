@@ -9,6 +9,7 @@
   {"role":"COMPANY","expect":"publish_company_suggested_cargo","text":"این بار پیشنهادی رو به اسم شرکت برای راننده‌ها اعلام کن"},
   {"role":"COMPANY","expect":"publish_company_suggested_cargo","text":"اون بار شیشه که تو پیشنهادا بود رو به اسم ما پخش کن"},
   {"role":"COMPANY","expect":"create_company_cargo","text":"یه بار جدید ثبت کن، مبدا اصفهان مقصد بندرعباس، ۲۲ تن کاشی، تریلی کفی"},
+  {"role":"COMPANY","expect":"create_company_cargo","text":"بار به کد TRB100048 رو اعلام بار کن"},
   {"role":"COMPANY","expect":"create_company_cargo","text":"۱۲ پالت کاشی داریم برای رشت، ماشین جور کن"},
   {"role":"COMPANY","expect":"create_company_cargo","text":"آگهی بار بزن از کرج به تبریز، کرایه ۴۵ میلیون"},
   {"role":"COMPANY","expect":"list_company_my_cargo","text":"بارهایی که منتشر کردم رو نشون بده"},

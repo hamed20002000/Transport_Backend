@@ -21,7 +21,7 @@ export interface SelectionRequest {
 
 export type ToolGenerator = AsyncGenerator<SelectionRequest, RequestResult, unknown>;
 
-export const COMPANY_ROLES = ['COMPANY', 'COMPANY_ADMIN'];
+export const COMPANY_ROLES = ['COMPANY', 'COMPANY_ADMIN','DRIVER'];
 
 /**
  * قدم‌های مشترک هر handler (الگوی setash): ثبت خطا/موفقیت در history و
@@ -101,6 +101,22 @@ export function boolParam(value: unknown): boolean | undefined {
   if (value === true || value === 'true') return true;
   if (value === false || value === 'false') return false;
   return undefined;
+}
+
+/**
+ * کد بار برای جستجو: فقط حرف و رقم لاتین، با حروف بزرگ («trb-۱۰۰۰۰۵» → «TRB100005»،
+ * «کد ۱۰۰۰۰۵» → «100005»). فرمت خاصی فرض نمی‌شود؛ مقایسه با کدهای ذخیره‌شده با همین
+ * قاعده در repository انجام می‌شود (cargoCodeMatch). بدون هیچ رقمی یعنی کدی گفته نشده.
+ */
+export function codeParam(value: unknown): string | undefined {
+  const text = textParam(value);
+  if (!text) return undefined;
+  const code = text
+    .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/[^A-Za-z0-9]/g, '')
+    .toUpperCase();
+  return /\d/.test(code) ? code : undefined;
 }
 
 export const PHONE_PATTERN = /^[0-9۰-۹+\-\s()]{5,20}$/;

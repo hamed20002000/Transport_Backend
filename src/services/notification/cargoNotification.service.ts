@@ -234,6 +234,14 @@ export class CargoNotificationService {
    * =====================================================
    */
 
+  /** پیشنهادی که کاربر با کد بار به آن اشاره می‌کند، حتی اگر با فیلترهای فعلی‌اش جور نباشد. */
+  async findSuggestionByCode(userId: string, code: string) {
+    const row = await this.notifications.findSuggestionByCode(userId, code);
+    if (!row) return null;
+    const published = await this.listings.findBySourceAndPublisher(row.sourceMessageId, userId);
+    return this.toView(row, published ?? undefined);
+  }
+
   async list(
     userId: string,
     options: { unreadOnly: boolean; kind?: CargoNotificationKind; page: number; pageSize: number },

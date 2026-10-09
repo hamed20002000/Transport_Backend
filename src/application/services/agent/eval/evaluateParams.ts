@@ -32,6 +32,8 @@ const norm = (value: unknown): string =>
     .replace(/ي/g, 'ی')
     .replace(/ك/g, 'ک')
     .replace(/[‌\s]+/g, ' ')
+    // «۴۵میلیون» و «۴۵ میلیون» یک مقدارند
+    .replace(/(\d)(?=[^\d\s])/g, '$1 ')
     .trim();
 
 function same(expected: unknown, actual: unknown): boolean {

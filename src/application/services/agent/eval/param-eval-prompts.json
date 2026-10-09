@@ -3,6 +3,8 @@
   {"tool":"list_company_suggested_cargo","text":"از کانال‌ها چه بارهایی اومده؟","expect":{"onlyNew":false}},
   {"tool":"publish_company_suggested_cargo","text":"اون بار شیشه که تو پیشنهادا بود رو به اسم ما پخش کن","expect":{"suggestion":"شیشه"}},
   {"tool":"publish_company_suggested_cargo","text":"پیشنهاد آهن‌آلات رو با کرایه ۳۰ میلیون برای راننده‌ها منتشر کن","expect":{"suggestion":"آهن‌آلات","newFare":"۳۰ میلیون"}},
+  {"tool":"publish_company_suggested_cargo","text":"بار با کد TRB100005 رو برای راننده‌ها پخش کن","expect":{"code":"TRB100005"}},
+  {"tool":"create_company_cargo","text":"بار به کد TRB100048 رو اعلام بار کن","expect":{"code":"TRB100048"}},
   {"tool":"create_company_cargo","text":"یه بار جدید ثبت کن، مبدا اصفهان مقصد بندرعباس، ۲۲ تن کاشی، تریلی کفی","expect":{"origin":"اصفهان","destination":"بندرعباس","goods":"کاشی","amount":"۲۲ تن","truck":"تریلی کفی"}},
   {"tool":"create_company_cargo","text":"آگهی بار بزن از کرج به تبریز، کرایه ۴۵ میلیون، شماره ۰۹۱۲۱۲۳۴۵۶۷","expect":{"origin":"کرج","destination":"تبریز","fare":"۴۵ میلیون","phones":["۰۹۱۲۱۲۳۴۵۶۷"]}},
   {"tool":"create_company_cargo","text":"۱۲ پالت کاشی داریم برای رشت از تهران، کرایه توافقی، فردا صبح بارگیری","expect":{"origin":"تهران","destination":"رشت","goods":"کاشی","amount":"۱۲ پالت","fare":"توافقی","notes":"فردا صبح بارگیری"}},

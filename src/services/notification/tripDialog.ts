@@ -127,7 +127,7 @@ export class TripDialog implements BotDialog, OnModuleInit {
     this.registry.register(this);
   }
 
-  isAction(id: string): boolean {
+  ownsAction(id: string): boolean {
     return id.startsWith(PREFIX);
   }
 
@@ -136,7 +136,7 @@ export class TripDialog implements BotDialog, OnModuleInit {
   }
 
   async handleAction(ctx: BotContext, id: string): Promise<BotReply | null> {
-    if (!this.isAction(id)) return null;
+    if (!this.ownsAction(id)) return null;
     try {
       return await this.route(ctx, id);
     } catch (error) {

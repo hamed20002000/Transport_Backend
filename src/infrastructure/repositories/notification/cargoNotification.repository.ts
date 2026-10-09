@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, LessThan, LessThanOrEqual, MoreThanOrEqual, Not, Repository } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import { CargoNotification } from '../../../domain/entities/notification/CargoNotification';
+import { cargoCodeMatch } from './cargoCodeMatch';
 import { NotificationDeliveryStatus } from '../../../domain/enums/notification';
 
 /** suggestion = پیشنهاد بار به شرکت، listing = بار منتشرشده برای راننده */
@@ -55,6 +56,18 @@ export class CargoNotificationRepository {
   /** اعلان‌های راننده‌ها برای یک بار منتشرشده. */
   findByListing(listingId: string): Promise<CargoNotification[]> {
     return this.repository.find({ where: { listingId }, relations: { listing: true } });
+  }
+
+  /** پیشنهاد (نه بار منتشرشده) همین کاربر که کد بارش در payload این است. */
+  findSuggestionByCode(userId: string, code: string): Promise<CargoNotification | null> {
+    const match = cargoCodeMatch("notification.payload->>'code'", code);
+    return this.repository
+      .createQueryBuilder('notification')
+      .where('notification.userId = :userId', { userId })
+      .andWhere('notification.listingId IS NULL')
+      .andWhere(match.sql, match.params)
+      .orderBy('notification.createdAt', 'DESC')
+      .getOne();
   }
 
   findOneForUser(id: string, userId: string): Promise<CargoNotification | null> {

@@ -493,7 +493,7 @@ export class FunctionCallService {
             lastsegment: context.resumeIndex >= context.remainingSegments.length,
             list: []
         });
-        this.agentGateway.broadcastDomainChange(await this.condinate.getDomainOfPreviousTool(context.toolName) ?? "", {})
+        this.agentGateway.broadcastDomainChange(userId, await this.condinate.getDomainOfPreviousTool(context.toolName) ?? "", {})
 
         return { success: true };
     }
@@ -776,7 +776,7 @@ export class FunctionCallService {
                 isSpecial: this.isSpecial(toolResult.toolName),
                 list: []
             });
-            this.agentGateway.broadcastDomainChange(await this.condinate.getDomainOfPreviousTool(selectedToolName) ?? "", {})
+            this.agentGateway.broadcastDomainChange(userId, await this.condinate.getDomainOfPreviousTool(selectedToolName) ?? "", {})
 
             return { success: true };
         }

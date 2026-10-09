@@ -1,0 +1,22 @@
+[
+  {"tool":"create_company_cargo","text":"از قزوین به زاهدان یه بار دارم ثبتش کن","expect":{"origin":"قزوین","destination":"زاهدان"}},
+  {"tool":"create_company_cargo","text":"۱۸ تن برنج از بندر امام به یزد، خاور میخوام، کرایه ۶۲میلیون","expect":{"origin":"بندر امام","destination":"یزد","goods":"برنج","amount":"۱۸ تن","truck":"خاور","fare":"۶۲ میلیون"}},
+  {"tool":"create_company_cargo","text":"بار سیمان داریم ۳۰۰ کیسه، مبدا ساوه مقصد اراک، شماره تماس ۰۹۳۵۱۱۱۲۲۳۳","expect":{"origin":"ساوه","destination":"اراک","goods":"سیمان","amount":"۳۰۰ کیسه","phones":["۰۹۳۵۱۱۱۲۲۳۳"]}},
+  {"tool":"create_company_cargo","text":"یه بار پسته از رفسنجان به تهران دارم کرایه ۱۲۰ میلیون","expect":{"origin":"رفسنجان","destination":"تهران","goods":"پسته","fare":"۱۲۰ میلیون"}},
+  {"tool":"create_company_cargo","text":"۴۵میلیون کرایه بار تبریز به ارومیه","expect":{"origin":"تبریز","destination":"ارومیه","fare":"۴۵ میلیون"}},
+  {"tool":"create_company_cargo","text":"بار به کد XK-7781 رو اعلام کن","expect":{"code":"XK-7781"}},
+  {"tool":"publish_company_suggested_cargo","text":"بار ۵۵۰۱۲ رو برای راننده‌ها بفرست","expect":{"code":"۵۵۰۱۲"}},
+  {"tool":"publish_company_suggested_cargo","text":"پیشنهاد میلگرد رو با کرایه ۲۸ میلیون پخش کن شماره ۰۹۱۳۴۴۴۵۵۶۶","expect":{"suggestion":"میلگرد","newFare":"۲۸ میلیون","callNumbers":["۰۹۱۳۴۴۴۵۵۶۶"]}},
+  {"tool":"publish_company_suggested_cargo","text":"همون بار مشهد رو منتشر کن","expect":{"suggestion":"مشهد"}},
+  {"tool":"mark_company_cargo_taken","text":"بار کود شیمیایی پر شد","expect":{"listing":"کود شیمیایی"}},
+  {"tool":"reopen_company_cargo","text":"بار زاهدان رو اشتباه بستم بازش کن","expect":{"closedListing":"زاهدان"}},
+  {"tool":"create_company_display_filter","text":"فقط بارهای مقصد بوشهر و کیش رو بیار","expect":{"destinations":["بوشهر","کیش"]}},
+  {"tool":"create_company_display_filter","text":"کرایه بالای ۹۰ میلیون رو نشون نده","expect":{"fareMax":"۹۰ میلیون"}},
+  {"tool":"create_company_display_filter","text":"فیلتر برای کمپرسی و جفت بساز","expect":{"truckKinds":["کمپرسی","جفت"]}},
+  {"tool":"update_company_display_filter","text":"به فیلتر اصفهان، مبدا نجف‌آباد رو اضافه کن","expect":{"target":"اصفهان","addOrigins":["نجف‌آباد"]}},
+  {"tool":"set_company_display_filter_active","text":"فیلتر کفی رو خاموش کن","expect":{"which":"کفی","on":false}},
+  {"tool":"delete_company_display_filter","text":"فیلتر مسیر کرمان رو پاک کن","expect":{"which":"کرمان"}},
+  {"tool":"delete_company_channel","text":"گروه باربری قم رو حذف کن","expect":{"channel":"باربری قم"}},
+  {"tool":"update_company_profile","text":"نام خانوادگیم رو کریمی بنویس","expect":{"lastName":"کریمی"}},
+  {"tool":"update_company_profile","text":"تلفن دفتر رو ۰۵۱۳۸۴۴۵۵۶۶ کن","expect":{"phone":"۰۵۱۳۸۴۴۵۵۶۶"}}
+]

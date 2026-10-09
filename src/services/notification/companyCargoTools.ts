@@ -6,6 +6,7 @@ import { ToolRegister } from 'src/application/services/agent/toolRegister';
 import {
   boolParam,
   cargoLine,
+  codeParam,
   COMPANY_ROLES,
   format,
   listParam,
@@ -17,6 +18,7 @@ import {
   ToolGenerator,
   ToolParam,
 } from 'src/application/services/agent/tools/toolKit';
+import { RequestResult } from 'src/application/services/agent/types';
 import { CargoListingStatus } from 'src/domain/enums/notification';
 import { CargoListingService } from './cargoListing.service';
 import { CargoNotificationService } from './cargoNotification.service';
@@ -113,6 +115,11 @@ export class CompanyCargoTools implements OnModuleInit {
         const phones = listParam(param.callNumbers);
         const badPhone = phones.find((phone) => !PHONE_PATTERN.test(phone));
         if (badPhone) ctx.fail(format(messages.suggested.badPhone, { phone: badPhone }));
+        const fare = textParam(param.newFare);
+
+        // «بار با کد فلان را اعلام کن»: بدون جستجو و سؤال، همان بار
+        const code = codeParam(param.code);
+        if (code) return await self.publishByCode(ctx, code, fare, phones);
 
         //#region -------- Which suggestion ------------------------------
         const recent = await self.notifications.list(ctx.userId, {
@@ -137,28 +144,7 @@ export class CompanyCargoTools implements OnModuleInit {
         if (!chosen) ctx.fail(messages.suggested.notPicked);
         //#endregion
 
-        //#region -------- Fields: suggestion + what the user changed ------
-        const draft = await ctx.call(self.listings.buildDraft(ctx.userId, chosen.id), messages.suggested.publishFailed);
-        // متن پیش‌نمایش را publish خودش از روی فیلدها دوباره می‌سازد
-        const fields = { ...draft, text: undefined };
-        const fare = textParam(param.newFare);
-        if (fare) fields.price = fare;
-        if (phones.length) fields.contactPhones = phones;
-        if (!fields.contactPhones?.length) ctx.fail(messages.suggested.needPhone);
-        //#endregion
-
-        const published = await ctx.call(
-          self.listings.publish(ctx.userId, chosen.id, fields),
-          messages.suggested.publishFailed,
-        );
-        return ctx.done(
-          { id: published.id, code: published.code ?? '', recipients: String(published.recipients) },
-          format(messages.suggested.published, {
-            cargo: cargoLine(published),
-            code: published.code ?? '',
-            recipients: published.recipients,
-          }),
-        );
+        return await self.publishSuggestion(ctx, chosen.id, fare, phones);
       },
     });
     //#endregion
@@ -170,14 +156,18 @@ export class CompanyCargoTools implements OnModuleInit {
         const ctx: ToolContext = new ToolContext(self.history, 'create_company_cargo', param);
         ctx.requireRole(COMPANY_ROLES);
 
+        const phones = listParam(param.phones);
+        const badPhone = phones.find((phone) => !PHONE_PATTERN.test(phone));
+        if (badPhone) ctx.fail(format(messages.cargo.badPhone, { phone: badPhone }));
+
+        // «بار با کد فلان را اعلام کن»: بار پیشنهادیِ همان کد منتشر می‌شود، نه بار تازه
+        const code = codeParam(param.code);
+        if (code) return await self.publishByCode(ctx, code, textParam(param.fare), phones);
+
         const origin = textParam(param.origin);
         if (!origin) ctx.fail(messages.cargo.originRequired);
         const destination = textParam(param.destination);
         if (!destination) ctx.fail(messages.cargo.destinationRequired);
-
-        const phones = listParam(param.phones);
-        const badPhone = phones.find((phone) => !PHONE_PATTERN.test(phone));
-        if (badPhone) ctx.fail(format(messages.cargo.badPhone, { phone: badPhone }));
 
         // نام شرکت و شماره‌ی پیش‌فرض از پروفایل، مثل فرم «ثبت بار» در وب
         const defaults = await self.listings.buildManualDraft(ctx.userId);
@@ -292,6 +282,42 @@ export class CompanyCargoTools implements OnModuleInit {
       done: messages.myCargo.reopened,
     });
     //#endregion
+  }
+
+  /**
+   * بار با کدی که کاربر گفت. اگر شرکت قبلاً همین بار را اعلام کرده همان را می‌گوید؛
+   * وگرنه پیشنهادِ همین کد (حتی خارج از فیلترهای فعلی) منتشر می‌شود.
+   */
+  private async publishByCode(ctx: ToolContext, code: string, fare: string | undefined, phones: string[]): Promise<RequestResult> {
+    const mine = await this.listings.findMineByCode(ctx.userId, code);
+    if (mine) {
+      const template = mine.status === CargoListingStatus.Taken ? messages.byCode.taken : messages.byCode.alreadyOpen;
+      ctx.fail(format(template, { code: mine.code ?? code, cargo: cargoLine(mine) }));
+    }
+
+    const suggestion = await this.notifications.findSuggestionByCode(ctx.userId, code);
+    if (!suggestion) ctx.fail(format(messages.byCode.notFound, { code }));
+    return this.publishSuggestion(ctx, suggestion.id, fare, phones);
+  }
+
+  /** پیشنهاد به اسم شرکت منتشر می‌شود؛ کرایه و شماره‌ای که کاربر گفت جای مقدار پیشنهاد را می‌گیرد. */
+  private async publishSuggestion(ctx: ToolContext, suggestionId: string, fare: string | undefined, phones: string[]): Promise<RequestResult> {
+    const draft = await ctx.call(this.listings.buildDraft(ctx.userId, suggestionId), messages.suggested.publishFailed);
+    // متن پیش‌نمایش را publish خودش از روی فیلدها دوباره می‌سازد
+    const fields = { ...draft, text: undefined };
+    if (fare) fields.price = fare;
+    if (phones.length) fields.contactPhones = phones;
+    if (!fields.contactPhones?.length) ctx.fail(messages.suggested.needPhone);
+
+    const published = await ctx.call(this.listings.publish(ctx.userId, suggestionId, fields), messages.suggested.publishFailed);
+    return ctx.done(
+      { id: published.id, code: published.code ?? '', recipients: String(published.recipients) },
+      format(messages.suggested.published, {
+        cargo: cargoLine(published),
+        code: published.code ?? '',
+        recipients: published.recipients,
+      }),
+    );
   }
 
   private suggestionTitle(item: SuggestionView): string {

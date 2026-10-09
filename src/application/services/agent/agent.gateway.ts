@@ -139,8 +139,14 @@ export class AgentGateway {
   * پیام رو به همه‌ی کلاینت‌هایی که عضو یک domain خاصن (نه یک کاربر
   * مشخص) می‌فرسته -- این همون جایگزین "Pusher trigger" هست.
   */
-  async broadcastDomainChange(domain: string, data: any) {
-    this.server.to(`domain:${domain}`).emit('domain-changed', data);
+  async broadcastDomainChange(userId: string, domain: string, data: any) {
+    // فقط صفحه‌های همان کاربری که کار را با agent انجام داد -- شرکت دیگری که همین
+    // صفحه را باز دارد داده‌اش عوض نشده و نباید بی‌دلیل دوباره بارگذاری کند.
+    this.server.to(this.domainRoom(domain, userId)).emit('domain-changed', { ...data, domain });
+  }
+
+  private domainRoom(domain: string, userId: string): string {
+    return `domain:${domain}:${userId}`;
   }
 
   /**
@@ -152,7 +158,8 @@ export class AgentGateway {
     @ConnectedSocket() client: Socket,
     @MessageBody() body: { domain: string }
   ) {
-    client.join(`domain:${body.domain}`);
+    const userId = client.data?.userId;
+    if (userId && body?.domain) client.join(this.domainRoom(body.domain, userId));
   }
 
   /**
@@ -164,7 +171,8 @@ export class AgentGateway {
     @ConnectedSocket() client: Socket,
     @MessageBody() body: { domain: string }
   ) {
-    client.leave(`domain:${body.domain}`);
+    const userId = client.data?.userId;
+    if (userId && body?.domain) client.leave(this.domainRoom(body.domain, userId));
   }
 
 

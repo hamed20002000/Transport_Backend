@@ -24,7 +24,8 @@
     "agent:eval-domains": "ts-node -r tsconfig-paths/register src/application/services/agent/eval/evaluateDomains.ts",
     "agent:seed": "ts-node -r tsconfig-paths/register src/application/services/agent/eval/seedAgent.ts",
     "agent:eval-tools": "ts-node -r tsconfig-paths/register src/application/services/agent/eval/evaluateTools.ts",
-    "agent:eval-params": "ts-node -r tsconfig-paths/register src/application/services/agent/eval/evaluateParams.ts"
+    "agent:eval-params": "ts-node -r tsconfig-paths/register src/application/services/agent/eval/evaluateParams.ts",
+    "agent:eval-stt": "ts-node -r tsconfig-paths/register src/application/services/agent/eval/evaluateSpeech.ts"
   },
   "dependencies": {
     "@golevelup/nestjs-rabbitmq": "^5.7.0",

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { CargoListing } from '../../../domain/entities/notification/CargoListing';
+import { cargoCodeMatch } from './cargoCodeMatch';
 import { CargoListingStatus } from '../../../domain/enums/notification';
 
 @Injectable()
@@ -44,6 +45,17 @@ export class CargoListingRepository {
 
   findOneForPublisher(id: string, publisherUserId: string): Promise<CargoListing | null> {
     return this.repository.findOne({ where: { id, publisherUserId } });
+  }
+
+  /** بار منتشرشده‌ی همین ناشر با این کد (مقایسه با cargoCodeMatch). */
+  findByCodeForPublisher(code: string, publisherUserId: string): Promise<CargoListing | null> {
+    const match = cargoCodeMatch('listing.code', code);
+    return this.repository
+      .createQueryBuilder('listing')
+      .where('listing.publisherUserId = :publisherUserId', { publisherUserId })
+      .andWhere(match.sql, match.params)
+      .orderBy('listing.createdAt', 'DESC')
+      .getOne();
   }
 
   findBySourceAndPublisher(sourceMessageId: string, publisherUserId: string): Promise<CargoListing | null> {

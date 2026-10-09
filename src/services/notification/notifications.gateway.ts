@@ -12,6 +12,10 @@ export const CARGO_NOTIFICATION_SOCKET_EVENT = 'cargo-notification';
 
 export const CARGO_STATUS_SOCKET_EVENT = 'cargo-status';
 
+// بار باز شد (ثبت/انتشار/برگرداندن) یا برداشته شد -- برای همه، تا لیست «بارهای اعلام‌شده»
+// راننده‌هایی که اعلانش را نگرفته‌اند (فیلترشان نخورده یا خودشان ناشرند) هم همان لحظه بروز شود.
+export const CARGO_LISTING_CHANGED_SOCKET_EVENT = 'cargo-listing-changed';
+
 // تغییر وضعیت عضویت گروه/کانال ثبت‌شده (عضو شد، منتظر تأیید، ناموفق، حذف شد).
 export const CHANNEL_STATUS_SOCKET_EVENT = 'channel-status';
 
@@ -48,6 +52,11 @@ export class NotificationsGateway implements OnGatewayConnection {
 
   sendToUser(userId: string, event: string, data: unknown): void {
     this.server?.to(this.room(userId)).emit(event, data);
+  }
+
+  /** به همه‌ی اتصال‌های باز؛ فقط برای داده‌ای که همه‌ی کاربرها اجازه‌ی دیدنش را دارند. */
+  broadcast(event: string, data: unknown): void {
+    this.server?.emit(event, data);
   }
 
   /** آیا کاربر الان حداقل یک اتصال باز به پنل وب دارد؟ */

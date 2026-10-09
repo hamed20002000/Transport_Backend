@@ -57,7 +57,7 @@ export class CompanyChannelsDialog {
     private readonly i18n: I18nService,
   ) {}
 
-  isAction(id: string): boolean {
+  ownsAction(id: string): boolean {
     return id.startsWith(PREFIX);
   }
 
@@ -77,7 +77,7 @@ export class CompanyChannelsDialog {
 
   /** null یعنی این گزینه مال این بخش نیست. */
   async handleAction(ctx: BotContext, id: string): Promise<BotReply | null> {
-    if (!this.isAction(id)) return null;
+    if (!this.ownsAction(id)) return null;
 
     if (id === Action.Close) {
       await this.clearSession(ctx);
