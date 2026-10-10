@@ -67,6 +67,48 @@ export class CargoRequestRepository {
     });
   }
 
+  /** راننده‌ای که شرکت این بار را به او سپرده و هنوز در مهلت تأیید است. */
+  findActiveOffer(listingId: string): Promise<CargoRequest | null> {
+    return this.repository.findOne({
+      where: { listingId, status: CargoRequestStatus.Offered, offerExpiresAt: MoreThanOrEqual(new Date()) },
+      relations: WITH_PARTIES,
+    });
+  }
+
+  /** پیشنهادهای در مهلت برای چند بار (نشان «رزرو شده» روی کارت بارها). */
+  findActiveOffersForListings(listingIds: string[]): Promise<CargoRequest[]> {
+    if (listingIds.length === 0) return Promise.resolve([]);
+    return this.repository.find({
+      where: { listingId: In(listingIds), status: CargoRequestStatus.Offered, offerExpiresAt: MoreThanOrEqual(new Date()) },
+    });
+  }
+
+  /** پیشنهادهایی که مهلت تأییدشان گذشته. */
+  findExpiredOffers(now: Date, take = 100): Promise<CargoRequest[]> {
+    return this.repository.find({
+      where: { status: CargoRequestStatus.Offered, offerExpiresAt: LessThan(now) },
+      relations: WITH_PARTIES,
+      take,
+    });
+  }
+
+  /** درخواست‌های در انتظار یک بار، قدیمی‌ترین اول (اول آمده، اول در لیست). */
+  findPendingForListing(listingId: string): Promise<CargoRequest[]> {
+    return this.repository.find({ where: { listingId, status: CargoRequestStatus.Pending }, order: { createdAt: 'ASC' } });
+  }
+
+  /** راننده‌ی هر بار (سپرده‌شده، در سفر یا تحویل‌شده) برای کارت «بارهای من» شرکت. */
+  findAssignmentsForListings(listingIds: string[]): Promise<CargoRequest[]> {
+    if (listingIds.length === 0) return Promise.resolve([]);
+    return this.repository.find({
+      where: {
+        listingId: In(listingIds),
+        status: In([CargoRequestStatus.Offered, CargoRequestStatus.Accepted, CargoRequestStatus.Delivered]),
+      },
+      order: { updatedAt: 'DESC' },
+    });
+  }
+
   /** بقیه‌ی درخواست‌های در انتظار همین بار (وقتی یکی قبول شد). */
   findOtherPending(listingId: string, exceptId: string): Promise<CargoRequest[]> {
     return this.repository.find({

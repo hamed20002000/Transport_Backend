@@ -11,6 +11,7 @@ type PlatformClient = Pick<
 > & {
   sendLocation(chatId: string, latitude: number, longitude: number): Promise<unknown>;
   sendPhoto(chatId: string, photo: Buffer, options?: { caption?: string }, fileOptions?: object): Promise<unknown>;
+  sendVoice(chatId: string, voice: Buffer, options?: { caption?: string }, fileOptions?: object): Promise<unknown>;
   answerCallbackQuery(id: string): Promise<boolean>;
   getFileStream(fileId: string): Readable;
   downloadFile(fileId: string, directory: string): Promise<string>;
@@ -80,6 +81,12 @@ export class MultiBot extends EventEmitter {
   async sendPhoto(chatId: string | number, photo: Buffer, caption?: string) {
     const { client, nativeId } = this.route(chatId);
     await client.sendPhoto(nativeId, photo, caption ? { caption } : {}, { filename: 'map.jpg', contentType: 'image/jpeg' });
+  }
+
+  /** پیام صوتی ogg/opus (تلگرام و بله sendVoice؛ روبیکا فایل Voice). */
+  async sendVoice(chatId: string | number, voice: Buffer, caption?: string) {
+    const { client, nativeId } = this.route(chatId);
+    await client.sendVoice(nativeId, voice, caption ? { caption } : {}, { filename: 'voice.ogg', contentType: 'audio/ogg' });
   }
 
   async editMessageText(text: string, options: TelegramBot.EditMessageTextOptions) {

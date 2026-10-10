@@ -62,6 +62,8 @@ export type ChatRequest={
 	messages:Message[],
 	stream:boolean,
     tools?:Tool[],
+    /** فکر کردن مدل (qwen3)؛ پیش‌فرض Ollama روشن است */
+    think?: boolean,
      options?: {
                     temperature: number,
                     top_p: number,

@@ -1077,6 +1077,14 @@ ${order.text}`, {
         this.logger.warn(`Bot sendPhoto failed: ${this.getErrorMessage(error)}`);
       }
     }
+    if (reply.voice) {
+      this.keyboard.clearCallbackMessage(chatId);
+      try {
+        await this.multiBot.sendVoice(chatId, reply.voice.audio, reply.voice.caption);
+      } catch (error) {
+        this.logger.warn(`Bot sendVoice failed: ${this.getErrorMessage(error)}`);
+      }
+    }
     if (reply.locationButton) {
       // «منوی اصلی» متنی است که handleMessage می‌شناسد؛ راه خروج از این کیبورد.
       await this.sendMessage(chatId, reply.text, {

@@ -19,6 +19,8 @@ import {
 import { RedisService } from '../redis/redis.service';
 import { CargoInsight, CargoInsightService, CargoRouteOption } from './cargoInsight.service';
 import { CargoListingService } from './cargoListing.service';
+import { TextToSpeechService } from '../speech/textToSpeech.service';
+import { nearStationsSpeech } from '../speech/stationSpeech';
 import { persianDateTime } from 'src/domain/helper/persianDate';
 import { CargoListingStatus } from 'src/domain/enums/notification';
 import { GeoPoint, pointAtFraction } from '../routing/geo';
@@ -57,13 +59,14 @@ const NEAR_RADIUS_KM = 30;
 // آخرین زمان‌های دریافت موقعیت که برای شرکت نوشته می‌شود
 const RECENT_LOCATIONS = 5;
 const NEAR_LIMIT = 12;
-// دکمه‌ی مسیریابی برای این تعداد از نزدیک‌ترین‌ها
-const NEAR_NAVIGATE = 6;
 
 const STATUS_ICON: Record<CargoRequestStatus, string> = {
   [CargoRequestStatus.Pending]: '⏳',
+  [CargoRequestStatus.Offered]: '📨',
   [CargoRequestStatus.Accepted]: '🚚',
   [CargoRequestStatus.Rejected]: '❌',
+  [CargoRequestStatus.Declined]: '🚫',
+  [CargoRequestStatus.Expired]: '⌛',
   [CargoRequestStatus.Cancelled]: '⚪',
   [CargoRequestStatus.Delivered]: '✅',
 };
@@ -121,6 +124,7 @@ export class TripDialog implements BotDialog, OnModuleInit {
     private readonly redis: RedisService,
     private readonly i18n: I18nService,
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
+    private readonly speech: TextToSpeechService,
   ) {}
 
   onModuleInit(): void {
@@ -193,6 +197,8 @@ export class TripDialog implements BotDialog, OnModuleInit {
     // راننده
     if (id.startsWith(Action.Request)) return this.request(ctx, arg(Action.Request));
     if (id.startsWith(Action.Cancel)) return this.cancel(ctx, arg(Action.Cancel));
+    if (id.startsWith(Action.OfferYes)) return this.respondOffer(ctx, arg(Action.OfferYes), true);
+    if (id.startsWith(Action.OfferNo)) return this.respondOffer(ctx, arg(Action.OfferNo), false);
     if (id.startsWith(Action.DriverRequests)) return this.driverRequestsView(ctx, this.page(arg(Action.DriverRequests)));
     if (id === Action.ActiveTrip) return this.activeTripView(ctx);
     if (id === Action.ShareLocation) return this.shareLocation();
@@ -620,7 +626,7 @@ export class TripDialog implements BotDialog, OnModuleInit {
     };
   }
 
-  /** نزدیک‌ترین جایگاه‌های سوخت به آخرین موقعیت راننده، روی نقشه با شماره و دکمه‌ی مسیریابی. */
+  /** نزدیک‌ترین جایگاه‌های سوخت به آخرین موقعیت راننده، روی نقشه با شماره؛ هر جایگاه یک دکمه‌ی مسیریابی است. */
   private async nearStations(ctx: BotContext): Promise<BotReply> {
     const location = await this.trips.lastLocation(ctx.userId);
     if (!location) {
@@ -640,28 +646,43 @@ export class TripDialog implements BotDialog, OnModuleInit {
       [{ point: me, kind: 'driver' }, ...stations.map((station, i) => this.stationMarker(station, String(i + 1)))],
       this.t('map.nearCaption'),
     );
-    const list = stations.map((station, i) =>
-      this.t('near.item', {
-        index: fa(i + 1),
-        name: station.name || this.t('route.unnamed'),
-        km: this.km(station.distanceKm),
-        kinds: this.kinds(station),
-      }),
-    );
+    // هر جایگاه خودش دکمه است (شماره همان شماره‌ی روی نقشه): زدنش مسیر از موقعیت راننده تا آن را باز می‌کند
     const rows = new Rows().grid(
-      stations.slice(0, NEAR_NAVIGATE).map((station, i) => ({
+      stations.map((station, i) => ({
         id: `nav${i}`,
-        label: this.t('actions.navigateN', { index: fa(i + 1) }),
+        label: this.t('near.item', {
+          index: fa(i + 1),
+          name: station.name || this.t('route.unnamed'),
+          km: this.km(station.distanceKm),
+          kinds: this.kinds(station),
+        }),
         url: this.mapsUrl(me, { lat: station.lat, lng: station.lng }),
       })),
-      3,
+      1,
     );
     rows.add(...back.actions);
+    const voice = await this.stationsVoice(stations);
     return {
-      text: [this.t('near.title'), this.locationLine(location), list.join('\n'), this.t('route.legend')].join('\n\n'),
+      text: [this.t('near.title'), this.locationLine(location), this.t('near.tapHint'), this.t('route.legend')].join('\n\n'),
       actions: rows.actions,
       ...(photo ? { photo } : {}),
+      ...(voice ? { voice } : {}),
     };
+  }
+
+  /**
+   * همان جایگاه‌ها به ترتیب نزدیکی با صدا، تا راننده پشت فرمان لازم نباشد فهرست را بخواند.
+   * ساخته نشدن صدا جلوی جواب را نمی‌گیرد.
+   */
+  private async stationsVoice(stations: (RouteFuelStation & { distanceKm: number })[]): Promise<BotReply['voice'] | null> {
+    if (!this.speech.available) return null;
+    try {
+      const audio = await this.speech.synthesize(nearStationsSpeech((key, args) => this.t(key, args), stations));
+      return { audio, caption: this.t('near.voice.caption') };
+    } catch (error) {
+      this.logger.warn(`Stations voice failed: ${(error as Error).message}`);
+      return null;
+    }
   }
 
   /** نقشه‌ی همه‌ی مسیرهای جایگزین با شماره‌ی هر مسیر. */
@@ -869,6 +890,25 @@ export class TripDialog implements BotDialog, OnModuleInit {
       .add(...this.pager(Action.CompanyTrips, page, pages))
       .add({ id: `${Action.CompanyRequests}1`, label: this.t('actions.allRequests') }, this.back());
     return { text: [notice, this.t('companyTrips.title'), body].filter(Boolean).join('\n\n'), actions: rows.actions };
+  }
+
+  /** راننده بار سپرده‌شده را تأیید (سفر شروع می‌شود) یا رد می‌کند. */
+  private async respondOffer(ctx: BotContext, requestId: string, accept: boolean): Promise<BotReply> {
+    try {
+      const request = await this.trips.respondOffer(ctx.userId, requestId, accept);
+      const cargo = this.trips.cargoTitle(request);
+      if (accept) {
+        return {
+          text: this.t('notify.offerConfirmed', { cargo }),
+          actions: new Rows()
+            .add({ id: Action.ActiveTrip, label: this.t('actions.activeTrip') }, { id: Action.ShareLocation, label: this.t('actions.shareLocation') })
+            .add(this.back()).actions,
+        };
+      }
+      return { text: this.t('notify.offerRefused'), actions: [this.back()] };
+    } catch (error) {
+      return { text: this.conflictText(error, 'offer'), actions: [this.back()] };
+    }
   }
 
   private async decide(ctx: BotContext, requestId: string, accept: boolean): Promise<BotReply> {

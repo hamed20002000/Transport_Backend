@@ -1,5 +1,8 @@
 [
   {"role": "COMPANY", "expect": "company_suggested_cargo", "text": "پیشنهادهای جدید رو نشونم بده"},
+  {"role": "COMPANY", "expect": "company_suggested_cargo", "text": "لیست بار ها از مبدا بجنورد رو نشون بده"},
+  {"role": "COMPANY", "expect": "company_suggested_cargo", "text": "لیست بارها رو بیار", "set": "unseen"},
+  {"role": "COMPANY", "expect": "company_suggested_cargo", "text": "بارهایی که به تبریز میرن کدوما هستن؟", "set": "unseen"},
   {"role": "COMPANY", "expect": "company_suggested_cargo", "text": "از کانال‌ها چه بارهایی اومده؟"},
   {"role": "COMPANY", "expect": "company_suggested_cargo", "text": "چندتا پیشنهاد نخونده مونده؟"},
   {"role": "COMPANY", "expect": "company_suggested_cargo", "text": "همه پیشنهادها رو خونده شده کن"},
@@ -14,6 +17,7 @@
   {"role": "COMPANY", "expect": "company_suggested_cargo", "text": "آخرین آگهی‌هایی که ربات از گروه‌ها جمع کرده رو ببینم", "set": "unseen"},
   {"role": "COMPANY", "expect": "company_suggested_cargo", "text": "این مورد پیشنهادی رو به نام خودمون بفرست واسه رانندها", "set": "unseen"},
   {"role": "COMPANY", "expect": "company_create_cargo", "text": "یه بار جدید ثبت کن، مبدا اصفهان مقصد بندرعباس، ۲۲ تن کاشی، تریلی کفی"},
+  {"role": "COMPANY", "expect": "company_create_cargo", "text": "اعلام بار تهران تبریز گالوانیزه کفی ۶۰۰۰۰۰۰ میلیون"},
   {"role": "COMPANY", "expect": "company_create_cargo", "text": "آگهی بار بزن از کرج به تبریز، کرایه ۴۵ میلیون"},
   {"role": "COMPANY", "expect": "company_create_cargo", "text": "برای حمل ۱۰ تن برنج تا مشهد ماشین پیدا کن"},
   {"role": "COMPANY", "expect": "company_create_cargo", "text": "بار جدید برای راننده‌ها بفرست، شماره تماس ۰۹۱۲۱۲۳۴۵۶۷"},
@@ -28,6 +32,7 @@
   {"role": "COMPANY", "expect": "company_create_cargo", "text": "دنبال یه کامیون برای جابه‌جایی ۸ تن لوله‌ام", "set": "unseen"},
   {"role": "COMPANY", "expect": "company_create_cargo", "text": "حمل ۴۰ تن ذرت به مقصد اراک رو آگهی کن", "set": "unseen"},
   {"role": "COMPANY", "expect": "company_my_cargo", "text": "بارهایی که منتشر کردم رو نشون بده"},
+  {"role": "COMPANY", "expect": "company_my_cargo", "text": "بارهای اعلام شده از مبدا مشهد رو نشون بده"},
   {"role": "COMPANY", "expect": "company_my_cargo", "text": "بار سیمان رفت، ببندش"},
   {"role": "COMPANY", "expect": "company_my_cargo", "text": "بار اصفهان به شیراز برداشته شد"},
   {"role": "COMPANY", "expect": "company_my_cargo", "text": "بار کاشی رو دوباره باز کن"},
@@ -76,5 +81,11 @@
   {"role": "COMPANY", "expect": "company_profile", "text": "شماره ثبت و شناسه ملی شرکت رو وارد کن", "set": "heldout"},
   {"role": "COMPANY", "expect": "company_profile", "text": "کد پستیم رو اصلاح کن", "set": "heldout"},
   {"role": "COMPANY", "expect": "company_profile", "text": "شماره تلفن دفترمون عوض شده", "set": "unseen"},
-  {"role": "COMPANY", "expect": "company_profile", "text": "مشخصات حقوقی شرکتمون رو به‌روز کن", "set": "unseen"}
+  {"role": "COMPANY", "expect": "company_profile", "text": "مشخصات حقوقی شرکتمون رو به‌روز کن", "set": "unseen"},
+  {"role": "DRIVER", "expect": "driver_loads", "text": "لیست بارها رو نشون بده"},
+  {"role": "DRIVER", "expect": "driver_loads", "text": "بارهای مبدا اراک رو بیار"},
+  {"role": "DRIVER", "expect": "driver_loads", "text": "باری هست که به بوشهر بره؟"},
+  {"role": "DRIVER", "expect": "driver_loads", "text": "بار برنج برای خاور پیدا کن"},
+  {"role": "DRIVER", "expect": "driver_loads", "text": "بارهای مطابق فیلترهام رو بیار"},
+  {"role": "DRIVER", "expect": "driver_loads", "text": "چه بارهایی از شیراز هست؟"}
 ]

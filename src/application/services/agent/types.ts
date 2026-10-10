@@ -84,7 +84,15 @@ export type RequestResult = {
      * صفحه‌ی جداگانه‌ای نیست، ابزارهای خواندنی فقط از همین راه جواب می‌دهند.
      */
     message?: string;
+    /**
+     * همان نتیجه به شکل ساخت‌یافته تا وب آن را کارت به کارت در چت نشان دهد
+     * (تلگرام و واتس‌اپ فقط message را می‌فرستند). در history مدل نمی‌رود.
+     */
+    list?: AgentListItem[];
 }
+
+/** یک مورد از لیستی که ابزار برگردانده؛ kind می‌گوید وب چه کارتی برایش بکشد. */
+export type AgentListItem = { kind: string; id: string } & Record<string, unknown>;
 
 export type ExecuteToolResultType={
     isGenerator: boolean;

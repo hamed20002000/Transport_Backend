@@ -44,6 +44,8 @@ export interface BotReply {
   locationButton?: string;
   /** عکسی که قبل از متن فرستاده می‌شود (مثل نقشه‌ی مسیر و جایگاه‌های سوخت). */
   photo?: { image: Buffer; caption?: string };
+  /** پیام صوتی (ogg/opus) بعد از عکس و قبل از متن؛ مثل خواندن جایگاه‌های سوخت برای راننده‌ای که پشت فرمان است. */
+  voice?: { audio: Buffer; caption?: string };
 }
 
 /** لوکیشنی که کاربر فرستاده؛ edited = به‌روزرسانی Live Location تلگرام. */

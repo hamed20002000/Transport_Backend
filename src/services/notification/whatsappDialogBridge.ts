@@ -185,6 +185,11 @@ export class WhatsappDialogBridge implements OnModuleInit {
         this.logger.warn(`WhatsApp image failed: ${error.message}`),
       );
     }
+    if (reply.voice) {
+      await this.whatsapp.sendVoice(jid, reply.voice.audio).catch((error: Error) =>
+        this.logger.warn(`WhatsApp voice failed: ${error.message}`),
+      );
+    }
     // واتساپ دکمه‌ی «ارسال موقعیت» ندارد؛ راهنمای منوی پیوست.
     const text = reply.locationButton ? `${reply.text}\n\n${this.t('whatsapp.locationHint')}` : reply.text;
     await this.whatsapp.sendMessage(jid, this.render(text, reply.actions));

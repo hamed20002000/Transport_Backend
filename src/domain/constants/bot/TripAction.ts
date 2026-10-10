@@ -14,4 +14,7 @@ export const TripAction = {
   // جزئیات بار برای راننده: مسیرها، سوخت، جایگاه‌ها، بار برگشتی
   Detail: 'tr:cd:', // + listingId
   MyLocation: 'tr:me',
+  // راننده بار سپرده‌شده را تأیید/رد می‌کند
+  OfferYes: 'tr:oy:', // + requestId
+  OfferNo: 'tr:on:', // + requestId
 } as const;

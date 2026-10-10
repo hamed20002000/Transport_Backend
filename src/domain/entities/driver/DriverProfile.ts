@@ -58,6 +58,10 @@ export class DriverProfile {
   @Column({ type: 'varchar', length: 60, nullable: true })
   platePhoto?: string | null;
 
+  // عکس خود راننده؛ شرکت هنگام سپردن بار می‌بیند
+  @Column({ type: 'varchar', length: 60, nullable: true })
+  facePhoto?: string | null;
+
   @UpdateDateColumn()
   updatedAt!: Date;
 }

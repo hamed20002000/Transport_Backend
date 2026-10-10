@@ -24,7 +24,6 @@ import { validate } from 'class-validator';
 import { DataSource } from 'typeorm';
 
 import { AgentGateway } from 'src/application/services/agent/agent.gateway';
-import { AgentToolsService } from 'src/application/services/agent/services/agentTools.service';
 import { FunctionCallService } from 'src/application/services/agent/services/functioncall.service';
 import { SpeechToTextService } from 'src/application/services/agent/services/Speechtotext.service';
 import { AgentRequest } from 'src/application/services/agent/types';
@@ -58,7 +57,6 @@ export class AgentChatController {
 
   constructor(
     private readonly functionCallService: FunctionCallService,
-    private readonly agentToolsService: AgentToolsService,
     private readonly agentGateway: AgentGateway,
     private readonly speechToText: SpeechToTextService,
     @InjectDataSource() private readonly dataSource: DataSource,
@@ -156,26 +154,11 @@ export class AgentChatController {
     return this.functionCallService.resumePendingConfirmation(req.user.userId, dto.confirmed, 'web');
   }
 
-  // همان جریان POST agent در setash: اول نوع درخواست، بعد اجرای بدون await
-  private async run(user: JwtPayload, prompt: string, sessionId: string, files: string[] = []) {
+  // همه‌ی کارها (ثبت، ویرایش، حذف و نمایش) ابزار دارند؛ مثل بات و واتس‌اپ مستقیم اجرا می‌شود
+  private run(user: JwtPayload, prompt: string, sessionId: string, files: string[] = []) {
     const agentRequest: AgentRequest = { user: { userId: user.userId, username: user.username } };
 
     void this.agentGateway.sendCurrentTool(user.userId, { currentOp: 'در حال بررسی درخواست' });
-
-    const kind = await this.agentToolsService.FunctionCallingOrSqlSelection(prompt);
-    if (kind !== 'functionCalling') {
-      await this.agentGateway.sendToolResult(user.userId, {
-        result: 'error',
-        message: 'درخواست مبهم است، لطفاً دقیق‌تر بگویید.',
-        prompt,
-        continuePrompt: undefined,
-        toolName: '',
-        lastsegment: true,
-        isSpecial: false,
-        list: [],
-      });
-      return { result: 'rejected' as const };
-    }
 
     this.functionCallService
       .RunFunctionCalling(prompt, agentRequest, files, sessionId, 'web')

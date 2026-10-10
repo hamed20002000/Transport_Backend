@@ -49,13 +49,23 @@ export class CompanyChannelTools implements OnModuleInit {
         const ctx: ToolContext = new ToolContext(self.history, 'list_company_channels', param);
         await self.checkAccess(ctx);
 
-        const all = await ctx.call(self.channels.list(ctx.userId), messages.channel.serviceDown);
-        if (all.length === 0) return ctx.done({ count: '0' }, messages.channel.none);
-        const lines = all.map((channel) => `${self.name(channel)} — ${self.status(channel)}`);
-        return ctx.done(
-          { count: String(all.length) },
-          `${format(messages.channel.header, { count: all.length })}\n${numbered(lines)}`,
+        // «کانال‌های تلگرامم»: فقط همان پیام‌رسان
+        const platform = textParam(param.platform);
+        const platformName = platform ? PLATFORM_NAMES[platform] : undefined;
+        const all = (await ctx.call(self.channels.list(ctx.userId), messages.channel.serviceDown)).filter(
+          (channel) => !platformName || channel.platform === platform,
         );
+        if (all.length === 0) {
+          return ctx.done(
+            { count: '0' },
+            platformName ? format(messages.channel.noneOnPlatform, { platform: platformName }) : messages.channel.none,
+          );
+        }
+        const lines = all.map((channel) => `${self.name(channel)} — ${self.status(channel)}`);
+        const header = format(messages.channel.header, { count: all.length, platform: platformName ? ` ${platformName}` : '' });
+        return ctx.done({ count: String(all.length) }, `${header}\n${numbered(lines)}`, {
+          list: all.map((channel) => ({ ...channel, kind: 'company_channel' })),
+        });
       },
     });
 

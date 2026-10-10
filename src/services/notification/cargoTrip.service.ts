@@ -19,7 +19,15 @@ import { RedisService } from '../redis/redis.service';
 import { haversineKm } from '../routing/geo';
 import { persianDateTime } from '../../domain/helper/persianDate';
 import { CargoListingService } from './cargoListing.service';
+import { CargoSearch } from './cargoSearch';
 import { WhatsappDialogBridge } from './whatsappDialogBridge';
+import { DriverProfileService } from '../driver/driverProfile.service';
+import { NotificationsGateway } from './notifications.gateway';
+
+export const CARGO_REQUEST_CHANGED_SOCKET_EVENT = 'cargo-request-changed';
+
+// بار سپرده‌شده تا این مدت منتظر تأیید راننده می‌ماند
+export const OFFER_TTL_MINUTES = 30;
 
 // شرکت موقعیت تازه خواسته؛ لوکیشن بعدی راننده تا این مدت برایش فرستاده می‌شود.
 const LOCATION_REQUEST_TTL_SECONDS = 2 * 60 * 60;
@@ -54,9 +62,40 @@ export class CargoTripService {
     private readonly i18n: I18nService,
     @Inject(BOT_LINK_REPOSITORY) private readonly botLinks: IBotLinkRepository,
     private readonly whatsapp: WhatsappDialogBridge,
+    private readonly profiles: DriverProfileService,
+    private readonly gateway: NotificationsGateway,
   ) {}
 
   //#region ----------- Driver ------------------------------------------------
+
+  /**
+   * بارهای باز برای راننده همراه درخواست خودش برای هر بار (myRequest)؛ صفحه‌ی بارهای راننده و
+   * ابزار agent هر دو از همین استفاده می‌کنند. matchFilters یعنی فقط بارهای جور با فیلترهای راننده.
+   */
+  async listOpenForDriver(
+    driverUserId: string,
+    options: { page: number; pageSize: number; matchFilters?: boolean } & CargoSearch,
+  ) {
+    const { matchFilters, ...rest } = options;
+    const result = await this.listings.listOpen({ ...rest, userId: matchFilters ? driverUserId : undefined });
+    const ids = result.items.map((item) => item.id);
+    const mine = new Map((await this.requests.findForDriverByListings(driverUserId, ids)).map((r) => [r.listingId, r]));
+    // بار سپرده‌شده به راننده‌ی دیگر: «رزرو شده» و بدون دکمه‌ی درخواست
+    const reserved = new Set(
+      (await this.requests.findActiveOffersForListings(ids)).filter((r) => r.driverUserId !== driverUserId).map((r) => r.listingId),
+    );
+    return {
+      ...result,
+      items: result.items.map((item) => {
+        const own = mine.get(item.id);
+        return {
+          ...item,
+          myRequest: own ? { id: own.id, status: own.status, offerExpiresAt: own.offerExpiresAt ?? null } : null,
+          reserved: reserved.has(item.id),
+        };
+      }),
+    };
+  }
 
   async request(driverUserId: string, listingId: string): Promise<CargoRequest> {
     const listing = await this.listings.findById(listingId);
@@ -65,9 +104,11 @@ export class CargoTripService {
     if (listing.publisherUserId === driverUserId) throw new ConflictException('own');
 
     let request = await this.requests.findByListingAndDriver(listingId, driverUserId);
-    if (request && [CargoRequestStatus.Pending, CargoRequestStatus.Accepted].includes(request.status)) {
+    if (request && [CargoRequestStatus.Pending, CargoRequestStatus.Offered, CargoRequestStatus.Accepted].includes(request.status)) {
       throw new ConflictException('already');
     }
+    // بار به راننده‌ی دیگری سپرده شده و منتظر تأیید اوست
+    if (await this.requests.findActiveOffer(listingId)) throw new ConflictException('reserved');
     if (request?.status === CargoRequestStatus.Rejected) throw new ConflictException('rejected');
     request ??= this.requests.create({ listingId, driverUserId, companyUserId: listing.publisherUserId });
     request.status = CargoRequestStatus.Pending;
@@ -99,7 +140,7 @@ export class CargoTripService {
   driverRequests(driverUserId: string, page: number, pageSize: number) {
     return this.requests.findPageForDriver(
       driverUserId,
-      [CargoRequestStatus.Pending, CargoRequestStatus.Rejected, CargoRequestStatus.Cancelled, CargoRequestStatus.Delivered, CargoRequestStatus.Accepted],
+      Object.values(CargoRequestStatus),
       (page - 1) * pageSize,
       pageSize,
     );
@@ -142,6 +183,7 @@ export class CargoTripService {
     if (request.status !== CargoRequestStatus.Pending) throw new ConflictException('notPending');
 
     if (accept && request.listing.status !== CargoListingStatus.Open) throw new ConflictException('taken');
+    if (accept && (await this.requests.findActiveOffer(request.listingId))) throw new ConflictException('reserved');
     request.status = accept ? CargoRequestStatus.Accepted : CargoRequestStatus.Rejected;
     request.decidedAt = new Date();
     await this.requests.save(request);
@@ -149,21 +191,166 @@ export class CargoTripService {
     const company = await this.contact(companyUserId);
     const cargo = this.cargoTitle(request);
     if (accept) {
-      await this.listings.setStatus(companyUserId, request.listingId, CargoListingStatus.Taken);
       await this.notify(request.driverUserId, this.t('notify.accepted', { cargo, company: this.describe(company) }), [
         { id: TripAction.ActiveTrip, label: this.t('actions.activeTrip'), row: 0 },
         { id: TripAction.ShareLocation, label: this.t('actions.shareLocation'), row: 0 },
       ]);
-      for (const other of await this.requests.findOtherPending(request.listingId, request.id)) {
-        other.status = CargoRequestStatus.Rejected;
-        other.decidedAt = new Date();
-        await this.requests.save(other);
-        await this.notify(other.driverUserId, this.t('notify.rejectedTaken', { cargo: this.cargoTitle(other) }));
-      }
+      await this.completeAssignment(request);
     } else {
       await this.notify(request.driverUserId, this.t('notify.rejected', { cargo }));
     }
     return request;
+  }
+
+  /** بار «برداشته شد»، بقیه‌ی درخواست‌های همین بار رد و به راننده‌هایشان خبر داده می‌شود. */
+  private async completeAssignment(request: CargoRequest): Promise<void> {
+    await this.listings.setStatus(request.companyUserId, request.listingId, CargoListingStatus.Taken);
+    for (const other of await this.requests.findOtherPending(request.listingId, request.id)) {
+      other.status = CargoRequestStatus.Rejected;
+      other.decidedAt = new Date();
+      await this.requests.save(other);
+      await this.notify(other.driverUserId, this.t('notify.rejectedTaken', { cargo: this.cargoTitle(other) }));
+    }
+  }
+
+  //#endregion
+
+  //#region ----------- Company: hand a load to a driver («برداشته شد») ------
+
+  /**
+   * راننده‌هایی که شرکت می‌تواند بار را به آن‌ها بسپارد: کسانی که برای همین بار درخواست
+   * داده‌اند (اول آمده، اول) و راننده‌ای که الان منتظر تأیید است.
+   */
+  async candidates(companyUserId: string, listingId: string) {
+    const listing = await this.ownOpenListing(companyUserId, listingId);
+    const pending = await this.requests.findPendingForListing(listing.id);
+    const offer = await this.requests.findActiveOffer(listing.id);
+    const cards = await this.profiles.cards(pending.map((r) => r.driverUserId));
+    const requested = new Map(pending.map((r) => [r.driverUserId, r]));
+    return {
+      drivers: cards.map((card) => ({ ...card, requestedAt: requested.get(card.userId)?.createdAt ?? null })),
+      offer: offer
+        ? { requestId: offer.id, expiresAt: offer.offerExpiresAt, driver: (await this.profiles.cards([offer.driverUserId]))[0] ?? null }
+        : null,
+    };
+  }
+
+  /** راننده‌ی دیگری از سامانه با موبایل یا پلاک کامل. */
+  async searchDrivers(companyUserId: string, listingId: string, query: string) {
+    await this.ownOpenListing(companyUserId, listingId);
+    return (await this.profiles.search(query)).filter((card) => card.userId !== companyUserId);
+  }
+
+  /**
+   * شرکت بار را به یک راننده می‌سپارد؛ بار تا تأیید راننده (حداکثر OFFER_TTL_MINUTES)
+   * برای بقیه «رزرو شده» است و درخواست تازه نمی‌گیرد.
+   */
+  async offer(companyUserId: string, listingId: string, driverUserId: string): Promise<CargoRequest> {
+    const listing = await this.ownOpenListing(companyUserId, listingId);
+    if (driverUserId === companyUserId) throw new ConflictException('own');
+    if (!(await this.profiles.isDriver(driverUserId))) throw new ConflictException('notDriver');
+    if (await this.requests.findActiveOffer(listing.id)) throw new ConflictException('reserved');
+
+    const request =
+      (await this.requests.findByListingAndDriver(listing.id, driverUserId)) ??
+      this.requests.create({ listingId: listing.id, driverUserId, companyUserId });
+    request.status = CargoRequestStatus.Offered;
+    request.decidedAt = new Date();
+    request.offerExpiresAt = new Date(Date.now() + OFFER_TTL_MINUTES * 60_000);
+    const saved = await this.requests.save(request);
+    const full = (await this.requests.findById(saved.id))!;
+
+    const company = await this.contact(companyUserId);
+    await this.notify(
+      driverUserId,
+      this.t('notify.offer', { company: this.describe(company), cargo: this.cargoTitle(full), minutes: OFFER_TTL_MINUTES }),
+      [
+        { id: `${TripAction.OfferYes}${saved.id}`, label: this.t('actions.offerYes'), row: 0 },
+        { id: `${TripAction.OfferNo}${saved.id}`, label: this.t('actions.offerNo'), row: 0 },
+      ],
+    );
+    this.changed(full);
+    return full;
+  }
+
+  /** راننده بار سپرده‌شده را تأیید یا رد می‌کند. */
+  async respondOffer(driverUserId: string, requestId: string, accept: boolean): Promise<CargoRequest> {
+    const request = await this.owned(requestId, (r) => r.driverUserId === driverUserId);
+    if (request.status !== CargoRequestStatus.Offered) throw new ConflictException('notOffered');
+    if (request.offerExpiresAt && request.offerExpiresAt.getTime() < Date.now()) {
+      await this.expire(request);
+      throw new ConflictException('offerExpired');
+    }
+
+    request.status = accept ? CargoRequestStatus.Accepted : CargoRequestStatus.Declined;
+    request.decidedAt = new Date();
+    request.offerExpiresAt = null;
+    await this.requests.save(request);
+
+    const driver = await this.contact(driverUserId);
+    const cargo = this.cargoTitle(request);
+    if (accept) {
+      await this.completeAssignment(request);
+      await this.notify(request.companyUserId, this.t('notify.offerAccepted', { driver: this.describe(driver), cargo }), [
+        { id: `${TripAction.CompanyTrips}1`, label: this.t('actions.companyTrips'), row: 0 },
+      ]);
+    } else {
+      await this.notify(request.companyUserId, this.t('notify.offerDeclined', { driver: this.describe(driver), cargo }));
+    }
+    this.changed(request);
+    return request;
+  }
+
+  /** پیشنهادهایی که مهلتشان گذشته: بار دوباره باز می‌شود و به هر دو طرف خبر داده می‌شود. */
+  async expireOffers(now = new Date()): Promise<number> {
+    const expired = await this.requests.findExpiredOffers(now);
+    for (const request of expired) await this.expire(request);
+    return expired.length;
+  }
+
+  private async expire(request: CargoRequest): Promise<void> {
+    request.status = CargoRequestStatus.Expired;
+    request.offerExpiresAt = null;
+    await this.requests.save(request);
+    const driver = await this.contact(request.driverUserId);
+    const cargo = this.cargoTitle(request);
+    await this.notify(request.companyUserId, this.t('notify.offerExpiredCompany', { driver: this.describe(driver), cargo }));
+    await this.notify(request.driverUserId, this.t('notify.offerExpiredDriver', { cargo }));
+    this.changed(request);
+  }
+
+  /** راننده‌ی هر بار (سپرده‌شده، در سفر یا تحویل‌شده) برای کارت «بارهای من» شرکت. */
+  async assignments(listingIds: string[]) {
+    const rows = await this.requests.findAssignmentsForListings(listingIds);
+    const latest = new Map<string, CargoRequest>();
+    for (const row of rows) if (!latest.has(row.listingId)) latest.set(row.listingId, row);
+    const cards = new Map((await this.profiles.cards([...new Set([...latest.values()].map((r) => r.driverUserId))])).map((c) => [c.userId, c]));
+    return new Map(
+      [...latest.values()].map((r) => [
+        r.listingId,
+        {
+          requestId: r.id,
+          status: r.status,
+          at: r.decidedAt ?? r.updatedAt,
+          offerExpiresAt: r.offerExpiresAt ?? null,
+          driver: cards.get(r.driverUserId) ?? null,
+        },
+      ]),
+    );
+  }
+
+  private async ownOpenListing(companyUserId: string, listingId: string) {
+    const listing = await this.listings.findById(listingId);
+    if (!listing || listing.publisherUserId !== companyUserId) throw new NotFoundException('Cargo listing not found.');
+    if (listing.status !== CargoListingStatus.Open) throw new ConflictException('taken');
+    return listing;
+  }
+
+  /** پنل‌های باز شرکت و راننده بدون رفرش به‌روز شوند. */
+  private changed(request: CargoRequest): void {
+    const event = { requestId: request.id, listingId: request.listingId, status: request.status };
+    this.gateway.sendToUser(request.companyUserId, CARGO_REQUEST_CHANGED_SOCKET_EVENT, event);
+    this.gateway.sendToUser(request.driverUserId, CARGO_REQUEST_CHANGED_SOCKET_EVENT, event);
   }
 
   //#endregion

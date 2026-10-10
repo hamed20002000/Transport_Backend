@@ -54,6 +54,10 @@ export class CargoRequest {
   @Column({ type: 'timestamp', nullable: true })
   decidedAt?: Date | null;
 
+  // بار سپرده‌شده (OFFERED) تا این زمان منتظر تأیید راننده است
+  @Column({ type: 'timestamp', nullable: true })
+  offerExpiresAt?: Date | null;
+
   @Column({ type: 'timestamp', nullable: true })
   deliveredAt?: Date | null;
 

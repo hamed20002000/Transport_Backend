@@ -8,6 +8,7 @@ import {
   cargoLine,
   codeParam,
   COMPANY_ROLES,
+  findMatches,
   format,
   listParam,
   numbered,
@@ -21,6 +22,9 @@ import {
 import { RequestResult } from 'src/application/services/agent/types';
 import { CargoListingStatus } from 'src/domain/enums/notification';
 import { CargoListingService } from './cargoListing.service';
+import { CargoTripService, OFFER_TTL_MINUTES } from './cargoTrip.service';
+import { DriverCard } from '../driver/driverProfile.service';
+import { cargoSearchText, searchFromParams } from './cargoSearch';
 import { CargoNotificationService } from './cargoNotification.service';
 
 const PAGE_SIZE = 10;
@@ -42,6 +46,7 @@ export class CompanyCargoTools implements OnModuleInit {
     private readonly history: ContextManager,
     private readonly notifications: CargoNotificationService,
     private readonly listings: CargoListingService,
+    private readonly trips: CargoTripService,
   ) {}
 
   onModuleInit() {
@@ -55,27 +60,39 @@ export class CompanyCargoTools implements OnModuleInit {
       handler: async function* (param: ToolParam): ToolGenerator {
         const ctx: ToolContext = new ToolContext(self.history, 'list_company_suggested_cargo', param);
         ctx.requireRole(COMPANY_ROLES);
+        // فقط جستجو در همین جواب؛ لیست صفحه و فیلترهای کاربر دست نمی‌خورند
         const onlyNew = boolParam(param.onlyNew) ?? false;
+        const search = searchFromParams(param);
+        const route = cargoSearchText(search);
 
         const page = await self.notifications.list(ctx.userId, {
           unreadOnly: onlyNew,
           kind: 'suggestion',
           page: 1,
           pageSize: PAGE_SIZE,
+          ...search,
         });
         if (page.items.length === 0) {
-          return ctx.done({ count: '0' }, onlyNew ? messages.suggested.noneUnread : messages.suggested.none);
+          const empty = route
+            ? format(messages.suggested.noneMatching, { route })
+            : onlyNew
+              ? messages.suggested.noneUnread
+              : messages.suggested.none;
+          return ctx.done({ count: '0' }, empty);
         }
 
         const header = format(messages.suggested.header, {
           count: page.total,
+          route,
           scope:
             page.total > page.items.length
               ? ` ${format(messages.suggested.shownLatest, { shown: page.items.length })}`
               : '',
         });
         const lines = page.items.map((item) => self.suggestionTitle(item));
-        return ctx.done({ count: String(page.total) }, `${header}\n${numbered(lines)}`);
+        return ctx.done({ count: String(page.total) }, `${header}\n${numbered(lines)}`, {
+          list: page.items.map((item) => ({ ...item, kind: 'cargo_suggestion' })),
+        });
       },
     });
 
@@ -207,13 +224,22 @@ export class CompanyCargoTools implements OnModuleInit {
         const ctx: ToolContext = new ToolContext(self.history, 'list_company_my_cargo', param);
         ctx.requireRole(COMPANY_ROLES);
         const state = textParam(param.state);
+        // فقط جستجو در همین جواب؛ لیست صفحه دست نمی‌خورد
         const status =
           state === 'open' ? CargoListingStatus.Open : state === 'taken' ? CargoListingStatus.Taken : undefined;
+        const search = searchFromParams(param);
+        const route = cargoSearchText(search);
 
-        const page = await self.listings.listMine(ctx.userId, { status, page: 1, pageSize: PAGE_SIZE });
+        const page = await self.listings.listMine(ctx.userId, {
+          status,
+          page: 1,
+          pageSize: PAGE_SIZE,
+          ...search,
+        });
         if (page.items.length === 0) {
-          const empty =
-            status === CargoListingStatus.Open
+          const empty = route
+            ? format(messages.myCargo.noneMatching, { route })
+            : status === CargoListingStatus.Open
               ? messages.myCargo.noneOpen
               : status === CargoListingStatus.Taken
                 ? messages.myCargo.noneTaken
@@ -227,10 +253,11 @@ export class CompanyCargoTools implements OnModuleInit {
             : status === CargoListingStatus.Taken
               ? ` ${messages.myCargo.taken}`
               : '';
-        const header = format(messages.myCargo.header, { count: page.total, scope });
+        const header = format(messages.myCargo.header, { count: page.total, route, scope });
         return ctx.done(
           { count: String(page.total) },
           `${header}\n${numbered(page.items.map((item) => self.listingTitle(item)))}`,
+          { list: page.items.map((item) => ({ ...item, kind: 'cargo_listing' })) },
         );
       },
     });
@@ -271,10 +298,62 @@ export class CompanyCargoTools implements OnModuleInit {
         },
       });
 
-    changeStatus('mark_company_cargo_taken', CargoListingStatus.Open, CargoListingStatus.Taken, 'listing', {
-      nothing: messages.myCargo.nothingOpen,
-      pick: messages.myCargo.pickTaken,
-      done: messages.myCargo.markedTaken,
+    // «برداشته شد»: بار به راننده‌ای از سامانه سپرده می‌شود و بعد از تأیید راننده «برداشته شد» می‌شود
+    this.toolRegister.register({
+      functionName: 'mark_company_cargo_taken',
+      handler: async function* (param: ToolParam): ToolGenerator {
+        const ctx: ToolContext = new ToolContext(self.history, 'mark_company_cargo_taken', param);
+        ctx.requireRole(COMPANY_ROLES);
+
+        const open = await self.listings.listMine(ctx.userId, { status: CargoListingStatus.Open, page: 1, pageSize: SEARCH_WINDOW });
+        if (open.items.length === 0) ctx.fail(messages.myCargo.nothingOpen);
+        const listing = yield* pickOne(
+          open.items,
+          textParam(param.listing),
+          {
+            id: (item) => item.id,
+            title: (item) => self.listingTitle(item),
+            text: (item) => `${item.code ?? ''} ${cargoLine(item)} ${item.companyName ?? ''}`,
+          },
+          messages.myCargo.pickTaken,
+        );
+        if (!listing) ctx.fail(messages.myCargo.notPicked);
+
+        const { drivers, offer } = await ctx.call(self.trips.candidates(ctx.userId, listing.id), messages.myCargo.statusFailed);
+        if (offer) ctx.fail(format(messages.myCargo.offerWaiting, { cargo: cargoLine(listing), driver: offer.driver?.name ?? '' }));
+
+        // راننده: از درخواست‌دهنده‌ها، یا اگر کاربر موبایل/پلاک گفت، از کل راننده‌های سامانه
+        const said = textParam(param.driver);
+        let options: DriverCard[] = drivers;
+        if (said && !findMatches(drivers, said, (d) => self.driverText(d)).length) {
+          const found = await self.trips.searchDrivers(ctx.userId, listing.id, said).catch(() => []);
+          if (found.length) options = found;
+        }
+        if (options.length === 0) ctx.fail(format(messages.myCargo.noCandidates, { cargo: cargoLine(listing) }));
+        const driver = yield* pickOne(
+          options,
+          said,
+          { id: (d) => d.userId, title: (d) => self.driverText(d), text: (d) => self.driverText(d) },
+          format(messages.myCargo.pickDriver, { cargo: cargoLine(listing) }),
+        );
+        if (!driver) ctx.fail(messages.myCargo.notPicked);
+
+        const answer = yield {
+          type: 'selection',
+          label: format(messages.myCargo.confirmOffer, { cargo: cargoLine(listing), driver: self.driverText(driver) }),
+          data: [
+            { id: 'yes', title: messages.myCargo.confirmOfferYes },
+            { id: 'no', title: messages.myCargo.confirmOfferNo },
+          ],
+        };
+        if (answer !== 'yes') return ctx.done({ offered: 'false' }, messages.myCargo.offerCancelled);
+
+        await ctx.call(self.trips.offer(ctx.userId, listing.id, driver.userId), messages.myCargo.statusFailed);
+        return ctx.done(
+          { listingId: listing.id, driverUserId: driver.userId },
+          format(messages.myCargo.offered, { cargo: cargoLine(listing), code: listing.code ?? '', driver: driver.name, minutes: OFFER_TTL_MINUTES }),
+        );
+      },
     });
     changeStatus('reopen_company_cargo', CargoListingStatus.Taken, CargoListingStatus.Open, 'closedListing', {
       nothing: messages.myCargo.nothingTaken,
@@ -324,6 +403,11 @@ export class CompanyCargoTools implements OnModuleInit {
     const summary = cargoLine(item.cargo as never) || (item.text ?? '').slice(0, 60);
     const marks = `${item.isRead ? '' : messages.suggested.unreadMark}${item.published ? messages.suggested.publishedMark : ''}`;
     return `${summary}${marks}`;
+  }
+
+  /** «رضا کریمی · تریلی · 12-ع-345-67 · 0912…» برای انتخاب راننده */
+  private driverText(driver: DriverCard): string {
+    return [driver.name, driver.vehicleType, driver.plate, driver.mobile].filter(Boolean).join(' · ');
   }
 
   private listingTitle(item: ListingView): string {

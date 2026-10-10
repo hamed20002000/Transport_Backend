@@ -1,6 +1,4 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { ChatRequest } from 'src/agent/types';
 import axios from "axios";
 import { DataSource } from "typeorm";
@@ -11,6 +9,9 @@ import { ToolRegister } from '../toolRegister';
 import { RequestResult } from '../types';
 
 
+/** extractSelectedTool وقتی پیام درخواست هیچ کاری نیست (سلام، تشکر، ...) */
+export const NO_TOOL = "none";
+
 @Injectable()
 export class AgentToolsService {
     constructor(
@@ -18,63 +19,6 @@ export class AgentToolsService {
         @InjectDataSource() private readonly dataSource: DataSource
     ) {
 
-    }
-
-        async FunctionCallingOrSqlSelection(prompt: string): Promise<string> {
-
-        const systemContent = readFileSync(
-            join(process.cwd(), 'src/application/services/agent/prompts/selector.prompt'),
-            'utf8'
-        );
-        const ollamareq: ChatRequest = {
-            model: "qwen3:8b",
-            messages: [
-                {
-                    role: 'system',
-                    content: systemContent
-                },
-                {
-                    role: "user",
-                    content: prompt
-                }],
-            stream: false,
-            options: {
-                temperature: 0,
-                top_p: 0.9,
-                repeat_penalty: 1.1
-            }
-
-        }
-
-
-        const resp = await axios.post(
-            "http://localhost:11434/api/chat",
-            JSON.stringify({
-                ...ollamareq, format: {
-                    type: "object",
-                    properties: {
-                        decision: {
-                            type: "string",
-                            enum: [
-                                "functionCalling",
-                                "sql"
-                            ]
-                        }
-                    },
-                    required: [
-                        "decision"
-                    ]
-                }
-            }),
-
-            {
-                headers: {
-                    "Content-Type": "application/json",
-                },
-            },
-        );
-
-        return JSON.parse(resp.data.message.content).decision;
     }
 
     async extractSelectedTool(prompt: string, condinateTools: string[], history: string): Promise<string> {
@@ -104,9 +48,16 @@ Tool selection rules:
 - Never invent a new tool name.
 - Never generate a tool name based on the user's wording.
 - Never rename, modify, combine, or infer a tool name.
-- If no candidate tool genuinely matches the requested operation, return
-  the closest matching tool from the candidates -- do not return an empty
-  or fabricated value.
+- If the prompt asks for an operation and no candidate matches it
+  exactly, return the closest matching tool from the candidates.
+- Return "${NO_TOOL}" only when the prompt contains no request at all:
+  a pure greeting, thanks, small talk, a reaction such as "ok", or a
+  question about something these tools do not cover. Never pick a tool
+  just because one must be picked.
+- Any instruction to change, set, show, find or do something is a
+  request, however short it is and even if it contains names, numbers
+  or words you do not recognize (they are usually the values to use).
+  For such a prompt choose the matching tool; never return "${NO_TOOL}".
 
 - The current user prompt is the primary source for determining the
   requested operation.
@@ -136,52 +87,60 @@ ${JSON.stringify(
 Output format:
 
 {
-  "functionName": "tool_name"
+  "functionName": "tool_name or ${NO_TOOL}"
 }
 
 Return JSON only.
 `;
 
-        const ollamareq: ChatRequest = {
-            model: "qwen3:8b",
-            messages: [
-                {
-                    role: 'system',
-                    content: systemRules
-                },
-                {
-                    role: "user",
-                    content: prompt
-                }],
-            stream: false,
-            // بدون نمونه‌گیری: یک جمله همیشه همان ابزار و همان پارامترها را بدهد
-            options: { temperature: 0, top_p: 0.9, repeat_penalty: 1.1 },
-        }
-
-        const resp = await axios.post(
-            "http://localhost:11434/api/chat",
-            JSON.stringify({
-                ...ollamareq,
-                format: {
-                    type: "object",
-                    properties: {
-                        functionName: {
-                            type: "string"
-                        }
+        const ask = async (think: boolean): Promise<string> => {
+            const ollamareq: ChatRequest = {
+                model: "qwen3:8b",
+                messages: [
+                    {
+                        role: 'system',
+                        content: systemRules
                     },
-                    required: ["functionName"]
-                }
-            }),
-            {
-                headers: {
-                    "Content-Type": "application/json",
+                    {
+                        role: "user",
+                        content: prompt
+                    }],
+                stream: false,
+                think,
+                // بدون نمونه‌گیری: یک جمله همیشه همان ابزار و همان پارامترها را بدهد
+                options: { temperature: 0, top_p: 0.9, repeat_penalty: 1.1 },
+            }
+
+            const resp = await axios.post(
+                "http://localhost:11434/api/chat",
+                JSON.stringify({
+                    ...ollamareq,
+                    format: {
+                        type: "object",
+                        properties: {
+                            functionName: {
+                                type: "string",
+                                enum: [...condinateTools, NO_TOOL]
+                            }
+                        },
+                        required: ["functionName"]
+                    }
+                }),
+                {
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
                 },
-            },
-        );
+            );
 
-        const result = JSON.parse(resp.data.message.content);
+            return JSON.parse(resp.data.message.content).functionName;
+        };
 
-        return result.functionName;
+        // انتخاب بدون فکر کردن چند برابر سریع‌تر است و برای بیشتر جمله‌ها همان دقت را دارد؛
+        // ولی گاهی دستور کوتاهی مثل «اسمم رو زهرا کن» را «درخواست نیست» حساب می‌کند. پس فقط
+        // وقتی جواب «هیچ ابزاری» بود (سلام، تشکر و ...، که کم پیش می‌آید) یک بار با فکر کردن می‌پرسیم.
+        const quick = await ask(false);
+        return quick === NO_TOOL ? ask(true) : quick;
 
 
     }
@@ -366,6 +325,7 @@ ${JSON.stringify(selectedTool)}
     ],
 
     stream: false,
+    // think روشن می‌ماند: بدون آن استخراج پارامتر در ارزیابی holdout ضعیف‌تر بود
     // بدون نمونه‌گیری: یک جمله همیشه همان ابزار و همان پارامترها را بدهد
     options: { temperature: 0, top_p: 0.9, repeat_penalty: 1.1 },
   };

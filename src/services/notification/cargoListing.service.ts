@@ -6,7 +6,7 @@ import { CargoDetectedEvent } from '../../domain/constants/cargoEvents';
 import { CargoListing } from '../../domain/entities/notification/CargoListing';
 import { CargoNotification } from '../../domain/entities/notification/CargoNotification';
 import { CargoListingStatus } from '../../domain/enums/notification';
-import { normalizePersianText } from '../../domain/helper/persianText';
+import { CargoSearch, matchesCargoSearch, prepareCargoSearch } from './cargoSearch';
 import { CargoAudienceRepository } from '../../infrastructure/repositories/notification/cargoAudience.repository';
 import { CargoListingRepository } from '../../infrastructure/repositories/notification/cargoListing.repository';
 import { CargoNotificationRepository } from '../../infrastructure/repositories/notification/cargoNotification.repository';
@@ -178,6 +178,11 @@ export class CargoListingService {
     return this.listings.findById(listingId);
   }
 
+  async findByCode(code: string) {
+    const listing = await this.listings.findByCode(code);
+    return listing ? this.toView(listing) : null;
+  }
+
   async findMineByCode(userId: string, code: string) {
     const listing = await this.listings.findByCodeForPublisher(code, userId);
     return listing ? this.toView(listing) : null;
@@ -196,14 +201,38 @@ export class CargoListingService {
     return this.toView(updated);
   }
 
-  async listMine(userId: string, options: { status?: CargoListingStatus; page: number; pageSize: number }) {
-    const [items, total] = await this.listings.findPageForPublisher(userId, {
-      status: options.status,
-      skip: (options.page - 1) * options.pageSize,
-      take: options.pageSize,
-    });
+  /** بارهای خود شرکت؛ با search فقط آن‌هایی که با مبدأ/مقصد/نوع بار/ماشین گفته‌شده جورند. */
+  async listMine(
+    userId: string,
+    options: { status?: CargoListingStatus; page: number; pageSize: number } & CargoSearch,
+  ) {
+    const skip = (options.page - 1) * options.pageSize;
+    const search = prepareCargoSearch(options);
+    let items: CargoListing[];
+    let total: number;
+    if (!search) {
+      [items, total] = await this.listings.findPageForPublisher(userId, {
+        status: options.status,
+        skip,
+        take: options.pageSize,
+      });
+    } else {
+      const [recent] = await this.listings.findPageForPublisher(userId, {
+        status: options.status,
+        skip: 0,
+        take: OPEN_SCAN_LIMIT,
+      });
+      const matching = recent.filter((listing) => matchesCargoSearch(listing, search));
+      items = matching.slice(skip, skip + options.pageSize);
+      total = matching.length;
+    }
 
-    return { items: items.map((listing) => this.toView(listing)), total, page: options.page, pageSize: options.pageSize };
+    return {
+      items: items.map((listing) => this.toView(listing)),
+      total,
+      page: options.page,
+      pageSize: options.pageSize,
+    };
   }
 
   /** بارهای باز همه‌ی شرکت‌ها برای راننده؛ متن هر بار همان پیامی است که برای راننده‌ها فرستاده شد. */
@@ -217,23 +246,19 @@ export class CargoListingService {
    * اعلانی که برایش می‌رود). match روی متن آزاد در SQL ممکن نیست، پس
    * جدیدترین OPEN_SCAN_LIMIT بار در برنامه فیلتر می‌شوند.
    */
-  async listOpen(options: { page: number; pageSize: number; userId?: string; origin?: string; destination?: string }) {
+  async listOpen(options: { page: number; pageSize: number; userId?: string } & CargoSearch) {
     const skip = (options.page - 1) * options.pageSize;
     const filters = options.userId ? await this.filters.activeFor(options.userId) : [];
-    // بار برگشتی: فقط بارهایی که مبدأ (و اگر داده شد مقصد)شان این شهر است («شامل بودن» مثل فیلترها)
-    const origin = options.origin ? normalizePersianText(options.origin) : '';
-    const destination = options.destination ? normalizePersianText(options.destination) : '';
+    // جستجوی مبدأ/مقصد/نوع بار/ماشین («شامل بودن» مثل فیلترها)؛ بار برگشتی هم از همین استفاده می‌کند
+    const search = prepareCargoSearch(options);
     let items: CargoListing[];
     let total: number;
-    if (filters.length === 0 && !origin && !destination) {
+    if (filters.length === 0 && !search) {
       [items, total] = await this.listings.findOpenPage({ skip, take: options.pageSize });
     } else {
       const [recent] = await this.listings.findOpenPage({ skip: 0, take: OPEN_SCAN_LIMIT });
       const matching = recent.filter(
-        (listing) =>
-          this.filters.matchesAny(filters, listing) &&
-          (!origin || normalizePersianText(listing.origin ?? '').includes(origin)) &&
-          (!destination || normalizePersianText(listing.destination ?? '').includes(destination)),
+        (listing) => this.filters.matchesAny(filters, listing) && (!search || matchesCargoSearch(listing, search)),
       );
       items = matching.slice(skip, skip + options.pageSize);
       total = matching.length;

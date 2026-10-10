@@ -467,6 +467,12 @@ export class WhatsappService implements OnModuleInit {
     await this.sock.sendMessage(jid, { image, caption });
   }
 
+  /** پیام صوتی (ogg/opus، به شکل voice note). */
+  async sendVoice(jid: string, audio: Buffer): Promise<void> {
+    if (!this.sock) throw new Error('WhatsApp socket is not connected.');
+    await this.sock.sendMessage(jid, { audio, mimetype: 'audio/ogg; codecs=opus', ptt: true });
+  }
+
   /** پین نقشه (مثلاً موقعیت راننده برای شرکت). */
   async sendLocation(jid: string, latitude: number, longitude: number): Promise<void> {
     if (!this.sock) throw new Error('WhatsApp socket is not connected.');

@@ -333,6 +333,17 @@ export class RubikaBotClient extends EventEmitter {
     await this.call('sendFile', { chat_id: chatId, file_id: fileId, ...(options?.caption ? { text: options.caption } : {}) });
   }
 
+  /** پیام صوتی: همان روال فایل با نوع Voice. */
+  async sendVoice(chatId: string, voice: Buffer, options?: { caption?: string }): Promise<void> {
+    const { upload_url } = await this.call<{ upload_url: string }>('requestSendFile', { type: 'Voice' });
+    const form = new FormData();
+    form.append('file', new Blob([new Uint8Array(voice)], { type: 'audio/ogg' }), 'voice.ogg');
+    const { data } = await axios.post<{ data?: { file_id?: string } }>(upload_url, form, { timeout: 60_000 });
+    const fileId = data?.data?.file_id;
+    if (!fileId) throw new RubikaBotApiError('upload', 'NO_FILE_ID');
+    await this.call('sendFile', { chat_id: chatId, file_id: fileId, ...(options?.caption ? { text: options.caption } : {}) });
+  }
+
   async sendLocation(chatId: string, latitude: number, longitude: number): Promise<void> {
     await this.call('sendLocation', { chat_id: chatId, latitude: String(latitude), longitude: String(longitude) });
   }

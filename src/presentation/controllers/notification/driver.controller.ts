@@ -18,6 +18,7 @@ import {
   Put,
   Query,
   Req,
+  ServiceUnavailableException,
   StreamableFile,
   UnauthorizedException,
   UploadedFile,
@@ -29,7 +30,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { JwtPayload } from 'src/domain/entities/auth/jwt-payload.dto';
 import { CargoRequest } from 'src/domain/entities/notification/CargoRequest';
-import { CreateCargoRequestDto, DriverLocationDto, DriverPlaceDto } from 'src/dto/notification/DriverDto';
+import { CreateCargoRequestDto, DriverLocationDto, DriverPlaceDto, RespondOfferDto } from 'src/dto/notification/DriverDto';
 import { UpdateDriverProfileDto } from 'src/dto/notification/DriverProfileDto';
 import {
   DRIVER_PHOTO_KINDS,
@@ -43,6 +44,9 @@ import { CargoListingService } from 'src/services/notification/cargoListing.serv
 import { CargoTripService } from 'src/services/notification/cargoTrip.service';
 import { GeoPoint } from 'src/services/routing/geo';
 import { RoutingService } from 'src/services/routing/routing.service';
+import { routeStationsSpeech } from 'src/services/speech/stationSpeech';
+import { TextToSpeechService } from 'src/services/speech/textToSpeech.service';
+import { I18nService } from 'nestjs-i18n';
 
 type AuthRequest = { user?: JwtPayload };
 
@@ -81,6 +85,8 @@ export class DriverController {
     private readonly requests: CargoRequestRepository,
     private readonly profiles: DriverProfileService,
     private readonly routing: RoutingService,
+    private readonly speech: TextToSpeechService,
+    private readonly i18n: I18nService,
   ) {}
 
   @Get('profile')
@@ -118,7 +124,7 @@ export class DriverController {
 
   // بارهای باز؛ matchFilters=true فقط آن‌هایی که با فیلترهای راننده جورند.
   @Get('loads')
-  async loads(
+  loads(
     @Req() request: AuthRequest,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('pageSize', new DefaultValuePipe(20), ParseIntPipe) pageSize: number,
@@ -126,23 +132,12 @@ export class DriverController {
     @Query('destination') destination?: string,
     @Query('matchFilters', new DefaultValuePipe(false), ParseBoolPipe) matchFilters?: boolean,
   ) {
-    const driverId = currentDriverId(request);
-    const result = await this.listings.listOpen({
+    return this.trips.listOpenForDriver(currentDriverId(request), {
       ...pageOf(page, pageSize),
-      userId: matchFilters ? driverId : undefined,
+      matchFilters,
       origin: origin?.trim() || undefined,
       destination: destination?.trim() || undefined,
     });
-    const mine = new Map(
-      (await this.requests.findForDriverByListings(driverId, result.items.map((item) => item.id))).map((r) => [r.listingId, r]),
-    );
-    return {
-      ...result,
-      items: result.items.map((item) => {
-        const own = mine.get(item.id);
-        return { ...item, myRequest: own ? { id: own.id, status: own.status } : null };
-      }),
-    };
   }
 
   // مسیرها (مسافت، زمان، سوخت، ترافیک)، بار برگشتی و فاصله‌ی راننده تا مبدأ
@@ -171,6 +166,23 @@ export class DriverController {
     const route = insight?.routes[routeIndex];
     if (!route) throw new NotFoundException('Route not found.');
     return this.insight.fuelAlong(route);
+  }
+
+  // همان جایگاه‌های مسیر با صدا (mp3) برای راننده‌ای که پشت فرمان است؛ متن مثل ربات
+  @Get('loads/:id/fuel/voice')
+  async loadFuelVoice(
+    @Req() request: AuthRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('route', new DefaultValuePipe(0), ParseIntPipe) routeIndex: number,
+  ) {
+    if (!this.speech.available) throw new ServiceUnavailableException('Text to speech is not available.');
+    const insight = await this.insight.build(id, currentDriverId(request));
+    const route = insight?.routes[routeIndex];
+    if (!route) throw new NotFoundException('Route not found.');
+    // همان جایگاه‌هایی که فهرست وب نشان می‌دهد: گازوئیلی یا با نوع سوخت نامعلوم
+    const stations = (await this.insight.fuelAlong(route)).stations.filter((station) => station.diesel !== false);
+    const text = routeStationsSpeech((key, args) => this.i18n.translate(`trip.${key}`, { lang: 'fa', args }) as string, stations);
+    return new StreamableFile(await this.speech.synthesize(text, 'mp3'), { type: 'audio/mpeg', disposition: 'inline' });
   }
 
   @Get('loads/:id/return-loads')
@@ -210,6 +222,12 @@ export class DriverController {
   @Post('requests')
   async createRequest(@Req() request: AuthRequest, @Body() dto: CreateCargoRequestDto) {
     return this.requestView(await this.trips.request(currentDriverId(request), dto.listingId));
+  }
+
+  // بار سپرده‌شده توسط شرکت: تأیید (سفر شروع می‌شود و بار «برداشته شد») یا رد
+  @Patch('requests/:id/offer')
+  async respondOffer(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RespondOfferDto) {
+    return this.requestView(await this.trips.respondOffer(currentDriverId(request), id, dto.accept));
   }
 
   @Patch('requests/:id/cancel')
@@ -264,6 +282,7 @@ export class DriverController {
       createdAt: item.createdAt,
       decidedAt: item.decidedAt ?? null,
       deliveredAt: item.deliveredAt ?? null,
+      offerExpiresAt: item.offerExpiresAt ?? null,
       listing: item.listing ? this.listings.toView(item.listing) : null,
     };
   }

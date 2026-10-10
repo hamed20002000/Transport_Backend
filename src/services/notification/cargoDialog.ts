@@ -12,6 +12,9 @@ import { BotAction, BotContext, BotDialog, BotDialogRegistry, BotReply } from '.
 import { RedisService } from '../redis/redis.service';
 import { CargoAlertFilterInput, CargoAlertFilterService } from './cargoAlertFilter.service';
 import { CargoListingService } from './cargoListing.service';
+import { CargoTripService, OFFER_TTL_MINUTES } from './cargoTrip.service';
+import { DriverCard, DriverProfileService } from '../driver/driverProfile.service';
+import { readFile } from 'node:fs/promises';
 import { CargoNotificationService } from './cargoNotification.service';
 import { TripAction } from 'src/domain/constants/bot/TripAction';
 import { buildCargoListingText, CargoListingFields } from './cargoNotificationText';
@@ -23,6 +26,12 @@ const Action = {
   ReadAll: `${PREFIX}ra:`, // + a|u
   MyCargo: `${PREFIX}mine:`, // + a|o|t (وضعیت):page
   MarkTaken: `${PREFIX}tk:`, // + listingId:status:page
+  // «برداشته شد»: انتخاب راننده‌ای که بار به او داده شد (فهرست در نشست، چون callback حداکثر ۶۴ بایت است)
+  AssignPick: `${PREFIX}ap:`, // + index در drivers نشست
+  AssignList: `${PREFIX}al`,
+  AssignSearch: `${PREFIX}asq`,
+  AssignConfirm: `${PREFIX}aok`,
+  AssignCancel: `${PREFIX}ax`,
   Reopen: `${PREFIX}ro:`, // + listingId:status:page
   OpenCargo: `${PREFIX}find:`, // + page
   Create: `${PREFIX}new`,
@@ -112,7 +121,21 @@ interface FilterSession {
   picked?: string[];
 }
 
-type Session = CargoSession | FilterSession;
+/** «برداشته شد»: راننده‌هایی که شرکت می‌تواند بار را به آن‌ها بسپارد. */
+interface AssignSession {
+  kind: 'assign';
+  listingId: string;
+  code: string;
+  /** برگشت به همان صفحه‌ی «بارهای من» */
+  mine: MineStatus;
+  page: number;
+  drivers: { userId: string; label: string; name: string; face: boolean; vehicle: boolean }[];
+  picked?: number;
+  /** منتظر موبایل یا پلاک برای جستجو */
+  searching?: boolean;
+}
+
+type Session = CargoSession | FilterSession | AssignSession;
 
 /** ردیف‌بندی دکمه‌ها: هر add یک ردیف و grid چند ردیف دوتایی. */
 class Rows {
@@ -150,6 +173,8 @@ export class CargoDialog implements BotDialog, OnModuleInit {
 
   constructor(
     private readonly listings: CargoListingService,
+    private readonly trips: CargoTripService,
+    private readonly profiles: DriverProfileService,
     private readonly notifications: CargoNotificationService,
     private readonly filters: CargoAlertFilterService,
     private readonly registry: BotDialogRegistry,
@@ -194,6 +219,11 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     if (!session) return null;
 
     const value = text.trim();
+    if (session.kind === 'assign') {
+      if (!session.searching) return null;
+      if (CANCEL_WORDS.includes(value.toLowerCase())) return this.assignList(ctx, { ...session, searching: false });
+      return this.assignSearch(ctx, session, value);
+    }
     if (session.kind === 'filter') {
       if (CANCEL_WORDS.includes(value.toLowerCase())) return this.cancelFilterEdit(ctx, session);
       return this.filterText(ctx, session, value);
@@ -253,23 +283,39 @@ export class CargoDialog implements BotDialog, OnModuleInit {
       const [status, page] = parts.length === 1 ? ['a', parts[0]] : parts;
       return this.myCargoView(ctx, this.mineStatus(status), this.page(page));
     }
-    if (id.startsWith(Action.MarkTaken))
-      return this.changeStatus(ctx, id.slice(Action.MarkTaken.length), CargoListingStatus.Taken);
+    if (id.startsWith(Action.MarkTaken)) return this.startAssign(ctx, id.slice(Action.MarkTaken.length));
+    const assignAction =
+      id.startsWith(Action.AssignPick) || ([Action.AssignList, Action.AssignSearch, Action.AssignConfirm, Action.AssignCancel] as string[]).includes(id);
+    if (assignAction) {
+      const assign = await this.getSession(ctx);
+      if (assign?.kind !== 'assign') return this.myCargoView(ctx, 'a', 1);
+      if (id === Action.AssignCancel) {
+        await this.clearSession(ctx);
+        return this.myCargoView(ctx, assign.mine, assign.page);
+      }
+      if (id === Action.AssignList) return this.assignList(ctx, { ...assign, picked: undefined, searching: false });
+      if (id === Action.AssignSearch) {
+        await this.saveSession(ctx, { ...assign, searching: true });
+        return { text: this.t('assign.searchAsk'), actions: new Rows().add({ id: Action.AssignList, label: this.t('actions.assignBack') }).actions };
+      }
+      if (id === Action.AssignConfirm) return this.assignConfirm(ctx, assign);
+      return this.assignDetail(ctx, assign, Number(id.slice(Action.AssignPick.length)));
+    }
     if (id.startsWith(Action.Reopen))
       return this.changeStatus(ctx, id.slice(Action.Reopen.length), CargoListingStatus.Open);
 
     if (id === Action.Create || id === Action.Restart) {
       const current = await this.getSession(ctx);
       // «از اول» در اعلام بار یعنی همان پیشنهاد را دوباره ویرایش کن.
-      if (id === Action.Restart && current?.kind !== 'filter' && current?.notificationId) {
+      if (id === Action.Restart && current?.kind !== 'filter' && current?.kind !== 'assign' && current?.notificationId) {
         return this.startAnnounce(ctx, current.notificationId);
       }
       return this.startCreate(ctx);
     }
 
     const session = await this.getSession(ctx);
-    if (id === Action.Cancel) return this.cancelCreate(ctx, session?.kind === 'filter' ? null : session);
-    if (!session || session.kind === 'filter') return this.suggestionsView(ctx, 'a', 1);
+    if (id === Action.Cancel) return this.cancelCreate(ctx, session?.kind === 'filter' || session?.kind === 'assign' ? null : session);
+    if (!session || session.kind === 'filter' || session.kind === 'assign') return this.suggestionsView(ctx, 'a', 1);
     if (id === Action.Skip && session.step && this.canSkip(session)) return this.nextStep(ctx, session);
     if (id === Action.Edit && !session.step) return this.startEdit(ctx, session);
     if (id === Action.Confirm && !session.step) return this.publish(ctx, session);
@@ -489,6 +535,112 @@ export class CargoDialog implements BotDialog, OnModuleInit {
       return this.myCargoView(ctx, mine, page, notice);
     } catch {
       return this.myCargoView(ctx, mine, page, this.t('mine.notFound'));
+    }
+  }
+
+  //#endregion
+
+  //#region ----------- Company: hand the load to a driver («برداشته شد») ------
+
+  /** راننده‌هایی که برای این بار درخواست داده‌اند؛ اگر بار منتظر تأیید راننده است، همان را می‌گوید. */
+  private async startAssign(ctx: BotContext, target: string): Promise<BotReply> {
+    const [listingId, filter, pageText] = target.split(':');
+    const mine = this.mineStatus(filter ?? 'a');
+    const page = this.page(pageText);
+    try {
+      const listing = await this.listings.findById(listingId);
+      const { drivers, offer } = await this.trips.candidates(ctx.userId, listingId);
+      if (offer) {
+        const until = offer.expiresAt ? offer.expiresAt.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }) : '';
+        return this.myCargoView(ctx, mine, page, this.t('assign.waiting', { code: listing?.code ?? '', driver: offer.driver?.name ?? '', until }));
+      }
+      const session: AssignSession = {
+        kind: 'assign',
+        listingId,
+        code: listing?.code ?? '',
+        mine,
+        page,
+        drivers: drivers.map((driver) => this.assignOption(driver)),
+      };
+      return this.assignList(ctx, session);
+    } catch {
+      return this.myCargoView(ctx, mine, page, this.t('mine.notFound'));
+    }
+  }
+
+  private assignOption(driver: DriverCard): AssignSession['drivers'][number] {
+    const vehicle = [driver.vehicleType, driver.plate].filter(Boolean).join(' · ');
+    return {
+      userId: driver.userId,
+      name: driver.name,
+      label: vehicle ? `${driver.name} · ${vehicle}` : driver.name,
+      face: driver.photos.face,
+      vehicle: driver.photos.vehicle,
+    };
+  }
+
+  private async assignList(ctx: BotContext, session: AssignSession, notice?: string): Promise<BotReply> {
+    await this.saveSession(ctx, session);
+    const rows = new Rows();
+    session.drivers.forEach((driver, index) => rows.add({ id: `${Action.AssignPick}${index}`, label: `${fa(index + 1)}. ${driver.label}` }));
+    rows
+      .add({ id: Action.AssignSearch, label: this.t('actions.assignSearch') })
+      .add({ id: Action.AssignCancel, label: this.t('actions.back') });
+    const body = session.drivers.length ? this.t('assign.pick') : this.t('assign.none');
+    return { text: [notice, this.t('assign.title', { code: session.code }), body].filter(Boolean).join('\n\n'), actions: rows.actions };
+  }
+
+  private async assignSearch(ctx: BotContext, session: AssignSession, query: string): Promise<BotReply> {
+    const found = await this.trips.searchDrivers(ctx.userId, session.listingId, query).catch(() => []);
+    const known = new Set(session.drivers.map((driver) => driver.userId));
+    const extra = found.filter((driver) => !known.has(driver.userId)).map((driver) => this.assignOption(driver));
+    const next = { ...session, searching: false, drivers: [...session.drivers, ...extra] };
+    return this.assignList(ctx, next, extra.length ? this.t('assign.found', { count: fa(extra.length) }) : this.t('assign.searchNone'));
+  }
+
+  /** مشخصات و عکس راننده با دکمه‌ی «سپردن بار». */
+  private async assignDetail(ctx: BotContext, session: AssignSession, index: number): Promise<BotReply> {
+    const driver = session.drivers[index];
+    if (!driver) return this.assignList(ctx, session);
+    await this.saveSession(ctx, { ...session, picked: index });
+    const [card] = await this.profiles.cards([driver.userId]);
+    const details = [
+      card?.mobile && this.t('assign.mobile', { value: card.mobile }),
+      card?.vehicleType && this.t('assign.vehicle', { value: [card.vehicleType, card.vehicleModel].filter(Boolean).join(' ') }),
+      card?.plate && this.t('assign.plate', { value: card.plate }),
+      card?.capacityTons && this.t('assign.capacity', { value: fa(card.capacityTons) }),
+      card?.homeCity && this.t('assign.city', { value: card.homeCity }),
+    ].filter(Boolean);
+    const photo = await this.driverPhoto(driver);
+    return {
+      text: [this.t('assign.confirmTitle', { name: driver.name, code: session.code }), ...details, this.t('assign.confirmHint')].join('\n'),
+      actions: new Rows()
+        .add({ id: Action.AssignConfirm, label: this.t('actions.assignConfirm', { name: driver.name }) })
+        .add({ id: Action.AssignList, label: this.t('actions.assignBack') }).actions,
+      ...(photo ? { photo: { image: photo, caption: driver.name } } : {}),
+    };
+  }
+
+  private async driverPhoto(driver: AssignSession['drivers'][number]): Promise<Buffer | null> {
+    const kind = driver.face ? 'face' : driver.vehicle ? 'vehicle' : null;
+    if (!kind) return null;
+    try {
+      return await readFile(await this.profiles.photoPath(driver.userId, kind));
+    } catch {
+      return null;
+    }
+  }
+
+  private async assignConfirm(ctx: BotContext, session: AssignSession): Promise<BotReply> {
+    const driver = session.picked === undefined ? undefined : session.drivers[session.picked];
+    if (!driver) return this.assignList(ctx, session);
+    try {
+      await this.trips.offer(ctx.userId, session.listingId, driver.userId);
+      await this.clearSession(ctx);
+      return this.myCargoView(ctx, session.mine, session.page, this.t('assign.offered', { name: driver.name, minutes: fa(OFFER_TTL_MINUTES) }));
+    } catch (error) {
+      const code = error instanceof ConflictException ? String(error.message) : '';
+      return this.assignList(ctx, { ...session, picked: undefined }, this.t(`assign.errors.${['reserved', 'taken', 'notDriver', 'own'].includes(code) ? code : 'failed'}`));
     }
   }
 

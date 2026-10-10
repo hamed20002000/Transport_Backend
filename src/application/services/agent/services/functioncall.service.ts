@@ -8,7 +8,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { ToolRegister } from '../toolRegister';
 import { AgentGateway } from '../agent.gateway';
 import { CondinateService } from './condinate.service';
-import { AgentToolsService } from './agentTools.service';
+import { AgentToolsService, NO_TOOL } from './agentTools.service';
 import { ContextManager } from '../contextManager';
 import socketMapping from '../localFiles/socketMapping.json'
 import { CancellationService } from './cancellation.service';
@@ -22,6 +22,13 @@ import { User } from 'src/domain/entities/auth/User';
 import { RecordStatus } from 'src/domain/enums/RecordStatus';
 
 
+
+/** لیست کارت‌ها فقط برای نمایش زنده است؛ نه ذخیره می‌شود و نه به history مدل می‌رود. */
+function withoutList(result: object | undefined): Record<string, string> {
+    if (!result) return {};
+    const { list: _list, ...rest } = result as Record<string, unknown>;
+    return rest as Record<string, string>;
+}
 
 @Injectable()
 export class FunctionCallService {
@@ -122,7 +129,7 @@ export class FunctionCallService {
             const contextInfoList: ContextInfo[] = pastExecutions.reverse().map((e) => ({
                 operation: e.Operation,
                 parameters: e.Parameters,
-                result: e.Result,
+                result: withoutList(e.Result),
                 status: e.Status as "success" | "fault",
             })) as ContextInfo[];
 
@@ -375,6 +382,8 @@ export class FunctionCallService {
             continuePrompt: (e.Result as any)?.continuePrompt,
             toolName: undefined,
             //(e.Result as any)?.toolName,
+            // history فقط برای دیدن کارهای قبلی و دوباره فرستادن پرامپت است؛ کارت‌های لیست
+            // فقط در جواب زنده می‌آیند (نسخه‌ی ذخیره‌شده زود کهنه می‌شود)
             list: [],
             time: `${new Date(e.ExecutedAt??"").getHours()}:${new Date(e.ExecutedAt??"").getMinutes().toString().padStart(2, "0")}`,
         }));
@@ -479,7 +488,7 @@ export class FunctionCallService {
             SubIntentText: context.subIntent,
             Operation: context.toolName,
             Parameters: context.selectedTool.parameters,
-            Result: toolResult,
+            Result: withoutList(toolResult),
             Status: "success",
         });
 
@@ -491,7 +500,7 @@ export class FunctionCallService {
             toolName: toolResult?.toolName,
             isSpecial: this.isSpecial(toolResult?.toolName),
             lastsegment: context.resumeIndex >= context.remainingSegments.length,
-            list: []
+            list: toolResult?.list ?? []
         });
         this.agentGateway.broadcastDomainChange(userId, await this.condinate.getDomainOfPreviousTool(context.toolName) ?? "", {})
 
@@ -556,6 +565,8 @@ export class FunctionCallService {
                 { role: "user", content: prompt },
             ],
             stream: false,
+            // با فکر کردن چند ثانیه کندتر است و گاهی «/think» را به متن segment می‌چسباند
+            think: false,
         };
         const resp = await axios.post(
             "http://localhost:11434/api/chat",
@@ -644,9 +655,27 @@ export class FunctionCallService {
             const condinateToolsName = await this.condinate.getCondinateToolsForRunPrompt(
                 subIntent, this.history.getPreviousTool(username, sessionId) as string, req.user.roles ?? []
             );
-            const selectedToolName = await this.agentToolsService.extractSelectedTool(
-                subIntent, condinateToolsName, this.history.getHistory(0, username, sessionId) as string
-            );
+            // انتخاب ابزار بدون history: مدل ابزار درخواست‌های قبلی را (حتی اگر اشتباه بوده)
+            // تکرار می‌کرد و در ارزیابی برای جمله‌های ارجاعی هم کمکی نکرد. history فقط
+            // در استخراج پارامتر («همین»، «اونو») به کار می‌رود.
+            const selectedToolName = condinateToolsName.length
+                ? await this.agentToolsService.extractSelectedTool(subIntent, condinateToolsName, "")
+                : NO_TOOL;
+
+            // سلام، تشکر و حرف‌هایی که درخواست کاری نیستند: هیچ ابزاری اجرا نمی‌شود
+            if (selectedToolName === NO_TOOL) {
+                this.agentGateway.sendToolResult(userId, {
+                    result: "success",
+                    message: "در خدمتم؛ بگویید چه کاری برایتان انجام دهم.",
+                    prompt: subIntent,
+                    continuePrompt: undefined,
+                    toolName: undefined,
+                    lastsegment: i === segmentsPrompts.length - 1,
+                    isSpecial: false,
+                    list: []
+                });
+                continue;
+            }
             const selectedTool = await this.agentToolsService.extractTools(
                 subIntent, selectedToolName, this.history.getHistory(0, username, sessionId) as string
             );
@@ -755,14 +784,14 @@ export class FunctionCallService {
                 SubIntentText: subIntent,
                 Operation: selectedToolName,
                 Parameters: selectedTool.parameters,
-                Result: toolResult,
+                Result: withoutList(toolResult),
                 Status: "success",
             });
 
             this.history.addNewHistory({
                 operation: selectedToolName,
                 parameters: selectedTool.parameters,
-                result: toolResult,
+                result: withoutList(toolResult),
                 status: "success",
             }, username, sessionId);
 
@@ -774,7 +803,7 @@ export class FunctionCallService {
                 toolName: toolResult.toolName,
                 lastsegment: isLastSegment,
                 isSpecial: this.isSpecial(toolResult.toolName),
-                list: []
+                list: toolResult.list ?? []
             });
             this.agentGateway.broadcastDomainChange(userId, await this.condinate.getDomainOfPreviousTool(selectedToolName) ?? "", {})
 

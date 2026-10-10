@@ -2,7 +2,7 @@ import { HttpException, HttpStatus } from '@nestjs/common';
 
 import { normalizePersianText } from 'src/domain/helper/persianText';
 import { ContextManager } from '../contextManager';
-import { AgentRequest, RequestResult } from '../types';
+import { AgentListItem, AgentRequest, RequestResult } from '../types';
 import messages from '../localFiles/messages.json';
 
 /** چیزی که ToolRegister به handler می‌دهد: پارامترهای استخراج‌شده + req و sessionId */
@@ -22,6 +22,7 @@ export interface SelectionRequest {
 export type ToolGenerator = AsyncGenerator<SelectionRequest, RequestResult, unknown>;
 
 export const COMPANY_ROLES = ['COMPANY', 'COMPANY_ADMIN','DRIVER'];
+export const DRIVER_ROLES = ['DRIVER'];
 
 /**
  * قدم‌های مشترک هر handler (الگوی setash): ثبت خطا/موفقیت در history و
@@ -59,13 +60,18 @@ export class ToolContext {
     throw new HttpException(message, HttpStatus.BAD_REQUEST);
   }
 
-  done(result: Record<string, string>, message: string, continuePrompt?: string): RequestResult {
+  /** list: همان نتیجه به شکل کارت برای وب؛ message متن کامل برای تلگرام و واتس‌اپ است. */
+  done(
+    result: Record<string, string>,
+    message: string,
+    extra: { continuePrompt?: string; list?: AgentListItem[] } = {},
+  ): RequestResult {
     this.history.addNewHistory(
       { status: 'success', operation: this.operation, parameters: this.history.getParams(this.param), result },
       this.param.req.user.username,
       this.param.sessionId,
     );
-    return { toolName: this.operation, message, continuePrompt };
+    return { toolName: this.operation, message, ...extra };
   }
 
   /** خطای انگلیسی سرویس‌ها (NotFound، Conflict، ...) به پیام فارسی همین ابزار تبدیل می‌شود. */

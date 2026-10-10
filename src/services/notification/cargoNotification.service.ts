@@ -20,6 +20,7 @@ import { CargoAlertFilterService, CargoRouteFields } from './cargoAlertFilter.se
 import { BOT_DELIVERY_COLUMNS, isPermanentTelegramError, nextDeliveryRetryAt } from './cargoDeliveryRetry';
 import { BOT_PLATFORMS, BotPlatform } from '../messengerBot/core/botPlatform';
 import { buildCargoNotificationText } from './cargoNotificationText';
+import { CargoSearch, matchesCargoSearch, prepareCargoSearch } from './cargoSearch';
 import { CARGO_NOTIFICATION_SOCKET_EVENT, NotificationsGateway } from './notifications.gateway';
 import { TripAction } from '../../domain/constants/bot/TripAction';
 
@@ -27,6 +28,14 @@ const BOT_PLATFORM_LABEL_EN: Record<BotPlatform, string> = { telegram: 'Telegram
 
 // سقف ردیف‌هایی که برای غربال با فیلترها خوانده می‌شوند (جدیدترین‌ها).
 const LIST_SCAN_LIMIT = 1000;
+
+// CargoSearch: جستجوی لحظه‌ای agent (مبدأ، مقصد، نوع بار، ماشین)
+interface SuggestionListOptions extends CargoSearch {
+  unreadOnly: boolean;
+  kind?: CargoNotificationKind;
+  page: number;
+  pageSize: number;
+}
 
 const REQUEST_BUTTON = '🙋 درخواست این بار';
 const DETAIL_BUTTON = '🗺 مسیر و جزئیات';
@@ -242,10 +251,7 @@ export class CargoNotificationService {
     return this.toView(row, published ?? undefined);
   }
 
-  async list(
-    userId: string,
-    options: { unreadOnly: boolean; kind?: CargoNotificationKind; page: number; pageSize: number },
-  ) {
+  async list(userId: string, options: SuggestionListOptions) {
     const [items, total] = await this.pageMatchingFilters(userId, options);
 
     // برای پیشنهادها: آیا همین کاربر این بار را قبلاً منتشر کرده است؟
@@ -270,12 +276,18 @@ export class CargoNotificationService {
    */
   private async pageMatchingFilters(
     userId: string,
-    options: { unreadOnly: boolean; kind?: CargoNotificationKind; page: number; pageSize: number },
+    options: SuggestionListOptions,
   ): Promise<[CargoNotification[], number]> {
     const skip = (options.page - 1) * options.pageSize;
     const filters = await this.filters.activeFor(userId);
-    if (filters.length === 0) {
-      return this.notifications.findPageForUser(userId, { unreadOnly: options.unreadOnly, kind: options.kind, skip, take: options.pageSize });
+    const search = prepareCargoSearch(options);
+    if (filters.length === 0 && !search) {
+      return this.notifications.findPageForUser(userId, {
+        unreadOnly: options.unreadOnly,
+        kind: options.kind,
+        skip,
+        take: options.pageSize,
+      });
     }
 
     const rows = await this.notifications.findRecentForUser(userId, {
@@ -283,7 +295,10 @@ export class CargoNotificationService {
       kind: options.kind,
       take: LIST_SCAN_LIMIT,
     });
-    const matching = rows.filter((row) => this.filters.matchesAny(filters, (row.payload ?? {}) as CargoRouteFields));
+    const matching = rows.filter((row) => {
+      const cargo = (row.payload ?? {}) as CargoRouteFields;
+      return this.filters.matchesAny(filters, cargo) && (!search || matchesCargoSearch(cargo, search));
+    });
     return [matching.slice(skip, skip + options.pageSize), matching.length];
   }
 

@@ -38,5 +38,13 @@
   "get_my_subscription": "در حال بررسی اشتراک",
   "get_my_subscription_end": "وضعیت اشتراک آماده است.",
   "get_payment_status": "در حال بررسی آخرین خرید",
-  "get_payment_status_end": "وضعیت خرید آماده است."
+  "get_payment_status_end": "وضعیت خرید آماده است.",
+  "list_driver_loads": "در حال آوردن بارهای باز",
+  "list_driver_loads_end": "لیست بارها آماده است.",
+  "request_driver_load": "در حال فرستادن درخواست بار",
+  "request_driver_load_end": "درخواست بار فرستاده شد.",
+  "get_driver_profile": "در حال آوردن پروفایل",
+  "get_driver_profile_end": "اطلاعات پروفایل آماده است.",
+  "update_driver_profile": "در حال ثبت اطلاعات پروفایل",
+  "update_driver_profile_end": "اطلاعات پروفایل ثبت شد."
 }

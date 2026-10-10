@@ -58,6 +58,12 @@ export class CargoListingRepository {
       .getOne();
   }
 
+  /** جدیدترین بار منتشرشده با این کد، از هر شرکتی (راننده با کد بار درخواست می‌دهد). */
+  findByCode(code: string): Promise<CargoListing | null> {
+    const match = cargoCodeMatch('listing.code', code);
+    return this.repository.createQueryBuilder('listing').where(match.sql, match.params).orderBy('listing.createdAt', 'DESC').getOne();
+  }
+
   findBySourceAndPublisher(sourceMessageId: string, publisherUserId: string): Promise<CargoListing | null> {
     return this.repository.findOne({ where: { sourceMessageId, publisherUserId } });
   }
