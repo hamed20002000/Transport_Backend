@@ -26,6 +26,8 @@ export interface WhisperOptions {
   /** واژه‌های حوزه‌ی کار که whisper باید انتظارشان را داشته باشد؛ خالی یعنی بدون prompt */
   prompt: string;
   language: string;
+  /** برای مقایسهٔ اثر VAD روی همان نمونه‌ها */
+  vad: boolean;
 }
 
 /**
@@ -75,17 +77,28 @@ export class SpeechToTextService {
     prompt: this.defaultPrompt(),
     // زبان گفتار کاربرها؛ تشخیص خودکار whisper برای جمله‌های کوتاه فارسی قابل اعتماد نیست
     language: /^[a-z]{2}$/.test(process.env.WHISPER_LANGUAGE ?? '') ? process.env.WHISPER_LANGUAGE! : 'fa',
+    vad: process.env.WHISPER_VAD !== 'off',
   };
   // اختیاری: مدل VAD (silero) تا سکوت‌ها قبل از whisper حذف شوند
-  private readonly vadModel = process.env.WHISPER_VAD_MODEL && existsSync(this.modelPath(process.env.WHISPER_VAD_MODEL))
+  private readonly vadModelPath = process.env.WHISPER_VAD_MODEL
     ? this.modelPath(process.env.WHISPER_VAD_MODEL)
+    : join(process.cwd(), 'uploads/stt-models/ggml-silero-v6.2.0.bin');
+  private readonly vadModel = existsSync(this.vadModelPath)
+    ? this.vadModelPath
     : null;
   private readonly corrections = loadCorrections();
   // اختیاری: هر ویس (بعد از فیلتر) و متن تشخیص‌داده‌شده اینجا می‌ماند تا نمونه‌ی eval شود
   private readonly sampleDir = process.env.STT_SAMPLE_DIR || null;
 
+  get vadAvailable(): boolean {
+    return this.vadModel !== null;
+  }
+
   async transcribeFile(audioFilePath: string, overrides: Partial<WhisperOptions> = {}): Promise<string> {
     const options = { ...this.defaults, ...overrides };
+    if (overrides.vad === true && !this.vadModel) {
+      throw new Error('VAD model is missing. Download Silero or set WHISPER_VAD_MODEL.');
+    }
     // همیشه یک فایل جدا (حتی اگر ورودی WAV باشد) تا فیلتر صدا اعمال شود و ورودی/خروجی ffmpeg یکی نشود
     const wavPath = audioFilePath.replace(/\.[^/.]+$/, '') + '-converted.wav';
 
@@ -94,7 +107,7 @@ export class SpeechToTextService {
 
       const args = ['-m', this.modelPath(options.model), '-f', wavPath, '-l', options.language, '-t', String(cpus().length), '--no-timestamps'];
       if (options.prompt) args.push('--prompt', options.prompt);
-      if (this.vadModel) args.push('--vad', '-vm', this.vadModel);
+      if (options.vad && this.vadModel) args.push('--vad', '-vm', this.vadModel);
 
       const { stdout } = await execFileAsync(this.whisperBinaryPath, args, { maxBuffer: 1024 * 1024 * 10 });
       this.logger.debug(`whisper (${options.model}) raw: "${stdout.trim()}"`);

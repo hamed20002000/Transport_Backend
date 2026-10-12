@@ -20,6 +20,7 @@ import { FunctionCallService } from './functioncall.service';
 import { AgentRequest } from '../types';
 import { AuthService } from 'src/auth/auth.service';
 import { SpeechToTextService } from './Speechtotext.service';
+import { hasVoiceIdentifier, VOICE_IDENTIFIER_NOTICE } from './voiceIdentifiers';
 import { PendingConfirmationService } from './PendingConfirmationService';
 import { MessengerPlatform } from 'src/domain/enums/messenger';
 import { CompanyChannelsDialog } from 'src/services/channel/companyChannelsDialog';
@@ -845,6 +846,11 @@ export class WhatsappService implements OnModuleInit {
       // incoming text message from this same jid can be interpreted as a
       // confirm/cancel reply (see handleTranscriptionReply / the
       // pendingTranscriptions check at the top of handleIncomingMessage).
+      if (hasVoiceIdentifier(text)) {
+        this.pendingTranscriptions.delete(jid);
+        await this.sendMessage(jid, `🎤 «${text}»\n\n${VOICE_IDENTIFIER_NOTICE}`);
+        return;
+      }
       this.pendingTranscriptions.set(jid, text);
 
       // Numbered choice (rather than free-text "evet"/"hayır") to reduce the

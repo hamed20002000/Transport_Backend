@@ -26,6 +26,7 @@ import { AgentChannelRelay, AgentChannelRelays } from '../agentChannelRelays';
 import { AgentRequest, FunctionCallResultType } from '../types';
 import { FunctionCallService } from './functioncall.service';
 import { SpeechToTextService } from './Speechtotext.service';
+import { hasVoiceIdentifier, VOICE_IDENTIFIER_NOTICE } from './voiceIdentifiers';
 
 type Button = TelegramBot.InlineKeyboardButton;
 type SelectionOption = { id: unknown; title: string };
@@ -141,6 +142,12 @@ export class BotAgentService implements BotAgentHandler, AgentChannelRelay, OnMo
 
     if (!text) {
       await this.telegram.editAgentMessage(ctx.chatId, statusId, this.t('voiceEmpty'));
+      return;
+    }
+
+    if (hasVoiceIdentifier(text)) {
+      this.pendingTranscripts.delete(ctx.externalUserId);
+      await this.telegram.editAgentMessage(ctx.chatId, statusId, `🎤 «${text}»\n\n${VOICE_IDENTIFIER_NOTICE}`);
       return;
     }
 

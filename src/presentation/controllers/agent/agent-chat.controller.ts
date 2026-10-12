@@ -26,6 +26,7 @@ import { DataSource } from 'typeorm';
 import { AgentGateway } from 'src/application/services/agent/agent.gateway';
 import { FunctionCallService } from 'src/application/services/agent/services/functioncall.service';
 import { SpeechToTextService } from 'src/application/services/agent/services/Speechtotext.service';
+import { hasVoiceIdentifier, VOICE_IDENTIFIER_NOTICE } from 'src/application/services/agent/services/voiceIdentifiers';
 import { AgentRequest } from 'src/application/services/agent/types';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { ConversationSession } from 'src/domain/entities/agent/ConversationSession';
@@ -103,7 +104,7 @@ export class AgentChatController {
       },
     },
   })
-  @ApiOperation({ summary: 'Send a voice command; it is transcribed and run like a text command' })
+  @ApiOperation({ summary: 'Transcribe and run voice; codes and plates require a corrected text message before execution' })
   @UseInterceptors(FileInterceptor('file', voiceUploadOptions))
   async voice(
     @Req() req: AuthRequest,
@@ -128,6 +129,20 @@ export class AgentChatController {
     }
 
     if (!text) throw new BadRequestException('No speech was recognized in the audio.');
+
+    if (hasVoiceIdentifier(text)) {
+      await this.agentGateway.sendToolResult(req.user.userId, {
+        result: 'cancelled',
+        message: `🎤 «${text}»\n\n${VOICE_IDENTIFIER_NOTICE}`,
+        prompt: text,
+        continuePrompt: undefined,
+        lastsegment: true,
+        isSpecial: false,
+        list: [],
+        source: 'web',
+      });
+      return { result: 'confirmation_required', text, sessionId: dto.sessionId, message: VOICE_IDENTIFIER_NOTICE };
+    }
 
     return { ...(await this.run(req.user, text, dto.sessionId)), text };
   }
