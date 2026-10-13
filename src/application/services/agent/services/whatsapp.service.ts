@@ -20,7 +20,10 @@ import { FunctionCallService } from './functioncall.service';
 import { AgentRequest } from '../types';
 import { AuthService } from 'src/auth/auth.service';
 import { SpeechToTextService } from './Speechtotext.service';
-import { hasVoiceIdentifier, VOICE_IDENTIFIER_NOTICE } from './voiceIdentifiers';
+import { VOICE_IDENTIFIER_NOTICE } from './voiceIdentifiers';
+import { VoiceCodeResolverService } from './voiceCodeResolver.service';
+import { parseChoice, parseYesNo } from './replyChoice';
+import { WhatsappPollService } from './whatsappPoll.service';
 import { PendingConfirmationService } from './PendingConfirmationService';
 import { MessengerPlatform } from 'src/domain/enums/messenger';
 import { CompanyChannelsDialog } from 'src/services/channel/companyChannelsDialog';
@@ -57,6 +60,9 @@ export interface WhatsappDialogHandler {
   handleText(jid: string, userId: string, text: string): Promise<boolean>;
   handleLocation(jid: string, userId: string, location: { latitude: number; longitude: number; live: boolean }): Promise<boolean>;
 }
+
+
+const toPersianDigits = (value: number) => String(value).replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]);
 
 @Injectable()
 export class WhatsappService implements OnModuleInit {
@@ -97,6 +103,10 @@ export class WhatsappService implements OnModuleInit {
   //Voice-recognized transcripts that are still waiting for user approval -- 
   // exactly equivalent to pendingTranscriptions in MessengerBotService
   private pendingTranscriptions = new Map<string, string>();
+  // ویسی که کد بارش با چند بار کاربر جور شد -- متن هر گزینه به ترتیب شماره‌ها.
+  private pendingCodeChoices = new Map<string, string[]>();
+  // نظرسنجیِ سؤال فعلی هر jid -- رأی به نظرسنجی قدیمی‌تر کاری انجام نمی‌ده.
+  private pendingPolls = new Map<string, string>();
 
   constructor(
     @InjectRepository(WhatsappAuthCredential)
@@ -109,6 +119,8 @@ export class WhatsappService implements OnModuleInit {
     private readonly functionCallService: FunctionCallService,
     private readonly authService: AuthService,
     private readonly speechToTextService: SpeechToTextService,
+    private readonly voiceCodes: VoiceCodeResolverService,
+    private readonly polls: WhatsappPollService,
     private readonly pendingConfirmationService: PendingConfirmationService,
     private readonly channelsDialog: CompanyChannelsDialog,
   ) { }
@@ -267,6 +279,15 @@ export class WhatsappService implements OnModuleInit {
         // NEW: voice message handling. `ptt` (push-to-talk) is true only for
         // actual voice notes -- not regular audio file attachments (music,
         // forwarded audio, etc.), which we intentionally don't handle here.
+        if (msg.message.pollUpdateMessage) {
+          try {
+            await this.handlePollVote(msg);
+          } catch (error) {
+            this.logger.error(`WhatsApp poll vote failed: ${jid}`, error as Error);
+          }
+          continue;
+        }
+
         const audioMessage = msg.message.audioMessage;
         if (audioMessage?.ptt) {
           try {
@@ -365,6 +386,11 @@ export class WhatsappService implements OnModuleInit {
     // Checked FIRST: is this user in the middle of confirming a
     // voice-transcribed command? This takes priority over everything else
     // because it's the most specific pending state.
+    if (this.pendingCodeChoices.has(jid)) {
+      await this.handleCodeChoiceReply(jid, text, userid, username);
+      return;
+    }
+
     if (this.pendingTranscriptions.has(jid)) {
       await this.handleTranscriptionReply(jid, text, userid, username);
       return;
@@ -846,18 +872,63 @@ export class WhatsappService implements OnModuleInit {
       // incoming text message from this same jid can be interpreted as a
       // confirm/cancel reply (see handleTranscriptionReply / the
       // pendingTranscriptions check at the top of handleIncomingMessage).
-      if (hasVoiceIdentifier(text)) {
-        this.pendingTranscriptions.delete(jid);
+      // ویس جواب سؤال قبلیه («اولی»، «بله»، «لغو کن») -- همون‌طور که جواب تایپی پردازش می‌شه.
+      if (this.pendingCodeChoices.has(jid) && (parseChoice(text) !== null || parseYesNo(text) === false)) {
+        await this.handleCodeChoiceReply(jid, text, mapping.userid, mapping.username);
+        return;
+      }
+      if (this.pendingTranscriptions.has(jid) && (parseChoice(text) !== null || parseYesNo(text) !== null)) {
+        await this.handleTranscriptionReply(jid, text, mapping.userid, mapping.username);
+        return;
+      }
+
+      this.pendingTranscriptions.delete(jid);
+      this.pendingCodeChoices.delete(jid);
+      this.polls.forget(this.pendingPolls.get(jid));
+      this.pendingPolls.delete(jid);
+
+      // کد بار رو whisper تقریباً هیچ‌وقت دقیق نمی‌نویسه -- با بارهای خود کاربر تطبیق داده می‌شه.
+      const codes = await this.voiceCodes.resolve(mapping.userid, text);
+      if (codes.kind === 'unresolved') {
         await this.sendMessage(jid, `🎤 «${text}»\n\n${VOICE_IDENTIFIER_NOTICE}`);
         return;
       }
+      if (codes.kind === 'choose') {
+        this.pendingCodeChoices.set(jid, codes.options.map((option) => option.text));
+        const pollId = await this.polls.send(
+          this.sock,
+          jid,
+          `🎤 «${text}»\nکد بار دقیق شنیده نشد. منظورتان کدام بار است؟ (یا شماره را بنویسید/بگویید)`,
+          [...codes.options.map((option) => option.label), '❌ لغو'],
+        );
+        if (pollId) {
+          this.pendingPolls.set(jid, pollId);
+          return;
+        }
+        const lines = codes.options.map((option, i) => `${toPersianDigits(i + 1)}) ${option.label}`);
+        await this.sendMessage(
+          jid,
+          `🎤 متوجه شدم:\n«${text}»\n\nکد بار دقیق شنیده نشد. منظورتان کدام بار است؟\n\n${lines.join('\n')}\n${toPersianDigits(codes.options.length + 1)}) لغو\n\n(شماره را بنویسید یا بگویید، مثلاً «اولی»)`,
+        );
+        return;
+      }
+      if (codes.kind === 'resolved') {
+        this.pendingTranscriptions.set(jid, codes.text);
+        if (await this.sendConfirmPoll(jid, `🎤 «${codes.text}»\n📦 بار ${codes.label}\nانجام بدهم؟`)) return;
+        await this.sendMessage(
+          jid,
+          `🎤 متوجه شدم:\n«${codes.text}»\n\n📦 بار ${codes.label}\n\n۱) بله، انجام بده\n۲) نه، لغو کن\n\n(می‌توانید «بله» یا «نه» را بنویسید یا بگویید)`,
+        );
+        return;
+      }
       this.pendingTranscriptions.set(jid, text);
+      if (await this.sendConfirmPoll(jid, `🎤 متوجه شدم:\n«${text}»\nانجام بدهم؟`)) return;
 
       // Numbered choice (rather than free-text "evet"/"hayır") to reduce the
       // chance of typos being misread as either answer.
       await this.sendMessage(
         jid,
-        `🎤 متوجه شدم:\n«${text}»\n\n۱) بله، انجام بده\n۲) نه، لغو کن`,
+        `🎤 متوجه شدم:\n«${text}»\n\n۱) بله، انجام بده\n۲) نه، لغو کن\n\n(می‌توانید «بله» یا «نه» را بنویسید یا بگویید)`,
       );
     } catch (error) {
       // Catches failures from ANY step above -- download, file I/O, ffmpeg
@@ -942,6 +1013,60 @@ export class WhatsappService implements OnModuleInit {
   // Handles a text reply from a jid that currently has an entry in
   // pendingTranscriptions -- i.e. the user previously sent a voice note and
   // is now expected to confirm or reject the transcribed text.
+  /** سؤال «انجام بدهم؟» به‌شکل نظرسنجی؛ false یعنی نظرسنجی نرفت و باید متن شماره‌دار فرستاده بشه. */
+  private async sendConfirmPoll(jid: string, question: string): Promise<boolean> {
+    if (!this.sock) return false;
+    const pollId = await this.polls.send(this.sock, jid, question, ['✅ بله، انجام بده', '❌ نه، لغو کن']);
+    if (!pollId) return false;
+    this.pendingPolls.set(jid, pollId);
+    return true;
+  }
+
+  /**
+   * رأی به نظرسنجی سؤال فعلی -- مثل جواب شماره‌دار همون سؤال پردازش می‌شه
+   * (گزینه‌ی n ام = «n»)، پس منطق تایید/انتخاب یک جاست.
+   */
+  private async handlePollVote(msg: WAMessage): Promise<void> {
+    const vote = await this.polls.readVote(msg);
+    if (vote.kind !== 'vote' || this.pendingPolls.get(vote.jid) !== vote.pollId) return;
+
+    const mapping = await this.resolveUserFromJid(vote.jid);
+    if (!mapping) return;
+    const answer = String(vote.index + 1);
+
+    if (this.pendingCodeChoices.has(vote.jid)) {
+      await this.handleCodeChoiceReply(vote.jid, answer, mapping.userid, mapping.username);
+    } else if (this.pendingTranscriptions.has(vote.jid)) {
+      await this.handleTranscriptionReply(vote.jid, answer, mapping.userid, mapping.username);
+    }
+  }
+
+  /** جواب انتخاب بار (وقتی کد گفته‌شده با چند بار جور شد) -- انتخاب خودش تایید کاربره. */
+  private async handleCodeChoiceReply(jid: string, text: string, userid: string, username: string): Promise<void> {
+    const options = this.pendingCodeChoices.get(jid);
+    if (!options) return;
+    const choice = this.parseUserSelectionReply(text) ?? parseChoice(text);
+    const answered = () => {
+      this.polls.forget(this.pendingPolls.get(jid));
+      this.pendingPolls.delete(jid);
+    };
+
+    if (choice !== null && choice >= 1 && choice <= options.length) {
+      answered();
+      this.pendingCodeChoices.delete(jid);
+      await this.sendMessage(jid, `✅ تأیید شد: «${options[choice - 1]}»`);
+      await this.runCommand(userid, username, options[choice - 1]);
+      return;
+    }
+    if (choice === options.length + 1 || parseYesNo(text) === false || this.isCancelReply(text)) {
+      answered();
+      this.pendingCodeChoices.delete(jid);
+      await this.sendMessage(jid, '❌ لغو شد. لطفاً دوباره تلاش کنید.');
+      return;
+    }
+    await this.sendMessage(jid, `لطفاً شماره‌ی یکی از گزینه‌ها (۱ تا ${toPersianDigits(options.length + 1)}) را بفرستید یا بگویید، مثلاً «اولی».`);
+  }
+
   private async handleTranscriptionReply(
     jid: string,
     text: string,
@@ -955,10 +1080,15 @@ export class WhatsappService implements OnModuleInit {
     const pendingText = this.pendingTranscriptions.get(jid);
     if (!pendingText) return;
 
-    // Same numeric-choice parsing used everywhere else in this file (1 =
-    // confirm, 2 = reject) -- not free-text "evet"/"hayır", to keep this
-    // consistent with the numbered prompt the user was just shown.
-    const choice = this.parseUserSelectionReply(text);
+    // 1 = تایید، 2 = لغو -- یا «بله»/«نه»/«یک»/«دو»، تایپی یا ویس (راننده پشت فرمون تایپ نمی‌کنه).
+    const numeric = this.parseUserSelectionReply(text) ?? parseChoice(text);
+    const yesNo = parseYesNo(text);
+    const choice = yesNo === true ? 1 : yesNo === false ? 2 : numeric;
+
+    if (choice === 1 || choice === 2) {
+      this.polls.forget(this.pendingPolls.get(jid));
+      this.pendingPolls.delete(jid);
+    }
 
     if (choice === 1) {
       // Confirmed -- clear the pending state FIRST, so that if runCommand
@@ -987,7 +1117,7 @@ export class WhatsappService implements OnModuleInit {
     // keep waiting for a valid answer rather than silently dropping the
     // transcript or letting this message fall through to being treated as a
     // brand-new command.
-    await this.sendMessage(jid, `لطفاً ۱ (بله) یا ۲ (نه) را بفرستید.`);
+    await this.sendMessage(jid, `لطفاً «بله» یا «نه» (یا ۱ / ۲) را بفرستید یا بگویید.`);
   }
 
 

@@ -11,6 +11,7 @@ import { FunctionCallService } from '../services/functioncall.service';
 import { CondinateService } from '../services/condinate.service';
 import { PendingConfirmationService } from '../services/PendingConfirmationService';
 import { SpeechToTextService } from '../services/Speechtotext.service';
+import { VoiceCodeResolverService } from '../services/voiceCodeResolver.service';
 import { MessengerBotModule } from 'src/application/module/MessengerBotModule';
 import { UserService } from 'src/services/UserService';
 import { AuthModule } from 'src/auth/auth.module';
@@ -50,6 +51,7 @@ import { BotAgentService } from '../services/botAgent.service';
     CondinateService,
     PendingConfirmationService,
     SpeechToTextService,
+    VoiceCodeResolverService,
     AgentChannelRelays,
     BotAgentService,
   ],
@@ -62,6 +64,7 @@ import { BotAgentService } from '../services/botAgent.service';
     CondinateService,
     PendingConfirmationService,
     SpeechToTextService,
+    VoiceCodeResolverService,
     MessengerBotModule,
   ],
 

@@ -63,26 +63,32 @@ async function main(): Promise<void> {
   const models = (arg('models') ?? '').split(',').filter(Boolean);
   const promptMode = arg('prompt') ?? 'default';
   const prompts: (string | undefined)[] = promptMode === 'both' ? [undefined, ''] : promptMode === 'off' ? [''] : [undefined];
+  const vadMode = arg('vad');
+  if (vadMode && !['on', 'off', 'both'].includes(vadMode)) throw new Error('--vad must be on, off or both');
+  const vadOptions = vadMode === 'both' ? [false, true]
+    : [vadMode ? vadMode === 'on' : speech.vadAvailable && process.env.WHISPER_VAD !== 'off'];
 
   for (const model of models.length ? models : [undefined]) {
     for (const prompt of prompts) {
-      const label = `${model ?? 'default model'} / ${prompt === '' ? 'no prompt' : 'prompt'}`;
-      let errors = 0;
-      let chars = 0;
-      const started = Date.now();
-      console.log(`\n=== ${label}`);
-      for (const sample of samples) {
-        const expected = readFileSync(sample.expected, 'utf8').trim();
-        const overrides = { ...(model ? { model } : {}), ...(prompt === '' ? { prompt } : {}) };
-        const got = await speech.transcribeFile(sample.audio, overrides);
-        const distance = editDistance(norm(expected), norm(got));
-        errors += distance;
-        chars += norm(expected).length;
-        const cer = norm(expected).length ? (100 * distance) / norm(expected).length : 0;
-        console.log(`${cer.toFixed(0).padStart(4)}%  ${basename(sample.audio)}\n       expected: ${expected}\n       got     : ${got}`);
+      for (const vad of vadOptions) {
+        const label = `${model ?? 'default model'} / ${prompt === '' ? 'no prompt' : 'prompt'} / VAD ${vad ? 'on' : 'off'}`;
+        let errors = 0;
+        let chars = 0;
+        const started = Date.now();
+        console.log(`\n=== ${label}`);
+        for (const sample of samples) {
+          const expected = readFileSync(sample.expected, 'utf8').trim();
+          const overrides = { ...(model ? { model } : {}), ...(prompt === '' ? { prompt } : {}), vad };
+          const got = await speech.transcribeFile(sample.audio, overrides);
+          const distance = editDistance(norm(expected), norm(got));
+          errors += distance;
+          chars += norm(expected).length;
+          const cer = norm(expected).length ? (100 * distance) / norm(expected).length : 0;
+          console.log(`${cer.toFixed(0).padStart(4)}%  ${basename(sample.audio)}\n       expected: ${expected}\n       got     : ${got}`);
+        }
+        const seconds = (Date.now() - started) / 1000;
+        console.log(`--- ${label}: CER ${((100 * errors) / Math.max(chars, 1)).toFixed(1)}%  (${seconds.toFixed(0)}s for ${samples.length} samples)`);
       }
-      const seconds = (Date.now() - started) / 1000;
-      console.log(`--- ${label}: CER ${((100 * errors) / Math.max(chars, 1)).toFixed(1)}%  (${seconds.toFixed(0)}s for ${samples.length} samples)`);
     }
   }
 }

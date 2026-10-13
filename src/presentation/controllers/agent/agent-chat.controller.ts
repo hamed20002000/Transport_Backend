@@ -26,7 +26,8 @@ import { DataSource } from 'typeorm';
 import { AgentGateway } from 'src/application/services/agent/agent.gateway';
 import { FunctionCallService } from 'src/application/services/agent/services/functioncall.service';
 import { SpeechToTextService } from 'src/application/services/agent/services/Speechtotext.service';
-import { hasVoiceIdentifier, VOICE_IDENTIFIER_NOTICE } from 'src/application/services/agent/services/voiceIdentifiers';
+import { VOICE_IDENTIFIER_NOTICE } from 'src/application/services/agent/services/voiceIdentifiers';
+import { VoiceCodeResolverService } from 'src/application/services/agent/services/voiceCodeResolver.service';
 import { AgentRequest } from 'src/application/services/agent/types';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { ConversationSession } from 'src/domain/entities/agent/ConversationSession';
@@ -60,6 +61,7 @@ export class AgentChatController {
     private readonly functionCallService: FunctionCallService,
     private readonly agentGateway: AgentGateway,
     private readonly speechToText: SpeechToTextService,
+    private readonly voiceCodes: VoiceCodeResolverService,
     @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
@@ -130,7 +132,24 @@ export class AgentChatController {
 
     if (!text) throw new BadRequestException('No speech was recognized in the audio.');
 
-    if (hasVoiceIdentifier(text)) {
+    // کد بار رو whisper تقریباً هیچ‌وقت دقیق نمی‌نویسه -- با بارهای خود کاربر تطبیق داده می‌شه.
+    // در هر حالتی که کد داره، اجرا نمی‌شه تا کاربر متن (با کد دقیق) رو تایید کنه.
+    const codes = await this.voiceCodes.resolve(req.user.userId, text);
+    if (codes.kind === 'resolved') {
+      const message = `📦 بار ${codes.label}`;
+      return { result: 'confirmation_required', text: codes.text, sessionId: dto.sessionId, message };
+    }
+    if (codes.kind === 'choose') {
+      const message = `کد بار دقیق شنیده نشد. منظورتان کدام بار است؟\n${codes.options.map((option) => `• ${option.label}`).join('\n')}`;
+      return {
+        result: 'confirmation_required',
+        text,
+        sessionId: dto.sessionId,
+        message,
+        options: codes.options,
+      };
+    }
+    if (codes.kind === 'unresolved') {
       await this.agentGateway.sendToolResult(req.user.userId, {
         result: 'cancelled',
         message: `🎤 «${text}»\n\n${VOICE_IDENTIFIER_NOTICE}`,

@@ -26,7 +26,9 @@ import { AgentChannelRelay, AgentChannelRelays } from '../agentChannelRelays';
 import { AgentRequest, FunctionCallResultType } from '../types';
 import { FunctionCallService } from './functioncall.service';
 import { SpeechToTextService } from './Speechtotext.service';
-import { hasVoiceIdentifier, VOICE_IDENTIFIER_NOTICE } from './voiceIdentifiers';
+import { VOICE_IDENTIFIER_NOTICE } from './voiceIdentifiers';
+import { VoiceCodeResolverService } from './voiceCodeResolver.service';
+import { parseChoice, parseYesNo } from './replyChoice';
 
 type Button = TelegramBot.InlineKeyboardButton;
 type SelectionOption = { id: unknown; title: string };
@@ -41,6 +43,7 @@ const SESSION_TTL_SECONDS = 7 * 24 * 3600;
 const Action = {
   VoiceRun: `${AGENT_CALLBACK_PREFIX}v:y`,
   VoiceCancel: `${AGENT_CALLBACK_PREFIX}v:n`,
+  VoiceCodePrefix: `${AGENT_CALLBACK_PREFIX}v:c:`,
   ConfirmYes: `${AGENT_CALLBACK_PREFIX}c:y`,
   ConfirmNo: `${AGENT_CALLBACK_PREFIX}c:n`,
   GeneratorYes: `${AGENT_CALLBACK_PREFIX}g:y`,
@@ -69,6 +72,8 @@ export class BotAgentService implements BotAgentHandler, AgentChannelRelay, OnMo
   private readonly progressMessages = new Map<string, number>();
   /** externalUserId -> متن پیام صوتی که منتظر تأیید کاربر است */
   private readonly pendingTranscripts = new Map<string, string>();
+  // ویسی که کد بارش با چند بار کاربر جور شد -- متن هر گزینه، به ترتیب دکمه‌ها.
+  private readonly pendingCodeChoices = new Map<string, string[]>();
   /** userId -> گزینه‌های سؤالی که agent پرسیده */
   private readonly pendingSelections = new Map<string, { message: string; options: SelectionOption[] }>();
 
@@ -80,6 +85,7 @@ export class BotAgentService implements BotAgentHandler, AgentChannelRelay, OnMo
     private readonly messages: BotMessagesService,
     private readonly functionCalls: FunctionCallService,
     private readonly speechToText: SpeechToTextService,
+    private readonly voiceCodes: VoiceCodeResolverService,
     private readonly users: UserService,
     private readonly redis: RedisService,
     config: ConfigService,
@@ -99,8 +105,12 @@ export class BotAgentService implements BotAgentHandler, AgentChannelRelay, OnMo
     const prompt = text.trim();
     if (!prompt) return;
 
+    // «بله»/«اولی» به‌جای زدن دکمه -- جواب سؤال ویس قبلیه، نه دستور تازه.
+    if (await this.answerPendingVoice(ctx, prompt)) return;
+
     // پیام جدید یعنی کاربر متن صوتی قبلی را نخواسته
     this.pendingTranscripts.delete(ctx.externalUserId);
+    this.pendingCodeChoices.delete(ctx.externalUserId);
 
     if (this.functionCalls.hasPendingGenerator(ctx.userId) || this.functionCalls.hasPendingConfirmation(ctx.userId)) {
       await this.telegram.sendAgentMessage(ctx.chatId, this.t('waitingForAnswer'));
@@ -145,9 +155,37 @@ export class BotAgentService implements BotAgentHandler, AgentChannelRelay, OnMo
       return;
     }
 
-    if (hasVoiceIdentifier(text)) {
-      this.pendingTranscripts.delete(ctx.externalUserId);
+    // راننده پشت فرمون دکمه نمی‌زنه -- ویس «اولی» یا «بله» جواب سؤال قبلیه.
+    if (await this.answerPendingVoice(ctx, text, statusId)) return;
+
+    this.pendingTranscripts.delete(ctx.externalUserId);
+    this.pendingCodeChoices.delete(ctx.externalUserId);
+
+    // کد بار رو whisper تقریباً هیچ‌وقت دقیق نمی‌نویسه -- با بارهای خود کاربر تطبیق داده می‌شه.
+    const codes = await this.voiceCodes.resolve(ctx.userId, text);
+    if (codes.kind === 'unresolved') {
       await this.telegram.editAgentMessage(ctx.chatId, statusId, `🎤 «${text}»\n\n${VOICE_IDENTIFIER_NOTICE}`);
+      return;
+    }
+    if (codes.kind === 'choose') {
+      this.pendingCodeChoices.set(ctx.externalUserId, codes.options.map((option) => option.text));
+      await this.telegram.editAgentMessage(ctx.chatId, statusId, this.t('voiceCodeChoose', { text }), [
+        ...codes.options.map((option, i) => [{ text: option.label, callback_data: `${Action.VoiceCodePrefix}${i}` }]),
+        [{ text: this.t('buttons.cancel'), callback_data: Action.VoiceCancel }],
+      ]);
+      return;
+    }
+    if (codes.kind === 'resolved') {
+      this.pendingTranscripts.set(ctx.externalUserId, codes.text);
+      await this.telegram.editAgentMessage(
+        ctx.chatId,
+        statusId,
+        this.t('voiceCodeConfirm', { text: codes.text, label: codes.label }),
+        [[
+          { text: this.t('buttons.run'), callback_data: Action.VoiceRun },
+          { text: this.t('buttons.cancel'), callback_data: Action.VoiceCancel },
+        ]],
+      );
       return;
     }
 
@@ -167,6 +205,42 @@ export class BotAgentService implements BotAgentHandler, AgentChannelRelay, OnMo
     ]);
   }
 
+  /**
+   * جواب کوتاه («اولی»، «بله»، «لغو کن») به سؤال ویس قبلی رو مثل زدن دکمه‌اش اجرا می‌کنه.
+   * اگه سؤالی منتظر نبود یا جواب، جواب نبود false -- پیام دستور تازه‌ست.
+   */
+  private async answerPendingVoice(ctx: BotAgentContext, text: string, statusId?: number): Promise<boolean> {
+    const choices = this.pendingCodeChoices.get(ctx.externalUserId);
+    const transcript = this.pendingTranscripts.get(ctx.externalUserId);
+    const yesNo = parseYesNo(text);
+    const choice = parseChoice(text);
+    const showAnswer = async () => {
+      if (statusId !== undefined) await this.telegram.editAgentMessage(ctx.chatId, statusId, `🎤 «${text}»`);
+    };
+
+    if (choices) {
+      if (yesNo === false) {
+        await showAnswer();
+        await this.handleCallback(ctx, Action.VoiceCancel);
+        return true;
+      }
+      if (choice !== null && choice <= choices.length) {
+        await showAnswer();
+        await this.handleCallback(ctx, `${Action.VoiceCodePrefix}${choice - 1}`);
+        return true;
+      }
+      return false;
+    }
+    if (transcript) {
+      const answer = yesNo ?? (choice === 1 ? true : choice === 2 ? false : null);
+      if (answer === null) return false;
+      await showAnswer();
+      await this.handleCallback(ctx, answer ? Action.VoiceRun : Action.VoiceCancel);
+      return true;
+    }
+    return false;
+  }
+
   async handleCallback(ctx: BotAgentContext, data: string, messageId?: number): Promise<void> {
     this.chats.set(ctx.userId, ctx.chatId);
 
@@ -176,6 +250,19 @@ export class BotAgentService implements BotAgentHandler, AgentChannelRelay, OnMo
       return;
     }
     if (messageId !== undefined) await this.telegram.clearAgentButtons(ctx.chatId, messageId);
+
+    if (data.startsWith(Action.VoiceCodePrefix)) {
+      const options = this.pendingCodeChoices.get(ctx.externalUserId);
+      this.pendingCodeChoices.delete(ctx.externalUserId);
+      const text = options?.[Number(data.slice(Action.VoiceCodePrefix.length))];
+      if (!text) {
+        await this.telegram.sendAgentMessage(ctx.chatId, this.t('voiceExpired'));
+        return;
+      }
+      // انتخاب دکمه خودش تایید کاربره (کد و مسیر روی دکمه بود).
+      await this.run(ctx, text);
+      return;
+    }
 
     switch (data) {
       case Action.VoiceRun: {
@@ -190,6 +277,7 @@ export class BotAgentService implements BotAgentHandler, AgentChannelRelay, OnMo
       }
       case Action.VoiceCancel:
         this.pendingTranscripts.delete(ctx.externalUserId);
+        this.pendingCodeChoices.delete(ctx.externalUserId);
         await this.telegram.sendAgentMessage(ctx.chatId, this.t('cancelled'));
         return;
       case Action.ConfirmYes:
