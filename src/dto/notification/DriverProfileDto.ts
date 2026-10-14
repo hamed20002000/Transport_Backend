@@ -31,6 +31,11 @@ export class UpdateDriverProfileDto {
   @Transform(trimToNull) @IsOptional() @Matches(/^[0-9]{5,20}$/, { message: 'licenseNumber must be digits' })
   licenseNumber?: string | null;
 
+  // شمسی برای استعلام ثبت احوال
+  @ApiPropertyOptional({ example: '1370/1/1', nullable: true })
+  @Transform(trimToNull) @IsOptional() @Matches(/^1[34][0-9]{2}\/[0-9]{1,2}\/[0-9]{1,2}$/, { message: 'birthDate must be like 1370/1/1' })
+  birthDate?: string | null;
+
   @ApiPropertyOptional({ maxLength: 100, nullable: true })
   @Transform(trimToNull) @IsOptional() @IsString() @MaxLength(100)
   homeCity?: string | null;

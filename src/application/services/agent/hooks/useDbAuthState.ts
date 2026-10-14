@@ -17,12 +17,14 @@ export async function useDbAuthState(
 ): Promise<{
   state: AuthenticationState;
   saveCreds: () => Promise<void>;
+  flush: () => Promise<void>;
 }> {
   // Baileys is ESM, while the NestJS project is CommonJS.
   // Therefore runtime values must be loaded dynamically.
   const {
     initAuthCreds,
     BufferJSON,
+    proto,
   } = await import('@whiskeysockets/baileys');
 
   const existingCredRow =
@@ -40,20 +42,32 @@ export async function useDbAuthState(
         )
       : initAuthCreds();
 
-  const saveCreds = async (): Promise<void> => {
-    const credsJson = JSON.stringify(
-      creds,
-      BufferJSON.replacer,
-    );
-
-    await credentialRepo.upsert(
-      {
-        sessionId,
-        credsJson,
-      },
-      ['sessionId'],
-    );
+  // Baileys doesn't await saveCreds / keys.set. All writes go through one
+  // chain so they stay ordered, and flush() lets callers wait for them
+  // before reconnecting or shutting down -- otherwise a half-written session
+  // was left in the database.
+  let pending: Promise<void> = Promise.resolve();
+  const enqueue = (task: () => Promise<void>): Promise<void> => {
+    const run = pending.then(task);
+    pending = run.catch(() => undefined);
+    return run;
   };
+
+  const saveCreds = (): Promise<void> =>
+    enqueue(async () => {
+      const credsJson = JSON.stringify(
+        creds,
+        BufferJSON.replacer,
+      );
+
+      await credentialRepo.upsert(
+        {
+          sessionId,
+          credsJson,
+        },
+        ['sessionId'],
+      );
+    });
 
   const state: AuthenticationState = {
     creds,
@@ -78,63 +92,79 @@ export async function useDbAuthState(
         });
 
         for (const row of rows) {
-          result[row.keyId] = JSON.parse(
+          let value = JSON.parse(
             row.valueJson,
             BufferJSON.reviver,
           );
+
+          // Same as useMultiFileAuthState -- without this, app-state sync
+          // broke after a restart.
+          if (type === 'app-state-sync-key' && value) {
+            value = proto.Message.AppStateSyncKeyData.fromObject(value);
+          }
+
+          result[row.keyId] = value;
         }
 
         return result;
       },
 
-      set: async (
+      // Transaction: if the process stops mid-write, we don't keep half of
+      // the keys.
+      set: (
         data: Record<string, Record<string, any>>,
-      ) => {
-        for (const keyType of Object.keys(data)) {
-          const idMap = data[keyType];
+      ) =>
+        enqueue(() =>
+          keyRepo.manager.transaction(async (manager) => {
+            const repo = manager.getRepository(WhatsappAuthKey);
 
-          for (const keyId of Object.keys(idMap)) {
-            const value = idMap[keyId];
+            for (const keyType of Object.keys(data)) {
+              const idMap = data[keyType];
 
-            if (
-              value === null ||
-              value === undefined
-            ) {
-              await keyRepo.delete({
-                sessionId,
-                keyType,
-                keyId,
-              });
+              for (const keyId of Object.keys(idMap)) {
+                const value = idMap[keyId];
 
-              continue;
+                if (
+                  value === null ||
+                  value === undefined
+                ) {
+                  await repo.delete({
+                    sessionId,
+                    keyType,
+                    keyId,
+                  });
+
+                  continue;
+                }
+
+                const valueJson = JSON.stringify(
+                  value,
+                  BufferJSON.replacer,
+                );
+
+                await repo.upsert(
+                  {
+                    sessionId,
+                    keyType,
+                    keyId,
+                    valueJson,
+                  },
+                  [
+                    'sessionId',
+                    'keyType',
+                    'keyId',
+                  ],
+                );
+              }
             }
-
-            const valueJson = JSON.stringify(
-              value,
-              BufferJSON.replacer,
-            );
-
-            await keyRepo.upsert(
-              {
-                sessionId,
-                keyType,
-                keyId,
-                valueJson,
-              },
-              [
-                'sessionId',
-                'keyType',
-                'keyId',
-              ],
-            );
-          }
-        }
-      },
+          }),
+        ),
     } as AuthenticationState['keys'],
   };
 
   return {
     state,
     saveCreds,
+    flush: () => pending,
   };
 }

@@ -1,4 +1,5 @@
 import { jwtVerifyOnlyOptions } from '../../auth/jwtKeys';
+import { HttpModule } from '@nestjs/axios';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -10,6 +11,8 @@ import { CargoNotification } from '../../domain/entities/notification/CargoNotif
 import { CargoRequest } from '../../domain/entities/notification/CargoRequest';
 import { DriverProfile } from '../../domain/entities/driver/DriverProfile';
 import { DriverProfileService } from '../../services/driver/driverProfile.service';
+import { ApiIrClient } from '../../services/driver/apiIr.client';
+import { DriverVerificationService } from '../../services/driver/driverVerification.service';
 import { DriverLocation } from '../../domain/entities/notification/DriverLocation';
 import { DriverLocationLog } from '../../domain/entities/notification/DriverLocationLog';
 import { CargoAlertFilterRepository } from '../../infrastructure/repositories/notification/cargoAlertFilter.repository';
@@ -67,6 +70,8 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
       // فقط بررسی توکن socket -- کلید عمومی RS256
       useFactory: (configService: ConfigService) => jwtVerifyOnlyOptions(configService),
     }),
+    // استعلام مدارک راننده از api.ir
+    HttpModule,
     RabbitMqModule,
     SubscriptionModule,
     MessengerBotModule,
@@ -89,6 +94,9 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
     CargoTripService,
     // پروفایل، مدارک و عکس‌های راننده
     DriverProfileService,
+    // تأیید مدارک راننده با شاهکار، ثبت احوال و گواهینامه (api.ir)
+    ApiIrClient,
+    DriverVerificationService,
     CargoInsightService,
     CargoNotificationService,
     CargoListingService,

@@ -24,6 +24,9 @@ export const KEY_PREFIXES = {
   fuelStationChunk: 'routing:fuel-chunk:v1',
   rubikaPollOffset: 'rubika:poll-offset:v1',
   subscriptionPolicy: 'settings:subscription-policy:v1',
+  marketPrices: 'market:prices:v1',
+  marketRefreshLock: 'market:refresh-lock:v1',
+  marketLiveMessages: 'market:live-messages:v1',
 } as const;
 
 export type RedisKeyParts = {
@@ -52,6 +55,9 @@ export type RedisKeyParts = {
   fuelStationChunk: [chunk: string];
   rubikaPollOffset: [tokenHash: string];
   subscriptionPolicy: [];
+  marketPrices: [];
+  marketRefreshLock: [];
+  marketLiveMessages: [];
 };
 
 /** کانال‌های pub/sub بین نمونه‌های برنامه. */

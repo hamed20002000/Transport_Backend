@@ -151,6 +151,18 @@ export class RedisService implements OnModuleDestroy {
     }
   }
 
+  async hashSet(key: string, field: string, value: string): Promise<void> {
+    await this.client.hset(key, field, value);
+  }
+
+  async hashDelete(key: string, ...fields: string[]): Promise<void> {
+    if (fields.length) await this.client.hdel(key, ...fields);
+  }
+
+  async hashGetAll(key: string): Promise<Record<string, string>> {
+    return this.client.hgetall(key);
+  }
+
   async setIfAbsent(key: string, value: string, ttlSeconds: number): Promise<boolean> {
     this.validateTtl(ttlSeconds);
     return (await this.client.set(key, value, 'EX', ttlSeconds, 'NX')) === 'OK';

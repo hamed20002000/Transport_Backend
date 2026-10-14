@@ -38,6 +38,7 @@ import {
   DriverProfileService,
   driverPhotoUploadOptions,
 } from 'src/services/driver/driverProfile.service';
+import { DriverVerificationService } from 'src/services/driver/driverVerification.service';
 import { CargoRequestRepository } from 'src/infrastructure/repositories/notification/cargoRequest.repository';
 import { CargoInsightService } from 'src/services/notification/cargoInsight.service';
 import { CargoListingService } from 'src/services/notification/cargoListing.service';
@@ -84,6 +85,7 @@ export class DriverController {
     private readonly listings: CargoListingService,
     private readonly requests: CargoRequestRepository,
     private readonly profiles: DriverProfileService,
+    private readonly verification: DriverVerificationService,
     private readonly routing: RoutingService,
     private readonly speech: TextToSpeechService,
     private readonly i18n: I18nService,
@@ -97,6 +99,12 @@ export class DriverController {
   @Patch('profile')
   updateProfile(@Req() request: AuthRequest, @Body() dto: UpdateDriverProfileDto) {
     return this.profiles.update(currentDriverId(request), dto);
+  }
+
+  // استعلام شاهکار، ثبت احوال، گواهینامه و نمره‌ی منفی (پولی؛ پاسخ تکراری از کش)
+  @Post('profile/verify')
+  verify(@Req() request: AuthRequest) {
+    return this.verification.verify(currentDriverId(request));
   }
 
   // عکس اختیاری ماشین یا پلاک (multipart، فیلد file)

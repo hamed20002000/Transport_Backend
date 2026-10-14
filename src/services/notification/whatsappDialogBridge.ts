@@ -9,6 +9,7 @@ import { normalizePersianText } from 'src/domain/helper/persianText';
 import { IUserRepository } from 'src/domain/repositories/IUserRepopsitory';
 import { USER_REPOSITORY } from 'src/domain/repositories/repository.tokens';
 import { BotAction, BotContext, BotDialogRegistry, BotReply } from '../messengerBot/core/botDialog';
+import { MarketAction } from '../market/marketBot.service';
 import { RedisService } from '../redis/redis.service';
 
 // گزینه‌های آخرین پیام تا این مدت با شماره قابل انتخاب‌اند.
@@ -35,6 +36,7 @@ const SECTIONS: { roles: string[]; key: string; action: string }[] = [
   { roles: COMPANY_ROLES, key: 'driverRequests', action: BotCallback.CompanyDriverRequests },
   { roles: COMPANY_ROLES, key: 'activeTrips', action: BotCallback.CompanyActiveTrips },
   { roles: [...DRIVER_ROLES, ...COMPANY_ROLES], key: 'filters', action: 'cg:fl' },
+  { roles: [...DRIVER_ROLES, ...COMPANY_ROLES], key: 'marketPrices', action: MarketAction.Show },
 ];
 
 interface MenuState {

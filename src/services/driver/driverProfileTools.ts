@@ -21,6 +21,7 @@ const FIELD_LABELS: Record<string, string> = {
   firstName: 'نام',
   lastName: 'نام خانوادگی',
   nationalCode: 'کد ملی',
+  birthDate: 'تاریخ تولد (شمسی)',
   smartCardNumber: 'شماره کارت هوشمند',
   licenseNumber: 'شماره گواهینامه',
   fleetCardNumber: 'شماره کارت ناوگان',

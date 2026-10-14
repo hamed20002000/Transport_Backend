@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type {
@@ -7,6 +7,7 @@ import type {
   proto,
 } from '@whiskeysockets/baileys' with { 'resolution-mode': 'import' };
 import { Boom } from '@hapi/boom';
+import { Agent as HttpsAgent } from 'node:https';
 import * as qrcode from 'qrcode-terminal';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -40,6 +41,12 @@ const NOTIFICATION_JITTER_MS = Number(process.env.WHATSAPP_NOTIFICATION_JITTER_M
 
 // کلمه‌های کنترلی که کاربر در واتس‌اپ می‌نویسد؛ معادل ترکی قبلی هم پذیرفته می‌شود.
 const CANCEL_WORDS = ['لغو', 'انصراف', 'نه', 'iptal', 'vazgeç', 'hayır'];
+// پیام ورود برای شماره‌ای که هنوز به حسابی وصل نشده (متن، ویس و فایل).
+const ONBOARDING_PROMPT =
+  'این شماره هنوز به حسابی در سامانه وصل نشده است.\n' +
+  'لطفاً نام کاربری و رمز حساب سامانه را به این شکل بفرستید:\nنام‌کاربری رمز\n\n' +
+  'همان نام کاربری و رمزی که با آن وارد سایت می‌شوید. اگر با ربات تلگرام، بله یا روبیکا ثبت‌نام کرده‌اید، ' +
+  'نام کاربری شماره موبایلتان است و رمز را ربات برایتان فرستاده است.';
 const NEW_CHAT_WORDS = ['گفتگوی جدید', 'گفتگو جدید', 'yeni sohbet'];
 const NEXT_PAGE_WORDS = ['بعدی', 'ادامه', 'devam'];
 const PREVIOUS_PAGE_WORDS = ['قبلی', 'برگشت', 'geri'];
@@ -65,11 +72,19 @@ export interface WhatsappDialogHandler {
 const toPersianDigits = (value: number) => String(value).replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]);
 
 @Injectable()
-export class WhatsappService implements OnModuleInit {
+export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WhatsappService.name);
   private sock: WASocket | null = null;
 
   private notificationQueue: Promise<unknown> = Promise.resolve();
+
+  // Real connection lifecycle state -- reconnects use backoff instead of a
+  // tight loop, and nothing reconnects while the app is shutting down.
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private reconnectAttempts = 0;
+  private isShuttingDown = false;
+  // Waits for in-flight session writes (from useDbAuthState) to finish.
+  private flushAuthState: () => Promise<void> = async () => undefined;
   private lastNotificationAt = 0;
 
   //The key to the last "processing" message of each jid -- 
@@ -126,7 +141,60 @@ export class WhatsappService implements OnModuleInit {
   ) { }
 
   async onModuleInit() {
-    await this.connect();
+    // App startup doesn't wait for WhatsApp; if the first connect fails, it is retried.
+    this.connect().catch((error) => {
+      this.logger.error('WhatsApp connection failed', error as Error);
+      this.scheduleReconnect();
+    });
+  }
+
+  /**
+   * Close the socket on shutdown (and every --watch restart), otherwise the
+   * old and new process briefly share one session -- WhatsApp treats that as
+   * a conflict and repeated conflicts can unlink the device. Then wait for
+   * the last creds/keys to be written before the DB connection closes.
+   */
+  async onModuleDestroy(): Promise<void> {
+    this.isShuttingDown = true;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.sock?.end(undefined);
+    await Promise.race([
+      this.flushAuthState().catch((error) =>
+        this.logger.error('Final WhatsApp session save failed', error as Error),
+      ),
+      new Promise((resolve) => setTimeout(resolve, 5000)),
+    ]);
+  }
+
+  /** Reconnect after 2, 4, 8 ... up to 60 seconds (or right away when immediate). */
+  private scheduleReconnect(immediate = false): void {
+    if (this.reconnectTimer || this.isShuttingDown) return;
+    const delayMs = immediate ? 0 : Math.min(2000 * 2 ** this.reconnectAttempts, 60000);
+    if (!immediate) this.reconnectAttempts += 1;
+    this.logger.warn(`WhatsApp reconnect in ${delayMs / 1000}s (attempt #${this.reconnectAttempts})`);
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect().catch((error) => {
+        this.logger.error('WhatsApp reconnect failed', error as Error);
+        this.scheduleReconnect();
+      });
+    }, delayMs);
+  }
+
+  /**
+   * A logged-out session is not deleted: it is moved to another sessionId as
+   * a backup, so the data isn't lost if the logout was a mistake. The main
+   * session becomes empty so a new QR is shown.
+   */
+  private async archiveAuthState(): Promise<string> {
+    const archiveId = `${DEFAULT_SESSION_ID}-loggedout-${Date.now()}`;
+    await this.credentialRepo.manager.transaction(async (manager) => {
+      await manager.update(WhatsappAuthKey, { sessionId: DEFAULT_SESSION_ID }, { sessionId: archiveId });
+      await manager.update(WhatsappAuthCredential, { sessionId: DEFAULT_SESSION_ID }, { sessionId: archiveId });
+    });
+    return archiveId;
   }
 
   private async connect(): Promise<void> {
@@ -136,11 +204,14 @@ export class WhatsappService implements OnModuleInit {
     } = await import('@whiskeysockets/baileys');
 
     //#region ---------- Database Authentication State
-    const { state, saveCreds } = await useDbAuthState(
+    // Let the previous socket's pending writes finish before reading the session.
+    await this.flushAuthState();
+    const { state, saveCreds, flush } = await useDbAuthState(
       DEFAULT_SESSION_ID,
       this.credentialRepo,
       this.keyRepo,
     );
+    this.flushAuthState = flush;
     //#endregion
 
 
@@ -160,6 +231,10 @@ export class WhatsappService implements OnModuleInit {
       // the QR on a web panel/admin screen instead of the terminal, we only
       // need to change that one event handler.
       printQRInTerminal: false, // خودمون دستی مدیریتش می‌کنیم
+      // DNS returns IPv6 first for web.whatsapp.com; on a network without
+      // IPv6 the websocket failed with ENETUNREACH (code 408) and no QR ever
+      // appeared. Force IPv4.
+      agent: new HttpsAgent({ family: 4 }),
     });
 
     // Baileys emits 'creds.update' every time the connection's core
@@ -198,33 +273,45 @@ export class WhatsappService implements OnModuleInit {
       if (connection === 'close') {
         // Baileys wraps connection errors in a Boom error object; the actual
         // WhatsApp-defined reason code lives at .output.statusCode.
-        const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+        const disconnectError = lastDisconnect?.error as Boom | undefined;
+        const statusCode = disconnectError?.output?.statusCode;
+        this.logger.warn(
+          `WhatsApp connection closed (code ${statusCode}): ${disconnectError?.message ?? '-'} ${
+            disconnectError?.data ? JSON.stringify(disconnectError.data) : ''
+          }`,
+        );
+        if (this.isShuttingDown) return;
 
-        // DisconnectReason.loggedOut is the ONE case where reconnecting is
-        // pointless -- it means the user explicitly unlinked this device
-        // from their WhatsApp app, so the saved session is permanently
-        // invalid. Every other disconnect reason (timeout, restart, network
-        // blip, etc.) is considered recoverable.
-        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-
-        this.logger.warn(`WhatsApp bağlantısı kesildi. Yeniden bağlanılacak mı: ${shouldReconnect}`);
-
-        if (shouldReconnect) {
-          // Recursively call connect() again to re-establish the socket.
-          // Note: this re-reads the (still valid) credentials from the DB
-          // via useDbAuthState(), so it does NOT require a new QR scan for
-          // recoverable disconnects.
-          this.connect();
+        if (statusCode === DisconnectReason.restartRequired) {
+          // Right after the QR scan WhatsApp closes the connection and
+          // expects an immediate reconnect to finish pairing.
+          this.reconnectAttempts = 0;
+          this.scheduleReconnect(true);
+        } else if (statusCode === DisconnectReason.connectionReplaced) {
+          // Another process opened this session. Reconnecting here makes the
+          // two kick each other out until WhatsApp logs the device out.
+          this.logger.error(
+            'WhatsApp session opened in another process (connectionReplaced) -- not reconnecting. Run a single instance and restart.',
+          );
+        } else if (statusCode !== DisconnectReason.loggedOut) {
+          this.scheduleReconnect();
         } else {
-          // The session is dead for good -- someone needs to physically
-          // scan a new QR code (the old WhatsappAuthCredential/Key rows for
-          // this sessionId should also be cleared, otherwise Baileys will
-          // keep trying to reuse a session WhatsApp has already revoked).
-          this.logger.error('Oturum kapatıldı (loggedOut). Yeni QR gerekiyor.');
+          // DisconnectReason.loggedOut: the saved session is permanently
+          // invalid. With it still in the DB every reconnect gets 401 again
+          // and no QR is ever shown -- so it is backed up and cleared.
+          this.logger.error('Session logged out (loggedOut). Backing up the old session and showing a new QR.');
+          void this.flushAuthState()
+            .then(() => this.archiveAuthState())
+            .then((archiveId) => {
+              this.logger.warn(`Logged-out session backed up as sessionId "${archiveId}".`);
+              this.scheduleReconnect();
+            })
+            .catch((error) => this.logger.error('Backing up the WhatsApp session failed', error as Error));
         }
       } else if (connection === 'open') {
         // The handshake succeeded and the socket is now fully connected and
         // ready to send/receive messages.
+        this.reconnectAttempts = 0;
         this.logger.log('WhatsApp bağlantısı kuruldu.');
       }
     });
@@ -251,6 +338,18 @@ export class WhatsappService implements OnModuleInit {
         // messages), and skip messages we sent ourselves (fromMe) -- without
         // this, the bot could end up reacting to its own replies.
         if (!msg.message || msg.key.fromMe) continue;
+
+        // This bot only talks 1:1. Replying to groups, channels (newsletter)
+        // or status broadcasts spams every member with the onboarding text
+        // and is a fast way to get the number banned.
+        const chatJid = msg.key.remoteJid ?? '';
+        if (
+          chatJid.endsWith('@g.us') ||
+          chatJid.endsWith('@newsletter') ||
+          chatJid.endsWith('@broadcast')
+        ) {
+          continue;
+        }
 
         // NEW: WhatsApp is rolling out a new identity system called LID
         // (instead of phone numbers) -- sometimes msg.key.remoteJid arrives
@@ -611,7 +710,7 @@ export class WhatsappService implements OnModuleInit {
     if (parts.length !== 2) {
       await this.sendMessage(
         jid,
-        'این شماره در سامانه ثبت نشده است. لطفاً نام کاربری و رمز عبور خود را به این شکل بفرستید:\nنام‌کاربری رمز',
+        ONBOARDING_PROMPT,
       );
       return;
     }
@@ -686,16 +785,15 @@ export class WhatsappService implements OnModuleInit {
     // expects, not necessarily the order this function's own params are in.
     const result = await this.authService.validateUser({ password, username });
 
-    // Wrong username/password -- AuthService.validateUser returns a falsy
-    // value (not a thrown error) for this case, so we normalize that to null
-    // for the caller.
-    if (!result) return null;
+    // Wrong username/password or inactive user -- validateUser always returns
+    // an object, with isAuthenticate=false and user=null, so check those
+    // instead of the result itself. Otherwise a mapping with an empty userid
+    // gets saved and every later message from this number fails.
+    if (!result.isAuthenticate || !result.user?.id) return null;
 
-    // AuthService's full result object presumably carries more than we
-    // need here (e.g. the whole user record) -- we only pass back the
-    // `userid`, since that's the only piece the onboarding flow and the
-    // WhatsappUserMapping row actually require.
-    return { userid: result.user?.id??"" };
+    // We only pass back the `userid`, since that's the only piece the
+    // onboarding flow and the WhatsappUserMapping row actually require.
+    return { userid: result.user.id };
   }
 
   // Deletes a previously-sent (or previously-received) message using its
@@ -798,7 +896,7 @@ export class WhatsappService implements OnModuleInit {
     if (!mapping) {
       await this.sendMessage(
         jid,
-        'این شماره در سامانه ثبت نشده است. لطفاً ابتدا نام کاربری و رمز عبور خود را به این شکل بفرستید:\nنام‌کاربری رمز',
+        ONBOARDING_PROMPT,
       );
       return;
     }
@@ -958,7 +1056,7 @@ export class WhatsappService implements OnModuleInit {
     if (!mapping) {
       await this.sendMessage(
         jid,
-        'این شماره در سامانه ثبت نشده است. لطفاً ابتدا نام کاربری و رمز عبور خود را به این شکل بفرستید:\nنام‌کاربری رمز',
+        ONBOARDING_PROMPT,
       );
       return;
     }
@@ -1174,8 +1272,9 @@ export class WhatsappService implements OnModuleInit {
     const row = await this.userMappingRepo.findOne({ where: { jid } });
 
     // No mapping found -- this number hasn't completed onboarding yet.
-    // Callers use this null to trigger the onboarding flow.
-    if (!row) return null;
+    // Callers use this null to trigger the onboarding flow. A row without a
+    // userid (left by an old failed login) is treated the same way.
+    if (!row?.userid) return null;
 
     // Only pull out the two fields callers actually need, rather than
     // handing back the whole raw entity row.

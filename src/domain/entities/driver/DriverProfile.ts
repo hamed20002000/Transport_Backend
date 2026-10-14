@@ -7,6 +7,21 @@ const decimalNumber = {
   from: (value?: string | null) => (value === null || value === undefined ? null : Number(value)),
 };
 
+/** پاسخ یک استعلام api.ir؛ inputKey هش ورودی‌هاست تا با عوض شدن مدرک دوباره استعلام شود. */
+export interface VerificationAnswer {
+  inputKey: string;
+  checkedAt: string;
+  ok: boolean;
+  message?: string | null;
+  data?: unknown;
+}
+
+export interface DriverVerificationRecord {
+  answers: Partial<Record<string, VerificationAnswer>>;
+  // سقف استعلام پولی روزانه‌ی هر راننده
+  usage?: { day: string; count: number };
+}
+
 /**
  * مدارک و ناوگان راننده‌ای که از پنل یا ربات ثبت‌نام کرده. نام و کد ملی روی
  * خود User است؛ همه‌ی فیلدها اختیاری‌اند. (جدول قدیمی Driver/Vehicle قیدهای
@@ -27,6 +42,14 @@ export class DriverProfile {
 
   @Column({ type: 'varchar', length: 20, nullable: true })
   licenseNumber?: string | null;
+
+  // شمسی، «1370/1/1»؛ برای استعلام ثبت احوال
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  birthDate?: string | null;
+
+  // نتیجه‌ی استعلام‌های شاهکار، ثبت احوال و گواهینامه؛ فقط DriverVerificationService می‌نویسد
+  @Column({ type: 'jsonb', nullable: true })
+  verification?: DriverVerificationRecord | null;
 
   // شهری که راننده معمولاً از آن بار می‌گیرد (پیشنهاد بار برگشتی)
   @Column({ type: 'varchar', length: 100, nullable: true })

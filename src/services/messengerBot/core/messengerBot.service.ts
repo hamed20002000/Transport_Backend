@@ -6,6 +6,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { MultiBot } from './multiBot';
+import { MarketAction, MarketBotService } from '../../market/marketBot.service';
 import { BotPlatform } from './botPlatform';
 
 import { ConfigService } from '@nestjs/config';
@@ -68,6 +69,7 @@ export class MessengerBotService implements OnModuleInit {
     private readonly multiBot: MultiBot,
     private readonly dialogs: BotDialogRegistry,
     private readonly subscriptionStatus: SubscriptionStatusService,
+    private readonly market: MarketBotService,
   ) {}
 
   /*
@@ -545,6 +547,30 @@ export class MessengerBotService implements OnModuleInit {
         this.mainMenuKeyboard(),
       );
 
+      return;
+    }
+
+    /*
+     * =====================================================
+     * Market prices (بدون نیاز به اشتراک)
+     * =====================================================
+     */
+
+    if (data === MarketAction.Show || data === MarketAction.Refresh) {
+      // منوی بعدی پیام تازه است، نه ویرایش پیام قیمت (که هر ۳۰ دقیقه ویرایش می‌شود)
+      this.keyboard.clearCallbackMessage(chatId);
+      try {
+        if (data === MarketAction.Refresh && query.message && !fromText) {
+          await this.market.refresh(chatId, query.message.message_id);
+          return;
+        }
+        await this.market.send(chatId);
+      } catch (error) {
+        this.logger.warn(`Market prices message failed: ${this.getErrorMessage(error)}`);
+      }
+      // منوی تازه زیر پیام قیمت (منوی قبلی بالای آن پاک می‌شود) تا جواب گزینه‌های بعدی
+      // زیر قیمت‌ها بیاید، نه بالای آن.
+      await this.openMainMenu(chatId, externalUserId);
       return;
     }
 

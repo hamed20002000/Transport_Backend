@@ -1,3 +1,4 @@
+import { MarketAction } from '../../market/marketBot.service';
 import { BotSubscriptionService } from './botSubscription.service';
 import { Injectable } from '@nestjs/common';
 import { BotKeyboardService } from './botKeyboard';
@@ -356,6 +357,18 @@ export class BotMenuService {
               {
                 text:
                   this.messages.get(
+                    'menu.common.marketPrices',
+                  ),
+
+                callback_data:
+                  MarketAction.Show,
+              },
+            ],
+
+            [
+              {
+                text:
+                  this.messages.get(
                     'menu.driver.subscription',
                   ),
 
@@ -456,6 +469,18 @@ export class BotMenuService {
 
                 callback_data:
                   BotCallback.CompanyChannels,
+              },
+            ],
+
+            [
+              {
+                text:
+                  this.messages.get(
+                    'menu.common.marketPrices',
+                  ),
+
+                callback_data:
+                  MarketAction.Show,
               },
             ],
 

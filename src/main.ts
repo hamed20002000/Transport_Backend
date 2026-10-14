@@ -69,7 +69,10 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
   app.useGlobalFilters(new GlobalExceptionFilter());
   app.useGlobalInterceptors(new ResponseInterceptor());
- 
+
+  // On SIGTERM/SIGINT (e.g. a --watch restart) onModuleDestroy runs, so the
+  // WhatsApp socket closes and its session is saved before the process exits.
+  app.enableShutdownHooks();
 
   await app.listen(process.env.PORT ?? 3333);
 }

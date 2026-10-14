@@ -39,6 +39,8 @@ import { RubikaBotService } from 'src/services/messengerBot/rubika/rubikaBot.ser
 
 import { SubscriptionModule } from './SubscriptionModule';
 import { ChannelModule } from './ChannelModule';
+import { MarketModule } from './MarketModule';
+import { MarketBotService } from 'src/services/market/marketBot.service';
 
 @Module({
   imports: [
@@ -50,6 +52,7 @@ import { ChannelModule } from './ChannelModule';
     RedisModule,
     UserModule,
     ChannelModule,
+    MarketModule,
   ],
 
   controllers: [TelegramWebhookController, RubikaWebhookController],
@@ -91,6 +94,8 @@ import { ChannelModule } from './ChannelModule';
     BaleBotService,
 
     RubikaBotService,
+    // پیام قیمت ارز و طلا که هر ۳۰ دقیقه ویرایش می‌شود
+    MarketBotService,
   ],
 
   exports: [

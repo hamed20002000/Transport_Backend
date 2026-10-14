@@ -13,6 +13,7 @@ import { DriverProfile } from 'src/domain/entities/driver/DriverProfile';
 import { RecordStatus } from 'src/domain/enums/RecordStatus';
 import { UpdateDriverProfileDto } from 'src/dto/notification/DriverProfileDto';
 import { UserProfile, UserService } from '../UserService';
+import { evaluateVerification } from './driverVerification.service';
 
 // خارج از پوشه‌ی uploads که به‌صورت عمومی سرو می‌شود؛ فقط از راه API با توکن.
 export const DRIVER_PHOTO_DIR = join(process.cwd(), 'private-uploads', 'driver-photos');
@@ -49,6 +50,7 @@ const USER_FIELDS = ['firstName', 'lastName', 'nationalCode'] as const;
 const DRIVER_FIELDS = [
   'smartCardNumber',
   'licenseNumber',
+  'birthDate',
   'homeCity',
   'vehicleType',
   'vehicleModel',
@@ -217,6 +219,8 @@ export class DriverProfileService {
         vehicle: driver?.vehiclePhoto ?? null,
         plate: driver?.platePhoto ?? null,
       },
+      // نتیجه‌ی آخرین استعلام‌ها؛ استعلام جدید با POST profile/verify
+      verification: evaluateVerification(user, driver),
     };
   }
 }

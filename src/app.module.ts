@@ -34,6 +34,7 @@ import { TransportCompanyModule } from './application/module/TransportCompanyMod
 import { MessengerBotModule } from './application/module/MessengerBotModule';
 import { RedisModule } from './application/module/RedisModule';
 import { CargoNotificationModule } from './application/module/CargoNotificationModule';
+import { MarketModule } from './application/module/MarketModule';
 import { SubscriptionAdminModule } from './application/module/SubscriptionAdminModule';
 
 @Module({
@@ -232,6 +233,8 @@ import { SubscriptionAdminModule } from './application/module/SubscriptionAdminM
      * و اطلاع‌رسانی به کاربرها (وب، تلگرام، واتساپ).
      */
     CargoNotificationModule,
+    // قیمت ارز و طلا برای پنل راننده و شرکت
+    MarketModule,
     SubscriptionAdminModule,
   ],
 
