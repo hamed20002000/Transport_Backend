@@ -11,7 +11,7 @@ import {
 
 import { User } from '../auth/User';
 import { TransportCompany } from '../company/TransportCompany';
-import { CargoListingStatus } from '../../enums/notification';
+import { CargoListingStatus, CargoTripType } from '../../enums/notification';
 
 /**
  * باری که یک شرکت به نام خودش برای راننده‌ها منتشر کرده است.
@@ -91,6 +91,14 @@ export class CargoListing {
 
   @Column({ type: 'timestamp', nullable: true })
   takenAt?: Date | null;
+
+  // داخلی/صادراتی/وارداتی از مبدأ و مقصد (یا انتخاب شرکت)؛ فقط راننده‌های همین نوع اعلامش را می‌گیرند
+  @Column({ type: 'varchar', length: 10, default: CargoTripType.Domestic })
+  tripType!: CargoTripType;
+
+  // زمان اعلام به راننده‌ها؛ null یعنی در صف اعلام خودکار شرکت مانده است
+  @Column({ type: 'timestamp', nullable: true })
+  announcedAt?: Date | null;
 
   @CreateDateColumn()
   createdAt!: Date;

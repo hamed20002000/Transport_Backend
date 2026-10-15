@@ -19,7 +19,8 @@
       "returnLoads": "🔄 بار برگشتی",
       "myLocation": "🗺 موقعیت من",
       "sendLocation": "📍 ارسال موقعیت",
-      "subscription": "💳 اشتراک من"
+      "subscription": "💳 اشتراک من",
+      "borders": "🛃 وضعیت مرزها"
     },
 
     "company": {
@@ -48,7 +49,8 @@
       "paymentStatus": "💳 پیگیری خرید و پرداخت",
       "support": "☎️ پشتیبانی",
       "back": "🔙 برگشت",
-      "mainMenu": "🏠 منوی اصلی"
+      "mainMenu": "🏠 منوی اصلی",
+      "marketPrices": "💰 قیمت دلار و طلا"
     }
   },
 
@@ -140,6 +142,8 @@
     "voiceEmpty": "🎤 صدایی تشخیص داده نشد. لطفاً دوباره و واضح‌تر صحبت کنید.",
     "voiceConfirm": "🎤 متوجه شدم:\n«{text}»\n\nانجام بدهم؟",
     "voiceMenuSelected": "🎤 «{text}»",
+    "voiceCodeConfirm": "🎤 متوجه شدم:\n«{text}»\n\n📦 بار {label}\n\nانجام بدهم؟",
+    "voiceCodeChoose": "🎤 متوجه شدم:\n«{text}»\n\nکد بار دقیق شنیده نشد. منظورتان کدام بار است؟",
     "voiceExpired": "این پیام صوتی دیگر معتبر نیست. لطفاً دوباره بفرستید.",
     "confirmDefault": "آیا این عملیات را تأیید می‌کنید؟",
     "selectOption": "یکی از گزینه‌ها را انتخاب کنید:",

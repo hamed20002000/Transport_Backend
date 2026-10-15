@@ -8,6 +8,7 @@ import type {
 } from '@whiskeysockets/baileys' with { 'resolution-mode': 'import' };
 import { Boom } from '@hapi/boom';
 import { Agent as HttpsAgent } from 'node:https';
+import { pino } from 'pino';
 import * as qrcode from 'qrcode-terminal';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -21,6 +22,7 @@ import { FunctionCallService } from './functioncall.service';
 import { AgentRequest } from '../types';
 import { AuthService } from 'src/auth/auth.service';
 import { SpeechToTextService } from './Speechtotext.service';
+import { TranscriptCorrectorService } from './transcriptCorrector.service';
 import { VOICE_IDENTIFIER_NOTICE } from './voiceIdentifiers';
 import { VoiceCodeResolverService } from './voiceCodeResolver.service';
 import { parseChoice, parseYesNo } from './replyChoice';
@@ -66,6 +68,8 @@ export interface WhatsappDialogHandler {
   /** true اگر متن مال یکی از گفتگوها بود و جواب داده شد. */
   handleText(jid: string, userId: string, text: string): Promise<boolean>;
   handleLocation(jid: string, userId: string, location: { latitude: number; longitude: number; live: boolean }): Promise<boolean>;
+  /** فایلی که گفتگو منتظرش است (مثل اکسل بارها)؛ download فقط اگر گفتگو بخواهد. */
+  handleDocument(jid: string, userId: string, document: { fileName: string; size?: number; download(): Promise<Buffer> }): Promise<boolean>;
 }
 
 
@@ -134,6 +138,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     private readonly functionCallService: FunctionCallService,
     private readonly authService: AuthService,
     private readonly speechToTextService: SpeechToTextService,
+    private readonly corrector: TranscriptCorrectorService,
     private readonly voiceCodes: VoiceCodeResolverService,
     private readonly polls: WhatsappPollService,
     private readonly pendingConfirmationService: PendingConfirmationService,
@@ -235,6 +240,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       // IPv6 the websocket failed with ENETUNREACH (code 408) and no QR ever
       // appeared. Force IPv4.
       agent: new HttpsAgent({ family: 4 }),
+      // Baileys' default logger is at info level and printed a JSON line for
+      // every message/event; only its warnings and errors are shown now.
+      logger: pino({ level: process.env.WHATSAPP_LOG_LEVEL || 'warn' }),
     });
 
     // Baileys emits 'creds.update' every time the connection's core
@@ -585,6 +593,12 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       live: !!msg.message?.liveLocationMessage,
     });
     if (!handled) await this.sendMessage(jid, 'این نوع پیام پشتیبانی نمی‌شود.');
+  }
+
+  /** فایل با نام دلخواه (مثل فایل نمونه‌ی اکسل). */
+  async sendDocument(jid: string, document: Buffer, fileName: string, mimetype: string, caption?: string): Promise<void> {
+    if (!this.sock) throw new Error('WhatsApp socket is not connected.');
+    await this.sock.sendMessage(jid, { document, fileName, mimetype, caption });
   }
 
   /** عکس با زیرنویس (مثل نقشه‌ی مسیر و جایگاه‌های سوخت). */
@@ -956,7 +970,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       );
       await execAsync(`ffmpeg -y -i "${oggPath}" -ar 16000 -ac 1 -c:a pcm_s16le "${wavPath}"`);
 
-      const text = await this.speechToTextService.transcribeFile(wavPath);
+      const heard = await this.speechToTextService.transcribeFile(wavPath);
+      // Misheard words («کار تهران…» → «بار تهران…»): the user confirms and runs the corrected text.
+      const text = heard ? await this.corrector.correct(heard) : heard;
 
       // Transcription came back empty -- either the model failed or the
       // audio had no recognizable speech. Nothing meaningful to confirm, so
@@ -1059,6 +1075,20 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         ONBOARDING_PROMPT,
       );
       return;
+    }
+
+    // فایلی که یکی از گفتگوها منتظرش است (مثل اکسل «ثبت چند بار»)؛ کپشن لازم ندارد
+    const document = msg.message?.documentMessage;
+    if (document && this.dialogHandler && this.sock) {
+      const sock = this.sock;
+      const { downloadMediaMessage } = await import('@whiskeysockets/baileys');
+      const handled = await this.dialogHandler.handleDocument(jid, mapping.userid, {
+        fileName: document.fileName ?? 'file',
+        size: document.fileLength ? Number(document.fileLength) : undefined,
+        download: async () =>
+          (await downloadMediaMessage(msg, 'buffer', {}, { logger: this.logger as any, reuploadRequest: sock.updateMediaMessage })) as Buffer,
+      });
+      if (handled) return;
     }
 
     if (!caption?.trim()) {

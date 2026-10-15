@@ -165,7 +165,9 @@
       "filters": "⚙️ تنظیمات فیلتر",
       "myLocation": "🗺 موقعیت من",
       "nearStations": "⛽ جایگاه‌های نزدیک من",
-      "sendLocation": "📍 ارسال موقعیت"
+      "sendLocation": "📍 ارسال موقعیت",
+      "marketPrices": "💰 قیمت دلار و طلا",
+      "borders": "🛃 وضعیت مرزها"
     }
   },
   "detail": {
@@ -253,5 +255,18 @@
     "moderate": "🟡 نیمه‌سنگین",
     "heavy": "🔴 سنگین",
     "delay": " ({time} تأخیر)"
+  },
+  "listing": {
+    "voice": {
+      "intro": "بار جدید.",
+      "route": "از {origin} به {destination}.",
+      "vehicleType": "ماشین: {value}.",
+      "cargoType": "نوع بار: {value}.",
+      "weight": "وزن: {value}.",
+      "price": "کرایه: {value}.",
+      "company": "شرکت {value}.",
+      "notes": "توضیحات: {value}.",
+      "code": "کد بار: {value}."
+    }
   }
 }

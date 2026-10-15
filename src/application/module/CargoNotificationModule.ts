@@ -48,6 +48,12 @@ import { CargoDialog } from '../../services/notification/cargoDialog';
 import { CargoTripService } from '../../services/notification/cargoTrip.service';
 import { TripDialog } from '../../services/notification/tripDialog';
 import { TextToSpeechService } from '../../services/speech/textToSpeech.service';
+import { CargoVoiceService } from '../../services/notification/cargoVoice.service';
+import { CargoExcelService } from '../../services/notification/cargoExcel.service';
+import { CompanyAnnounceSetting } from '../../domain/entities/notification/CompanyAnnounceSetting';
+import { CargoTripTypeService } from '../../services/notification/cargoTripType';
+import { CompanyAnnounceService } from '../../services/notification/companyAnnounce.service';
+import { CargoAutoAnnounceWorker } from '../../services/notification/cargoAutoAnnounceWorker.service';
 import { WhatsappDialogBridge } from '../../services/notification/whatsappDialogBridge';
 import { CargoInsightService } from '../../services/notification/cargoInsight.service';
 import { RoutingModule } from './RoutingModule';
@@ -63,7 +69,7 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([CargoNotification, CargoAlertFilter, CargoListing, CargoRequest, DriverLocation, DriverLocationLog, DriverProfile]),
+    TypeOrmModule.forFeature([CargoNotification, CargoAlertFilter, CargoListing, CargoRequest, DriverLocation, DriverLocationLog, DriverProfile, CompanyAnnounceSetting]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -119,6 +125,14 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
     TripDialog,
     // متن به صدا (Piper) برای خواندن جایگاه‌ها و ...
     TextToSpeechService,
+    // صدای بار اعلام‌شده برای راننده (پیام‌رسان‌ها و وب)
+    CargoVoiceService,
+    // ثبت چند بار با فایل اکسل
+    CargoExcelService,
+    // داخلی/صادراتی/وارداتی و اعلام دستی یا خودکار هر چند ساعت
+    CargoTripTypeService,
+    CompanyAnnounceService,
+    CargoAutoAnnounceWorker,
     // همین گفتگوها در واتساپ با گزینه‌های شماره‌دار
     WhatsappDialogBridge,
   ],

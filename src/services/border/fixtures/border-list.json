@@ -1,0 +1,54 @@
+{
+ "Error": {
+  "ErrorText_Fa": "عملیات با موفقیت انجام شد",
+  "ErrorText_En": "Success",
+  "ErrorCode": 0
+ },
+ "Borders": [
+  {
+   "BorderName": "دوغارون",
+   "CountryName": "افغانستان",
+   "APIRouteAddress": "dgh-api",
+   "Enabled": true,
+   "ActiveRMTOTripID": false,
+   "LastUnLoadTrCount": 420,
+   "CharBorderID": "DQ",
+   "LastLoadTrCount": 0,
+   "LastTransitTrCount": 1637,
+   "LastCustomCheckedIn": 317,
+   "CountryCode": "AF",
+   "BorderID": "6881",
+   "LastExportTrCount": 202
+  },
+  {
+   "BorderName": "رازي",
+   "CountryName": "ترکيه",
+   "APIRouteAddress": "razi-api",
+   "Enabled": true,
+   "ActiveRMTOTripID": false,
+   "LastUnLoadTrCount": 0,
+   "CharBorderID": "BZ",
+   "LastLoadTrCount": 0,
+   "LastTransitTrCount": 0,
+   "LastCustomCheckedIn": 62,
+   "CountryCode": "TR",
+   "BorderID": "8290",
+   "LastExportTrCount": 1099
+  },
+  {
+   "BorderName": "بازرگان",
+   "CountryName": "ترکيه",
+   "APIRouteAddress": "bazargan-api",
+   "Enabled": true,
+   "ActiveRMTOTripID": false,
+   "LastUnLoadTrCount": 39,
+   "CharBorderID": "BZ",
+   "LastLoadTrCount": 1,
+   "LastTransitTrCount": 3787,
+   "LastCustomCheckedIn": 216,
+   "CountryCode": "TR",
+   "BorderID": "6690",
+   "LastExportTrCount": 4690
+  }
+ ]
+}

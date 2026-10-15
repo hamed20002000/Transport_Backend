@@ -11,6 +11,7 @@ import { DataSource, Repository } from 'typeorm';
 
 import { DriverProfile } from 'src/domain/entities/driver/DriverProfile';
 import { RecordStatus } from 'src/domain/enums/RecordStatus';
+import { CargoTripType } from 'src/domain/enums/notification';
 import { UpdateDriverProfileDto } from 'src/dto/notification/DriverProfileDto';
 import { UserProfile, UserService } from '../UserService';
 import { evaluateVerification } from './driverVerification.service';
@@ -30,6 +31,7 @@ export interface DriverCard {
   plate: string | null;
   capacityTons: number | null;
   homeCity: string | null;
+  tripType: CargoTripType;
   // فقط وجود عکس؛ خود عکس از API شرکت با توکن
   photos: { face: boolean; vehicle: boolean };
 }
@@ -104,6 +106,8 @@ export class DriverProfileService {
     for (const field of DRIVER_FIELDS) {
       if (dto[field] !== undefined) Object.assign(driver, { [field]: dto[field] });
     }
+    if (dto.cargoVoice !== undefined) driver.cargoVoice = dto.cargoVoice;
+    if (dto.tripType !== undefined) driver.tripType = dto.tripType;
     return this.toView(user, await this.profiles.save(driver));
   }
 
@@ -129,12 +133,22 @@ export class DriverProfileService {
     return this.get(userId);
   }
 
+  /** پیش‌فرض روشن: راننده‌ای که هنوز پروفایل ندارد هم صدا می‌گیرد. */
+  async wantsCargoVoice(userId: string): Promise<boolean> {
+    const driver = await this.profiles.findOne({ where: { userId }, select: { userId: true, cargoVoice: true } });
+    return driver?.cargoVoice ?? true;
+  }
+
+  async setCargoVoice(userId: string, enabled: boolean): Promise<void> {
+    await this.profiles.upsert({ userId, cargoVoice: enabled }, ['userId']);
+  }
+
   /** کارت چند راننده به همان ترتیب userIds؛ کاربری که پیدا نشد حذف می‌شود. */
   async cards(userIds: string[]): Promise<DriverCard[]> {
     if (!userIds.length) return [];
     const rows: Array<Record<string, unknown>> = await this.dataSource.query(
       `SELECT u.id, u."firstName", u."lastName", u.username, u.mobile,
-              p."vehicleType", p."vehicleModel", p.plate, p."capacityTons", p."homeCity", p."facePhoto", p."vehiclePhoto"
+              p."vehicleType", p."vehicleModel", p.plate, p."capacityTons", p."homeCity", p."facePhoto", p."vehiclePhoto", p."tripType"
          FROM "User" u LEFT JOIN "DriverProfile" p ON p."userId" = u.id
         WHERE u.id = ANY($1)`,
       [userIds],
@@ -154,6 +168,7 @@ export class DriverProfileService {
           plate: (row.plate as string) ?? null,
           capacityTons: row.capacityTons === null || row.capacityTons === undefined ? null : Number(row.capacityTons),
           homeCity: (row.homeCity as string) ?? null,
+          tripType: (row.tripType as CargoTripType) ?? CargoTripType.Domestic,
           photos: { face: !!row.facePhoto, vehicle: !!row.vehiclePhoto },
         },
       ];
@@ -185,6 +200,40 @@ export class DriverProfileService {
     return this.cards(rows.map((row) => row.id));
   }
 
+  async tripTypeOf(userId: string): Promise<CargoTripType> {
+    const driver = await this.profiles.findOne({ where: { userId }, select: { userId: true, tripType: true } });
+    return driver?.tripType ?? CargoTripType.Domestic;
+  }
+
+  async setTripType(userId: string, tripType: CargoTripType): Promise<void> {
+    await this.profiles.upsert({ userId, tripType }, ['userId']);
+  }
+
+  /**
+   * راننده‌های فعال یک نوع (صفحه‌ی «رانندگان» شرکت)، به ترتیب نام؛ search در نام، موبایل
+   * یا پلاک. راننده‌ی بدون پروفایل داخلی است.
+   */
+  async listByType(tripType: CargoTripType, page: number, pageSize: number, search?: string) {
+    const term = search ? `%${toLatinDigits(search).trim().replace(/[\s-]/g, '')}%` : null;
+    const where = `
+         FROM "User" u
+         JOIN "UserRole" ur ON ur."userId" = u.id
+         JOIN "Role" r ON r.id = ur."roleId" AND r.name = 'DRIVER' AND r."recordStatus" = $1
+         LEFT JOIN "DriverProfile" p ON p."userId" = u.id
+        WHERE u."recordStatus" = $1 AND COALESCE(p."tripType", '${CargoTripType.Domestic}') = $2
+          AND ($3::text IS NULL
+               OR replace(concat_ws('', u."firstName", u."lastName", u.username), ' ', '') ILIKE $3
+               OR u.mobile ILIKE $3
+               OR regexp_replace(coalesce(p.plate, ''), '[\s-]', '', 'g') ILIKE $3)`;
+    const [{ total }] = await this.dataSource.query(`SELECT COUNT(DISTINCT u.id)::int AS total ${where}`, [RecordStatus.Active, tripType, term]);
+    const rows: Array<{ id: string }> = await this.dataSource.query(
+      `SELECT u.id, MIN(concat_ws(' ', u."firstName", u."lastName", u.username)) AS name ${where}
+        GROUP BY u.id ORDER BY name LIMIT $4 OFFSET $5`,
+      [RecordStatus.Active, tripType, term, pageSize, (page - 1) * pageSize],
+    );
+    return { items: await this.cards(rows.map((row) => row.id)), total: Number(total), page, pageSize };
+  }
+
   /** راننده‌ای با این شناسه و نقش فعال DRIVER هست؟ (قبل از سپردن بار) */
   async isDriver(userId: string): Promise<boolean> {
     const rows: unknown[] = await this.dataSource.query(
@@ -213,6 +262,8 @@ export class DriverProfileService {
       lastName: user.lastName ?? null,
       nationalCode: user.nationalCode ?? null,
       ...Object.fromEntries(DRIVER_FIELDS.map((f) => [f, driver?.[f] ?? null])),
+      cargoVoice: driver?.cargoVoice ?? true,
+      tripType: driver?.tripType ?? CargoTripType.Domestic,
       // فقط وجود عکس (و نسخه برای کش مرورگر)؛ خود فایل از GET profile/photos/:kind با توکن
       photos: {
         face: driver?.facePhoto ?? null,

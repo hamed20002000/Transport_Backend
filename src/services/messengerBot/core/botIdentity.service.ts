@@ -8,12 +8,23 @@ import {
 } from '@nestjs/common';
 
 import { BotLink } from '../../../domain/entities/agent/BotLink';
+import { User } from '../../../domain/entities/auth/User';
+import { RecordStatus } from '../../../domain/enums/RecordStatus';
 
 import { IBotLinkRepository } from '../../../domain/repositories/messengerBot/IBotLinkRepository';
 
 import {
   BOT_LINK_REPOSITORY,
 } from '../../../domain/repositories/repository.tokens';
+
+// نقش‌ها جز خرید اشتراک (forgetRoles) از پنل ادمین یا مستقیم در دیتابیس هم عوض می‌شوند و
+// کسی کش را پاک نمی‌کند؛ با ۲۴ ساعت، منوی نقش قبلی یک روز می‌ماند. خواندن دوباره سبک است.
+const ROLES_TTL_SECONDS = 5 * 60;
+
+/** فقط نقش‌های فعال، مثل JwtPayload و agent؛ منو نباید با نقش غیرفعال باز شود. */
+function activeRoleNames(user: User): string[] {
+  return user.userRoles?.filter((item) => item.role?.recordStatus === RecordStatus.Active).map((item) => item.role.name) ?? [];
+}
 
 @Injectable()
 export class BotIdentityService {
@@ -70,8 +81,8 @@ export class BotIdentityService {
     if (roles !== null) return roles;
     const link = await this.repository.findByExternalUserId(externalUserId);
     if (!link?.userId || !link.user) return null;
-    const names = link.user.userRoles?.filter(item => item.role != null).map(item => item.role.name) ?? [];
-    await this.redis.setJson(key, names, 86400);
+    const names = activeRoleNames(link.user);
+    await this.redis.setJson(key, names, ROLES_TTL_SECONDS);
     return names;
   }
   //#endregion ---------------------------------------------------------------
@@ -141,8 +152,7 @@ export class BotIdentityService {
         await this.cacheUserId(externalUserId, link.userId);//کاربر رو به همراه نقش در redis دخیره میکنه
         //اگه کاربر نقش داشته باشه نقش هارو هم تو redisذخیره میکنه
         if (link.user) {
-          const roles = link.user.userRoles?.filter(item => item.role != null).map(item => item.role.name) ?? [];
-          await this.redis.setJson(RedisService.key('telegramIdentityRoles', namespace, externalUserId), roles, 86400);
+          await this.redis.setJson(RedisService.key('telegramIdentityRoles', namespace, externalUserId), activeRoleNames(link.user), ROLES_TTL_SECONDS);
         }
       } catch {
         // Caching is best-effort; the database result is still valid.

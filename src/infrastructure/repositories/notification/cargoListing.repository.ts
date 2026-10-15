@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 import { CargoListing } from '../../../domain/entities/notification/CargoListing';
 import { cargoCodeMatch } from './cargoCodeMatch';
 import { CargoListingStatus } from '../../../domain/enums/notification';
@@ -37,6 +37,14 @@ export class CargoListingRepository {
   async nextManualCode(): Promise<string> {
     const [{ value }] = await this.repository.query(`SELECT nextval('manual_cargo_code_seq') AS value`);
     return `TRB${value}`;
+  }
+
+  /** بارهای باز شرکت که هنوز به راننده‌ها اعلام نشده‌اند (صف اعلام خودکار). */
+  findPendingAnnounce(publisherUserId: string): Promise<CargoListing[]> {
+    return this.repository.find({
+      where: { publisherUserId, announcedAt: IsNull(), status: CargoListingStatus.Open },
+      order: { createdAt: 'ASC' },
+    });
   }
 
   findById(id: string): Promise<CargoListing | null> {

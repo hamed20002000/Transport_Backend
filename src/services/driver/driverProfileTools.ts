@@ -1,4 +1,6 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
+import { CargoTripType } from 'src/domain/enums/notification';
+import { parseTripType, TRIP_TYPE_LABELS } from '../notification/cargoTripType';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 
@@ -30,6 +32,7 @@ const FIELD_LABELS: Record<string, string> = {
   vehicleModel: 'مدل خودرو',
   plate: 'پلاک',
   capacityTons: 'ظرفیت (تن)',
+  tripType: 'نوع راننده',
   mobile: 'موبایل',
 };
 const EDITABLE = Object.keys(FIELD_LABELS).filter((key) => key !== 'mobile');
@@ -78,7 +81,10 @@ export class DriverProfileTools implements OnModuleInit {
           const value = textParam(param[key]);
           if (value === undefined) continue;
           // ظرفیت عدد است (DTO رقم فارسی و «تن» را نمی‌فهمد): «۲۴ تن» → «24»
-          changes[key] = key === 'capacityTons' ? (toLatinDigits(value).match(/\d+(\.\d+)?/)?.[0] ?? value) : value;
+          if (key === 'capacityTons') changes[key] = toLatinDigits(value).match(/\d+(\.\d+)?/)?.[0] ?? value;
+          // «صادراتی» → EXPORT؛ ناشناخته همان می‌ماند تا اعتبارسنجی DTO ردش کند
+          else if (key === 'tripType') changes[key] = parseTripType(value) ?? value;
+          else changes[key] = value;
         }
         if (Object.keys(changes).length === 0) ctx.fail(messages.profile.nothingToChange);
         //#endregion
@@ -125,6 +131,6 @@ export class DriverProfileTools implements OnModuleInit {
   private lines(values: Record<string, unknown>, keys: string[]): string[] {
     return keys
       .filter((key) => values[key] !== undefined && values[key] !== null && values[key] !== '')
-      .map((key) => `${FIELD_LABELS[key]}: ${String(values[key])}`);
+      .map((key) => `${FIELD_LABELS[key]}: ${key === 'tripType' ? (TRIP_TYPE_LABELS[values[key] as CargoTripType] ?? String(values[key])) : String(values[key])}`);
   }
 }

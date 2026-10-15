@@ -19,8 +19,13 @@ import {
   ForbiddenException,
   StreamableFile,
   UnauthorizedException,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { JwtPayload } from 'src/domain/entities/auth/jwt-payload.dto';
@@ -29,12 +34,15 @@ import { SetCargoStatusDto } from 'src/dto/notification/SetCargoStatusDto';
 import { PublishCargoListingDto } from 'src/dto/notification/PublishCargoListingDto';
 import { CargoNotificationKind } from 'src/infrastructure/repositories/notification/cargoNotification.repository';
 import { CargoListingService } from 'src/services/notification/cargoListing.service';
-import { CargoListingStatus } from 'src/domain/enums/notification';
+import { CargoListingStatus, CargoTripType } from 'src/domain/enums/notification';
+import { CompanyAnnounceService } from 'src/services/notification/companyAnnounce.service';
+import { AnnounceSettingsDto } from 'src/dto/notification/AnnounceSettingsDto';
 import { CargoAlertFilterService } from 'src/services/notification/cargoAlertFilter.service';
 import { CargoNotificationService } from 'src/services/notification/cargoNotification.service';
 import { CargoTripService } from 'src/services/notification/cargoTrip.service';
 import { DriverProfileService } from 'src/services/driver/driverProfile.service';
 import { OfferCargoDto } from 'src/dto/notification/DriverDto';
+import { CargoExcelService, MAX_EXCEL_BYTES } from 'src/services/notification/cargoExcel.service';
 
 type AuthRequest = { user?: JwtPayload };
 
@@ -43,6 +51,22 @@ function currentUserId(request: AuthRequest): string {
   if (!userId) throw new UnauthorizedException();
   return userId;
 }
+
+function companyUserId(request: AuthRequest): string {
+  const userId = currentUserId(request);
+  if (!request.user?.roles?.some((role) => role === 'COMPANY' || role === 'COMPANY_ADMIN')) throw new ForbiddenException('onlyCompany');
+  return userId;
+}
+
+// فایل در حافظه می‌ماند (کوچک است و فقط خوانده می‌شود)؛ فقط xlsx و xls
+const excelUploadOptions = {
+  storage: memoryStorage(),
+  limits: { fileSize: MAX_EXCEL_BYTES, files: 1 },
+  fileFilter: (_req: unknown, file: Express.Multer.File, cb: (error: Error | null, accept: boolean) => void) =>
+    /\.(xlsx|xls)$/i.test(file.originalname)
+      ? cb(null, true)
+      : cb(new BadRequestException('فقط فایل اکسل (xlsx یا xls) قابل بارگذاری است.'), false),
+};
 
 @Controller('api/cargo-notifications')
 @UseGuards(JwtAuthGuard)
@@ -108,7 +132,59 @@ export class CargoListingController {
     private readonly listings: CargoListingService,
     private readonly trips: CargoTripService,
     private readonly profiles: DriverProfileService,
+    private readonly excel: CargoExcelService,
+    private readonly announce: CompanyAnnounceService,
   ) {}
+
+  // حالت اعلام بار به راننده‌ها: دستی، یا خودکار هر intervalMinutes
+  @Get('announce-settings')
+  announceSettings(@Req() request: AuthRequest) {
+    return this.announce.get(companyUserId(request));
+  }
+
+  @Put('announce-settings')
+  setAnnounceSettings(@Req() request: AuthRequest, @Body() dto: AnnounceSettingsDto) {
+    return this.announce.set(companyUserId(request), dto.mode, dto.intervalMinutes);
+  }
+
+  // راننده‌های یک نوع (داخلی/صادراتی/وارداتی) برای صفحه‌ی «رانندگان» شرکت
+  @Get('drivers')
+  drivers(
+    @Req() request: AuthRequest,
+    @Query('type', new ParseEnumPipe(CargoTripType)) type: CargoTripType,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('pageSize', new DefaultValuePipe(20), ParseIntPipe) pageSize: number,
+    @Query('search') search?: string,
+  ) {
+    companyUserId(request);
+    return this.profiles.listByType(type, Math.max(page, 1), Math.min(Math.max(pageSize, 1), 100), search?.trim() || undefined);
+  }
+
+  // فایل نمونه‌ی ثبت چند بار با اکسل
+  @Get('excel/template')
+  excelTemplate(@Req() request: AuthRequest) {
+    companyUserId(request);
+    return new StreamableFile(this.excel.template(), {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      disposition: 'attachment; filename="cargo-template.xlsx"',
+    });
+  }
+
+  /**
+   * بارگذاری فایل پرشده: اگر ردیفی ایراد داشت هیچ باری ثبت نمی‌شود و errors برمی‌گردد؛
+   * وگرنه همه‌ی بارها ثبت و برای راننده‌ها اعلام می‌شوند. dryRun=true فقط بررسی و پیش‌نمایش.
+   */
+  @Post('excel')
+  @UseInterceptors(FileInterceptor('file', excelUploadOptions))
+  importExcel(
+    @Req() request: AuthRequest,
+    @Query('dryRun', new DefaultValuePipe(false), ParseBoolPipe) dryRun: boolean,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    const userId = companyUserId(request);
+    if (!file) throw new BadRequestException('file is required.');
+    return this.excel.import(userId, file.buffer, dryRun);
+  }
 
   // بارهایی که همین کاربر (شرکت) منتشر کرده است، با راننده‌ای که هر بار به او سپرده شده
   @Get()
@@ -168,6 +244,12 @@ export class CargoListingController {
   @Post()
   create(@Req() request: AuthRequest, @Body() dto: PublishCargoListingDto) {
     return this.listings.createManual(currentUserId(request), dto);
+  }
+
+  // «📣 اعلام همین الان»: بار در صف اعلام خودکار، یا اعلام دوباره به راننده‌های تازه‌ی همان نوع
+  @Post(':id/announce')
+  announceNow(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string) {
+    return this.listings.announceNow(companyUserId(request), id);
   }
 
   // TAKEN = «برداشته شد»، OPEN = برگرداندن؛ فقط شرکتی که منتشر کرده

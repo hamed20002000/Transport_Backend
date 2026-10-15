@@ -26,6 +26,7 @@ import { AgentChannelRelay, AgentChannelRelays } from '../agentChannelRelays';
 import { AgentRequest, FunctionCallResultType } from '../types';
 import { FunctionCallService } from './functioncall.service';
 import { SpeechToTextService } from './Speechtotext.service';
+import { TranscriptCorrectorService } from './transcriptCorrector.service';
 import { VOICE_IDENTIFIER_NOTICE } from './voiceIdentifiers';
 import { VoiceCodeResolverService } from './voiceCodeResolver.service';
 import { parseChoice, parseYesNo } from './replyChoice';
@@ -89,6 +90,7 @@ export class BotAgentService implements BotAgentHandler, AgentChannelRelay, OnMo
     private readonly users: UserService,
     private readonly redis: RedisService,
     config: ConfigService,
+    private readonly corrector: TranscriptCorrectorService,
   ) {
     this.namespace = botNamespace(config);
   }
@@ -157,6 +159,9 @@ export class BotAgentService implements BotAgentHandler, AgentChannelRelay, OnMo
 
     // راننده پشت فرمون دکمه نمی‌زنه -- ویس «اولی» یا «بله» جواب سؤال قبلیه.
     if (await this.answerPendingVoice(ctx, text, statusId)) return;
+
+    // کلمه‌های اشتباه‌شنیده («کار تهران…» → «بار تهران…»)؛ همین متن نشان داده و اجرا می‌شود
+    text = await this.corrector.correct(text);
 
     this.pendingTranscripts.delete(ctx.externalUserId);
     this.pendingCodeChoices.delete(ctx.externalUserId);

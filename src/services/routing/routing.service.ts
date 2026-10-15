@@ -5,7 +5,7 @@ import axios from 'axios';
 import { normalizePersianText } from '../../domain/helper/persianText';
 import { RedisService } from '../redis/redis.service';
 import { ipv4Agent } from './http';
-import { leavesIran } from './iranBorder';
+import { isInIran, leavesIran } from './iranBorder';
 import { decodePolyline, encodePolyline, GeoPoint, haversineKm, maxDeviationKm, pointAtFraction, trimSpur } from './geo';
 
 /** یک مسیر پیشنهادی بین دو نقطه. */
@@ -43,6 +43,9 @@ const TRAFFIC_TTL = 10 * 60;
 const REQUEST_TIMEOUT_MS = 25_000;
 // سیاست Nominatim عمومی: حداکثر یک درخواست در ثانیه
 const NOMINATIM_GAP_MS = 1_100;
+// importance نومیناتیم (۰ تا ۱): کشور ~۰٫۹، شهر بزرگ ~۰٫۶، شهرک ~۰٫۴، روستا/خیابان < ۰٫۳
+const MIN_FOREIGN_IMPORTANCE = 0.3;
+const FOREIGN_IMPORTANCE_MARGIN = 0.15;
 
 const MAX_ROUTES = 3;
 // مسیر جایگزین حداکثر این‌قدر از سریع‌ترین مسیر طولانی‌تر باشد
@@ -136,24 +139,63 @@ export class RoutingService {
   /**
    * مختصات یک مبدأ/مقصد متنی. متن بار آزاد است («تهران - میدان آزادی»، «انبار
    * قم»)؛ اگر کل متن پیدا نشد، تکه‌ی اول (معمولاً اسم شهر) امتحان می‌شود.
+   *
+   * مکان خارجی (ترکیه، هرات، «استانبول اروپایی») با جستجوی ایران به هم‌نام داخلی
+   * می‌رسید (روستای «ترکیه» در خراسان، خیابان استانبول تهران). پس اول همه‌ی شکل‌های اسم
+   * برای یک تطبیق خارجی قوی بررسی می‌شوند و فقط اگر نبود جستجوی ایران (نشان/نومیناتیم).
    */
   async geocode(place: string): Promise<GeoPoint | null> {
+    const key = RedisService.key('routingGeocode', normalizePersianText(place));
+    const cached = await this.cacheGet<{ point: GeoPoint | null }>(key);
+    if (cached) return cached.point;
+
     const candidates = placeCandidates(place);
+    let point: GeoPoint | null = null;
     for (const candidate of candidates) {
-      const key = RedisService.key('routingGeocode', normalizePersianText(candidate));
-      const cached = await this.cacheGet<{ point: GeoPoint | null }>(key);
-      if (cached) {
-        if (cached.point) return cached.point;
-        continue;
-      }
-      const point = await this.lookup(candidate);
-      await this.cacheSet(key, { point }, point ? GEOCODE_TTL : GEOCODE_MISS_TTL);
-      if (point) return point;
+      const abroad = await this.lookupAbroad(candidate);
+      // اسم کامل در جستجوی جهانی هم ایران است («بندر عباس»): تکه‌ی کوتاه‌تر («بندر») امتحان نشود
+      if (abroad === 'iran') break;
+      point = abroad;
+      if (point) break;
     }
-    return null;
+    if (!point) {
+      for (const candidate of candidates) {
+        point = await this.lookupInIran(candidate);
+        if (point) break;
+      }
+    }
+    await this.cacheSet(key, { point }, point ? GEOCODE_TTL : GEOCODE_MISS_TTL);
+    return point;
   }
 
-  private async lookup(place: string): Promise<GeoPoint | null> {
+  /**
+   * نتیجه‌ی جهانی وقتی انتخاب می‌شود که بیرون از ایران، معتبر و آشکارا مهم‌تر از نتیجه‌ی
+   * ایران باشد (کشور/شهر بزرگ در برابر روستا یا خیابان). 'iran' یعنی بهترین نتیجه‌ی جهانی
+   * خودش در ایران است (شهرهای ایران)؛ null یعنی نتیجه‌ی خارجی قابل اعتمادی نیست.
+   */
+  private async lookupAbroad(place: string): Promise<GeoPoint | 'iran' | null> {
+    const abroad = await this.searchNominatim(place, false);
+    if (!abroad) return null;
+    if (isInIran(abroad.point)) return 'iran';
+    if (abroad.importance < MIN_FOREIGN_IMPORTANCE) return null;
+    const home = await this.searchNominatim(place, true);
+    return !home || abroad.importance >= home.importance + FOREIGN_IMPORTANCE_MARGIN ? abroad.point : null;
+  }
+
+  private async searchNominatim(place: string, iranOnly: boolean): Promise<{ point: GeoPoint; importance: number } | null> {
+    try {
+      const results = await this.nominatim<{ lat: string; lon: string; importance?: number }[]>(
+        `/search?q=${encodeURIComponent(place)}${iranOnly ? '&countrycodes=ir' : ''}&format=jsonv2&limit=1&accept-language=fa`,
+      );
+      const first = results[0];
+      return first ? { point: { lat: Number(first.lat), lng: Number(first.lon) }, importance: Number(first.importance ?? 0) } : null;
+    } catch (error) {
+      this.logger.warn(`Geocoding failed for "${place}": ${(error as Error).message}`);
+      return null;
+    }
+  }
+
+  private async lookupInIran(place: string): Promise<GeoPoint | null> {
     if (this.neshanKey) {
       try {
         const data = await this.getJson<{ status?: string; location?: { x: number; y: number } }>(
@@ -165,16 +207,7 @@ export class RoutingService {
         this.logger.warn(`Neshan geocoding failed for "${place}": ${(error as Error).message}`);
       }
     }
-    try {
-      const results = await this.nominatim<{ lat: string; lon: string }[]>(
-        `/search?q=${encodeURIComponent(place)}&countrycodes=ir&format=jsonv2&limit=1&accept-language=fa`,
-      );
-      const first = results[0];
-      return first ? { lat: Number(first.lat), lng: Number(first.lon) } : null;
-    } catch (error) {
-      this.logger.warn(`Geocoding failed for "${place}": ${(error as Error).message}`);
-      return null;
-    }
+    return (await this.searchNominatim(place, true))?.point ?? null;
   }
 
   /** نام شهر/شهرستان نزدیک یک نقطه (برای «از طریق …»). */
@@ -217,14 +250,15 @@ export class RoutingService {
     if (cached) return cached;
 
     const accepted: Candidate[] = [];
-    if (this.neshanKey) {
+    const domestic = isInIran(origin) && isInIran(destination);
+    if (this.neshanFor(origin, destination)) {
       const neshan = await this.neshanRoutes(origin, destination).catch((error: Error) => {
         this.logger.warn(`Neshan direction failed: ${error.message}`);
         return [];
       });
-      for (const candidate of neshan) this.accept(accepted, candidate);
+      for (const candidate of neshan) this.accept(accepted, candidate, domestic);
     }
-    if (accepted.length < MAX_ROUTES) await this.addOsrmRoutes(origin, destination, accepted);
+    if (accepted.length < MAX_ROUTES) await this.addOsrmRoutes(origin, destination, accepted, domestic);
     if (!accepted.length) return [];
 
     const plans = accepted.sort((a, b) => a.plan.durationMin - b.plan.durationMin).map((candidate) => candidate.plan);
@@ -246,6 +280,14 @@ export class RoutingService {
     return plans;
   }
 
+  /**
+   * نشان فقط نقشه‌ی ایران را دارد: برای مبدأ یا مقصد خارجی (ترکیه، عشق‌آباد) مسیر را
+   * تا مرز حساب می‌کرد؛ آن‌ها با OSRM جهانی حساب می‌شوند.
+   */
+  private neshanFor(...points: GeoPoint[]): boolean {
+    return !!this.neshanKey && points.every(isInIran);
+  }
+
   /** آیا ترافیک زنده در دسترس است (فقط با کلید نشان). */
   get hasLiveTraffic(): boolean {
     return !!this.neshanKey;
@@ -257,9 +299,10 @@ export class RoutingService {
    * ترافیک عوض می‌شود؛ فقط ۱۰ دقیقه کش.
    */
   async traffic(points: GeoPoint[]): Promise<RouteTraffic | null> {
-    if (!this.neshanKey || points.length < 2) return null;
+    if (points.length < 2) return null;
     const origin = points[0];
     const destination = points[points.length - 1];
+    if (!this.neshanFor(origin, destination)) return null;
     const waypoints = [pointAtFraction(points, 1 / 3), pointAtFraction(points, 2 / 3)];
     const key = RedisService.key('routingTraffic', [origin, ...waypoints, destination].map(fixed).join(';'));
     const cached = await this.cacheGet<RouteTraffic>(key);
@@ -290,7 +333,7 @@ export class RoutingService {
     if (cached) return cached;
     try {
       let result: DrivingDistance | null = null;
-      if (this.neshanKey) {
+      if (this.neshanFor(from, to)) {
         const route = (await this.neshanDirection(`/v4/direction?type=car&origin=${latLng(from)}&destination=${latLng(to)}`)).routes?.[0];
         const minutes = totalMinutes(route);
         if (route && minutes !== null) {
@@ -310,21 +353,21 @@ export class RoutingService {
     }
   }
 
-  /** مسیر جایگزین وقتی قبول می‌شود که متفاوت، نه خیلی طولانی و (جز اولی) داخل ایران باشد. */
-  private accept(accepted: Candidate[], candidate: Candidate): boolean {
+  /** مسیر جایگزین وقتی قبول می‌شود که متفاوت، نه خیلی طولانی و (جز اولی، برای بار داخلی) داخل ایران باشد. */
+  private accept(accepted: Candidate[], candidate: Candidate, domestic = true): boolean {
     if (accepted.length >= MAX_ROUTES) return false;
     if (accepted.length) {
       const shortest = Math.min(...accepted.map((a) => a.plan.distanceKm));
       if (candidate.plan.distanceKm > shortest * MAX_DETOUR_RATIO) return false;
       // مسیر جایگزین از خاک همسایه (مثلاً ترکمنستان) برای بار داخلی بی‌معنی است
-      if (leavesIran(candidate.points)) return false;
+      if (domestic && leavesIran(candidate.points)) return false;
       if (!this.isDistinct(candidate.points, accepted.map((a) => a.points))) return false;
     }
     accepted.push(candidate);
     return true;
   }
 
-  private async addOsrmRoutes(origin: GeoPoint, destination: GeoPoint, accepted: Candidate[]): Promise<void> {
+  private async addOsrmRoutes(origin: GeoPoint, destination: GeoPoint, accepted: Candidate[], domestic = true): Promise<void> {
     let primary: OsrmResponse;
     try {
       primary = await this.osrm([origin, destination], { alternatives: '3' });
@@ -332,7 +375,7 @@ export class RoutingService {
       this.logger.warn(`OSRM route failed: ${(error as Error).message}`);
       return;
     }
-    for (const route of primary.routes ?? []) this.accept(accepted, osrmCandidate(route, decodePolyline(route.geometry)));
+    for (const route of primary.routes ?? []) this.accept(accepted, osrmCandidate(route, decodePolyline(route.geometry)), domestic);
     if (!accepted.length || accepted.length >= MAX_ROUTES) return;
 
     const fastest = accepted[0].points;
@@ -340,7 +383,7 @@ export class RoutingService {
       this.viaCandidates(origin, destination, fastest).map((via) => this.viaRoute(origin, via, destination)),
     );
     for (const candidate of vias) {
-      if (candidate) this.accept(accepted, osrmCandidate(candidate.route, candidate.points));
+      if (candidate) this.accept(accepted, osrmCandidate(candidate.route, candidate.points), domestic);
     }
   }
 
@@ -470,7 +513,9 @@ export class RoutingService {
 export function placeCandidates(place: string): string[] {
   const full = place.trim();
   const first = full.split(/[-–—،,()/|]/)[0]?.trim();
-  return [...new Set([full, first].filter((value): value is string => !!value && value.length >= 2))];
+  // «استانبول اروپایی»، «مشهد انبار ۲» → «استانبول»، «مشهد» (فقط اگر اسم کامل پیدا نشد)
+  const firstWord = first?.split(/\s+/)[0];
+  return [...new Set([full, first, firstWord].filter((value): value is string => !!value && value.length >= 2))];
 }
 
 /** جاده‌های اصلی OSRM: شماره‌ی جاده (ref) یا نامش، به ترتیب طول. */

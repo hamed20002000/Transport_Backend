@@ -38,6 +38,13 @@ import {
   BotCallback,
 } from '../../../domain/constants/bot/BotCallback';
 
+const DOCUMENT_TYPES: Record<string, string> = {
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  xls: 'application/vnd.ms-excel',
+  pdf: 'application/pdf',
+};
+const documentType = (fileName: string) => DOCUMENT_TYPES[fileName.split('.').pop()?.toLowerCase() ?? ''] ?? 'application/octet-stream';
+
 @Injectable()
 export class MessengerBotService implements OnModuleInit {
   private readonly logger =
@@ -208,6 +215,8 @@ export class MessengerBotService implements OnModuleInit {
     if (message.text && await this.handleChannelText(chatId, externalUserId, message.text)) return;
     // مرحله‌های گفتگوهای ثبت‌شده (مثل فرم ثبت بار)
     if (message.text && await this.handleDialogText(chatId, externalUserId, message.text)) return;
+    // فایلی که گفتگو منتظرش است (مثل اکسل بارها)
+    if (message.document && await this.handleDialogDocument(chatId, externalUserId, message.document)) return;
 
     // «گزینه ۲» یا متن دقیق یک دکمه = زدن همان دکمه؛ بقیه به agent
     if (message.text && !command?.startsWith('/') && await this.selectMenuByText(chatId, externalUserId, message.text)) return;
@@ -318,9 +327,14 @@ export class MessengerBotService implements OnModuleInit {
       return;
     }
 
-    if (!fromText) {
+    // دکمه‌ی کیبورد پایین روبیکا (polling) هم مثل متن تایپ‌شده پیامی از کاربر زیر
+    // منوست؛ ویرایش منو جواب را بالای آن می‌برد.
+    const belowMenu = fromText || (query as { fromChatKeypad?: boolean }).fromChatKeypad === true;
+    if (!belowMenu) {
       // منوی بعدی همین پیام را ویرایش می‌کند تا پیام‌ها در چت زیاد نشوند.
       this.keyboard.useCallbackMessage(chatId, query.message!.message_id);
+    }
+    if (!fromText) {
 
       /*
        * Telegram spinner را متوقف می‌کنیم.
@@ -560,7 +574,7 @@ export class MessengerBotService implements OnModuleInit {
       // منوی بعدی پیام تازه است، نه ویرایش پیام قیمت (که هر ۳۰ دقیقه ویرایش می‌شود)
       this.keyboard.clearCallbackMessage(chatId);
       try {
-        if (data === MarketAction.Refresh && query.message && !fromText) {
+        if (data === MarketAction.Refresh && query.message && !belowMenu) {
           await this.market.refresh(chatId, query.message.message_id);
           return;
         }
@@ -844,6 +858,11 @@ export class MessengerBotService implements OnModuleInit {
     return this.sendNotification(chatId, text, actions.length ? { reply_markup: this.inlineActions(actions) } : undefined);
   }
 
+  /** پیام صوتی ogg/opus (مثلاً خواندن بار اعلام‌شده برای راننده). */
+  async sendVoiceNotification(chatId: string, audio: Buffer, caption?: string): Promise<void> {
+    await this.requireBot().sendVoice(chatId, audio, caption);
+  }
+
   /** پین نقشه (مثلاً موقعیت راننده برای شرکت). */
   async sendLocation(chatId: string, latitude: number, longitude: number): Promise<void> {
     await this.requireBot().sendLocation(chatId, latitude, longitude);
@@ -1064,6 +1083,31 @@ export class MessengerBotService implements OnModuleInit {
     return false;
   }
 
+  /** فایل کاربر به اولین گفتگویی که منتظرش است؛ فایل فقط وقتی همان گفتگو بخواهد دانلود می‌شود. */
+  private async handleDialogDocument(chatId: string, externalUserId: string, document: TelegramBot.Document): Promise<boolean> {
+    const userId = await this.botIdentityService.getUserId(externalUserId);
+    if (!userId) return false;
+    const ctx = { platform: MessengerPlatform.Bot, externalUserId, userId };
+    const file = {
+      fileName: document.file_name ?? 'file',
+      size: document.file_size,
+      download: () => this.downloadToBuffer(document.file_id),
+    };
+    for (const dialog of this.dialogs.all()) {
+      const reply = await dialog.handleDocument?.(ctx, file);
+      if (!reply) continue;
+      await this.sendDialogReply(chatId, externalUserId, reply);
+      return true;
+    }
+    return false;
+  }
+
+  private async downloadToBuffer(fileId: string): Promise<Buffer> {
+    const chunks: Buffer[] = [];
+    for await (const chunk of this.requireBot().getFileStream(fileId)) chunks.push(Buffer.from(chunk));
+    return Buffer.concat(chunks);
+  }
+
   /** وضعیت اشتراک و آخرین خرید؛ همان متنی که agent برای «اشتراکم چیه» می‌دهد. */
   private async showMySubscription(chatId: string, externalUserId: string): Promise<void> {
     const userId = await this.botIdentityService.getUserId(externalUserId);
@@ -1101,6 +1145,15 @@ ${order.text}`, {
         await this.multiBot.sendPhoto(chatId, reply.photo.image, reply.photo.caption);
       } catch (error) {
         this.logger.warn(`Bot sendPhoto failed: ${this.getErrorMessage(error)}`);
+      }
+    }
+    if (reply.document) {
+      // منو باید زیر فایل بیاید، مثل عکس
+      this.keyboard.clearCallbackMessage(chatId);
+      try {
+        await this.multiBot.sendDocument(chatId, reply.document.file, reply.document.fileName, documentType(reply.document.fileName), reply.document.caption);
+      } catch (error) {
+        this.logger.warn(`Bot sendDocument failed: ${this.getErrorMessage(error)}`);
       }
     }
     if (reply.voice) {

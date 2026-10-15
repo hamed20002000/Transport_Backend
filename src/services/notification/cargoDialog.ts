@@ -4,11 +4,13 @@ import { I18nService } from 'nestjs-i18n';
 import { PHONE_PATTERN, cargoLine, fa } from 'src/application/services/agent/tools/toolKit';
 import { BotCallback } from 'src/domain/constants/bot/BotCallback';
 import { CargoAlertFilter } from 'src/domain/entities/notification/CargoAlertFilter';
-import { CargoListingStatus } from 'src/domain/enums/notification';
+import { CargoListingStatus, CargoTripType } from 'src/domain/enums/notification';
+import { persianTime } from 'src/domain/helper/persianDate';
+import { TRIP_TYPE_LABELS } from './cargoTripType';
 import { parsePriceToman } from 'src/domain/helper/price';
 import { IUserRepository } from 'src/domain/repositories/IUserRepopsitory';
 import { USER_REPOSITORY } from 'src/domain/repositories/repository.tokens';
-import { BotAction, BotContext, BotDialog, BotDialogRegistry, BotReply } from '../messengerBot/core/botDialog';
+import { BotAction, BotContext, BotDialog, BotDialogRegistry, BotDocument, BotReply } from '../messengerBot/core/botDialog';
 import { RedisService } from '../redis/redis.service';
 import { CargoAlertFilterInput, CargoAlertFilterService } from './cargoAlertFilter.service';
 import { CargoListingService } from './cargoListing.service';
@@ -18,6 +20,7 @@ import { readFile } from 'node:fs/promises';
 import { CargoNotificationService } from './cargoNotification.service';
 import { TripAction } from 'src/domain/constants/bot/TripAction';
 import { buildCargoListingText, CargoListingFields } from './cargoNotificationText';
+import { CargoExcelService, ExcelCargoRow, MAX_EXCEL_BYTES, MAX_EXCEL_ROWS } from './cargoExcel.service';
 
 const PREFIX = 'cg:';
 const Action = {
@@ -52,6 +55,16 @@ const Action = {
   FilterPick: `${PREFIX}fp:`, // + index در options جلسه (نام شرکت ممکن است از ۶۴ بایت callback بیشتر باشد)
   FilterPickDone: `${PREFIX}fok`,
   FilterCancel: `${PREFIX}fx`,
+  // راننده: روشن/خاموش کردن خواندن صوتی بارهای اعلام‌شده
+  CargoVoice: `${PREFIX}fs`,
+  // راننده: نوع خودش (داخلی/صادراتی/وارداتی)
+  DriverTripType: `${PREFIX}fk:`, // + CargoTripType
+  // شرکت: «📣 اعلام همین الان» برای بار در صف اعلام خودکار
+  AnnounceNow: `${PREFIX}nw:`, // + listingId:status:page
+  // ثبت چند بار با فایل اکسل
+  ExcelStart: `${PREFIX}xs`,
+  ExcelConfirm: `${PREFIX}xok`,
+  ExcelCancel: `${PREFIX}xx`,
 } as const;
 
 const COMPANY_ROLES = ['COMPANY', 'COMPANY_ADMIN'];
@@ -135,7 +148,19 @@ interface AssignSession {
   searching?: boolean;
 }
 
-type Session = CargoSession | FilterSession | AssignSession;
+/** «ثبت چند بار با اکسل»: منتظر فایل، یا (rows) منتظر تأیید اعلام بارهای بررسی‌شده. */
+interface ExcelSession {
+  kind: 'excel';
+  rows?: ExcelCargoRow[];
+}
+
+// در پیام ربات فقط چند بار/ایراد اول؛ بقیه با تعداد
+const EXCEL_SHOWN = 10;
+
+type Session = CargoSession | FilterSession | AssignSession | ExcelSession;
+
+const isCargoSession = (session: Session | null): session is CargoSession =>
+  !!session && session.kind !== 'filter' && session.kind !== 'assign' && session.kind !== 'excel';
 
 /** ردیف‌بندی دکمه‌ها: هر add یک ردیف و grid چند ردیف دوتایی. */
 class Rows {
@@ -181,6 +206,7 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     private readonly redis: RedisService,
     private readonly i18n: I18nService,
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
+    private readonly excel: CargoExcelService,
   ) {}
 
   onModuleInit(): void {
@@ -219,6 +245,10 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     if (!session) return null;
 
     const value = text.trim();
+    if (session.kind === 'excel') {
+      // منتظر فایل است؛ متن دیگر مال بخش‌های دیگر (agent، منو) است
+      return CANCEL_WORDS.includes(value.toLowerCase()) ? this.excelCancel(ctx) : null;
+    }
     if (session.kind === 'assign') {
       if (!session.searching) return null;
       if (CANCEL_WORDS.includes(value.toLowerCase())) return this.assignList(ctx, { ...session, searching: false });
@@ -301,21 +331,31 @@ export class CargoDialog implements BotDialog, OnModuleInit {
       if (id === Action.AssignConfirm) return this.assignConfirm(ctx, assign);
       return this.assignDetail(ctx, assign, Number(id.slice(Action.AssignPick.length)));
     }
+    if (id.startsWith(Action.AnnounceNow)) {
+      const [listingId, mine, page] = id.slice(Action.AnnounceNow.length).split(':');
+      const announced = await this.listings.announceNow(ctx.userId, listingId);
+      return this.myCargoView(ctx, this.mineStatus(mine), this.page(page), this.t('mine.announced', { code: announced.code, recipients: fa(announced.recipients) }));
+    }
     if (id.startsWith(Action.Reopen))
       return this.changeStatus(ctx, id.slice(Action.Reopen.length), CargoListingStatus.Open);
+
+    if (id === Action.ExcelStart) return this.excelStart(ctx);
+    if (id === Action.ExcelConfirm) return this.excelConfirm(ctx);
+    if (id === Action.ExcelCancel) return this.excelCancel(ctx);
 
     if (id === Action.Create || id === Action.Restart) {
       const current = await this.getSession(ctx);
       // «از اول» در اعلام بار یعنی همان پیشنهاد را دوباره ویرایش کن.
-      if (id === Action.Restart && current?.kind !== 'filter' && current?.kind !== 'assign' && current?.notificationId) {
+      if (id === Action.Restart && isCargoSession(current) && current.notificationId) {
         return this.startAnnounce(ctx, current.notificationId);
       }
       return this.startCreate(ctx);
     }
 
-    const session = await this.getSession(ctx);
-    if (id === Action.Cancel) return this.cancelCreate(ctx, session?.kind === 'filter' || session?.kind === 'assign' ? null : session);
-    if (!session || session.kind === 'filter' || session.kind === 'assign') return this.suggestionsView(ctx, 'a', 1);
+    const stored = await this.getSession(ctx);
+    const session = isCargoSession(stored) ? stored : null;
+    if (id === Action.Cancel) return this.cancelCreate(ctx, session);
+    if (!session) return this.suggestionsView(ctx, 'a', 1);
     if (id === Action.Skip && session.step && this.canSkip(session)) return this.nextStep(ctx, session);
     if (id === Action.Edit && !session.step) return this.startEdit(ctx, session);
     if (id === Action.Confirm && !session.step) return this.publish(ctx, session);
@@ -324,6 +364,8 @@ export class CargoDialog implements BotDialog, OnModuleInit {
 
   private async routeFilters(ctx: BotContext, id: string): Promise<BotReply | null> {
     if (id === Action.Filters) return this.filtersView(ctx);
+    if (id === Action.CargoVoice) return this.toggleCargoVoice(ctx);
+    if (id.startsWith(Action.DriverTripType)) return this.setDriverTripType(ctx, id.slice(Action.DriverTripType.length));
     if (id === Action.FilterNew) return this.startNewFilter(ctx);
     if (id.startsWith(Action.FilterView)) return this.filterView(ctx, id.slice(Action.FilterView.length));
     if (id.startsWith(Action.FilterToggle)) return this.toggleFilter(ctx, id.slice(Action.FilterToggle.length));
@@ -491,11 +533,16 @@ export class CargoDialog implements BotDialog, OnModuleInit {
             code: item.code,
             route: cargoLine(item),
             status: this.t(item.status === CargoListingStatus.Taken ? 'mine.taken' : 'mine.open'),
-          }),
+          }) +
+            `\n${this.t('mine.tripType', { type: TRIP_TYPE_LABELS[item.tripType] })}` +
+            (item.status === CargoListingStatus.Open && item.announcedAt === null ? `\n${this.t('mine.queued')}` : ''),
         )
         .join('\n\n');
       for (const item of result.items) {
         const target = `${item.id}:${status}:${page}`;
+        if (item.status === CargoListingStatus.Open && item.announcedAt === null) {
+          toggles.push({ id: `${Action.AnnounceNow}${target}`, label: this.t('actions.announceNow', { code: item.code }) });
+        }
         toggles.push(
           item.status === CargoListingStatus.Taken
             ? { id: `${Action.Reopen}${target}`, label: this.t('actions.reopen', { code: item.code }) }
@@ -661,9 +708,21 @@ export class CargoDialog implements BotDialog, OnModuleInit {
       id: `${Action.FilterView}${filter.id}`,
       label: this.t('actions.filter', { index: fa(index + 1) }),
     }));
+    const voice = driver ? await this.profiles.wantsCargoVoice(ctx.userId) : null;
+    const tripType = driver ? await this.profiles.tripTypeOf(ctx.userId) : null;
     const rows = new Rows()
       .grid(open)
-      .add({ id: Action.FilterNew, label: this.t('actions.newFilter') })
+      .add({ id: Action.FilterNew, label: this.t('actions.newFilter') });
+    if (tripType) {
+      rows.add(
+        ...Object.values(CargoTripType).map((type) => ({
+          id: `${Action.DriverTripType}${type}`,
+          label: this.selected(TRIP_TYPE_LABELS[type], type === tripType),
+        })),
+      );
+    }
+    if (voice !== null) rows.add({ id: Action.CargoVoice, label: this.t(voice ? 'actions.cargoVoiceOff' : 'actions.cargoVoiceOn') });
+    rows
       .add(
         driver
           ? { id: `${Action.OpenCargo}1`, label: this.t('actions.findCargo') }
@@ -671,9 +730,33 @@ export class CargoDialog implements BotDialog, OnModuleInit {
         this.back(),
       );
     return {
-      text: [notice, this.t('filters.title'), this.t(driver ? 'filters.driverHint' : 'filters.hint'), body].filter(Boolean).join('\n\n'),
+      text: [
+        notice,
+        this.t('filters.title'),
+        this.t(driver ? 'filters.driverHint' : 'filters.hint'),
+        body,
+        tripType ? this.t('filters.tripType', { type: TRIP_TYPE_LABELS[tripType] }) : null,
+        voice === null ? null : this.t(voice ? 'filters.cargoVoiceOn' : 'filters.cargoVoiceOff'),
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
       actions: rows.actions,
     };
+  }
+
+  /** نوع راننده؛ بار اعلام‌شده فقط به راننده‌های همان نوع می‌رسد. */
+  private async setDriverTripType(ctx: BotContext, value: string): Promise<BotReply> {
+    const type = Object.values(CargoTripType).find((item) => item === value);
+    if (!type || !(await this.isDriver(ctx))) return this.filtersView(ctx);
+    await this.profiles.setTripType(ctx.userId, type);
+    return this.filtersView(ctx, this.t('filters.tripTypeSaved', { type: TRIP_TYPE_LABELS[type] }));
+  }
+
+  /** فقط راننده بار اعلام‌شده را با صدا می‌گیرد؛ شرکت این دکمه را نمی‌بیند. */
+  private async toggleCargoVoice(ctx: BotContext): Promise<BotReply> {
+    if (!(await this.isDriver(ctx))) return this.filtersView(ctx);
+    await this.profiles.setCargoVoice(ctx.userId, !(await this.profiles.wantsCargoVoice(ctx.userId)));
+    return this.filtersView(ctx);
   }
 
   private async filterView(ctx: BotContext, filterId: string, notice?: string): Promise<BotReply> {
@@ -962,6 +1045,91 @@ export class CargoDialog implements BotDialog, OnModuleInit {
 
   //#region ----------- Company: create / announce cargo (form) -----------------
 
+  //#region ----------- Company: many loads from an Excel file -------------------
+
+  /** فایل نمونه فرستاده می‌شود و گفتگو منتظر فایل پرشده می‌ماند. */
+  private async excelStart(ctx: BotContext): Promise<BotReply> {
+    await this.saveSession(ctx, { kind: 'excel' });
+    return {
+      document: { file: this.excel.template(), fileName: 'cargo-template.xlsx' },
+      text: this.t('excel.start', { max: fa(MAX_EXCEL_ROWS) }),
+      actions: new Rows().add({ id: Action.ExcelCancel, label: this.t('actions.cancel') }).actions,
+    };
+  }
+
+  async handleDocument(ctx: BotContext, document: BotDocument): Promise<BotReply | null> {
+    const session = await this.getSession(ctx);
+    if (session?.kind !== 'excel') return null;
+    const retry = new Rows().add({ id: Action.ExcelCancel, label: this.t('actions.cancel') }).actions;
+    if (!/\.(xlsx|xls)$/i.test(document.fileName)) return { text: this.t('excel.notExcel'), actions: retry };
+    if ((document.size ?? 0) > MAX_EXCEL_BYTES) return { text: this.t('excel.tooBig'), actions: retry };
+
+    let checked: Awaited<ReturnType<CargoExcelService['check']>>;
+    try {
+      const file = await document.download();
+      if (file.length > MAX_EXCEL_BYTES) return { text: this.t('excel.tooBig'), actions: retry };
+      checked = await this.excel.check(ctx.userId, file);
+    } catch (error) {
+      // پیام فارسی بررسی فایل (ستون نیست، فایل خالی، بیش از حد ردیف)
+      if (error instanceof BadRequestException) return { text: `${error.message}\n\n${this.t('excel.sendAgain')}`, actions: retry };
+      throw error;
+    }
+
+    const { rows, errors } = checked;
+    if (errors.length) {
+      await this.saveSession(ctx, { kind: 'excel' });
+      const lines = errors.slice(0, EXCEL_SHOWN).map((error) =>
+        `${this.t('excel.errorRow', { row: fa(error.row) })}${error.column ? ` · ${error.column}` : ''}: ${error.message}`,
+      );
+      return {
+        text: [this.t('excel.hasErrors'), lines.join('\n'), this.more(errors.length), this.t('excel.sendAgain')].filter(Boolean).join('\n\n'),
+        actions: retry,
+      };
+    }
+
+    await this.saveSession(ctx, { kind: 'excel', rows });
+    const lines = rows.slice(0, EXCEL_SHOWN).map((row, i) => `${fa(i + 1)}. ${cargoLine(row.fields)}`);
+    return {
+      text: [this.t('excel.preview', { count: fa(rows.length) }), lines.join('\n'), this.more(rows.length)].filter(Boolean).join('\n\n'),
+      actions: new Rows()
+        .add({ id: Action.ExcelConfirm, label: this.t('actions.excelConfirm', { count: fa(rows.length) }) })
+        .add({ id: Action.ExcelCancel, label: this.t('actions.cancel') }).actions,
+    };
+  }
+
+  private async excelConfirm(ctx: BotContext): Promise<BotReply> {
+    const session = await this.getSession(ctx);
+    if (session?.kind !== 'excel' || !session.rows?.length) return this.myCargoView(ctx, 'a', 1);
+    // پیش از انتشار پاک می‌شود تا زدن دوباره‌ی دکمه بارها را دوباره منتشر نکند
+    await this.clearSession(ctx);
+    const created = await this.excel.publish(ctx.userId, session.rows);
+    const codes = created.slice(0, EXCEL_SHOWN).map((item) => `${item.code ?? ''} · ${item.origin} ⬅️ ${item.destination}`);
+    return {
+      text: [
+        this.t(created.some((item) => item.pending) ? 'excel.queued' : 'excel.done', { count: fa(created.length) }),
+        codes.join('\n'),
+        this.more(created.length),
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+      actions: new Rows()
+        .add({ id: `${Action.MyCargo}a:1`, label: this.t('tabs.mine') })
+        .add({ id: Action.Create, label: this.t('actions.create') }, this.back()).actions,
+    };
+  }
+
+  private async excelCancel(ctx: BotContext): Promise<BotReply> {
+    await this.clearSession(ctx);
+    return this.myCargoView(ctx, 'a', 1, this.t('excel.cancelled'));
+  }
+
+  /** «… و ۵ مورد دیگر» وقتی فقط EXCEL_SHOWN مورد اول نشان داده شده */
+  private more(total: number): string {
+    return total > EXCEL_SHOWN ? this.t('excel.more', { count: fa(total - EXCEL_SHOWN) }) : '';
+  }
+
+  //#endregion
+
   private async startCreate(ctx: BotContext): Promise<BotReply> {
     const session: CargoSession = { kind: 'cargo', step: 'origin', draft: {} };
     await this.saveSession(ctx, session);
@@ -1022,6 +1190,10 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     if (this.canSkip(session)) {
       rows.add({ id: Action.Skip, label: this.t(current ? 'actions.keep' : 'actions.skip') });
     }
+    // بار دستی، سؤال اول: به‌جای فرم، چند بار با فایل اکسل
+    if (!session.notificationId && !session.editing && step === STEPS[0]) {
+      rows.add({ id: Action.ExcelStart, label: this.t('actions.excel') });
+    }
     rows.add({ id: Action.Cancel, label: this.t('actions.cancel') });
     const ask = this.t(`create.ask.${step}`);
     const text = [
@@ -1052,7 +1224,7 @@ export class CargoDialog implements BotDialog, OnModuleInit {
 
   private async publish(ctx: BotContext, session: CargoSession): Promise<BotReply> {
     const fields = await this.fields(ctx, session.draft);
-    let created: { code?: string | null; recipients: number };
+    let created: { code?: string | null; recipients: number; pending?: boolean; nextAnnounceAt?: Date | null; tripType?: CargoTripType };
     if (session.notificationId) {
       try {
         created = await this.listings.publish(ctx.userId, session.notificationId, fields);
@@ -1066,10 +1238,12 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     }
     await this.clearSession(ctx);
     return {
-      text: this.t(session.notificationId ? 'announce.done' : 'create.created', {
-        code: created.code ?? '',
-        recipients: fa(created.recipients),
-      }),
+      text: created.pending
+        ? this.t('create.queued', { code: created.code ?? '', time: created.nextAnnounceAt ? persianTime(created.nextAnnounceAt) : '' })
+        : this.t(session.notificationId ? 'announce.done' : 'create.created', {
+            code: created.code ?? '',
+            recipients: fa(created.recipients),
+          }) + (created.tripType ? `\n${this.t('create.tripType', { type: TRIP_TYPE_LABELS[created.tripType] })}` : ''),
       actions: new Rows()
         .add(
           { id: `${Action.Suggestions}a:1`, label: this.t('tabs.suggestions') },

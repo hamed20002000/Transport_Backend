@@ -68,3 +68,6 @@ uploads
 
 # عکس‌های خصوصی راننده (ماشین/پلاک)
 private-uploads
+
+# فایل‌های تست commit نمی‌شوند
+*.spec.ts

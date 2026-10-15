@@ -1,6 +1,7 @@
 import { Column, Entity, JoinColumn, OneToOne, PrimaryColumn, UpdateDateColumn } from 'typeorm';
 
 import { User } from '../auth/User';
+import { CargoTripType } from '../../enums/notification';
 
 const decimalNumber = {
   to: (value?: number | null) => value,
@@ -84,6 +85,14 @@ export class DriverProfile {
   // عکس خود راننده؛ شرکت هنگام سپردن بار می‌بیند
   @Column({ type: 'varchar', length: 60, nullable: true })
   facePhoto?: string | null;
+
+  // داخلی، صادراتی یا وارداتی؛ بار اعلام‌شده فقط به راننده‌های همان نوع می‌رسد
+  @Column({ type: 'varchar', length: 10, default: CargoTripType.Domestic })
+  tripType!: CargoTripType;
+
+  // بار اعلام‌شده در پیام‌رسان‌ها با صدا هم خوانده شود (راننده پشت فرمان)
+  @Column({ type: 'boolean', default: true })
+  cargoVoice!: boolean;
 
   @UpdateDateColumn()
   updatedAt!: Date;

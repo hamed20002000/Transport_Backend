@@ -16,10 +16,12 @@ export const KEY_PREFIXES = {
   locationRequest: 'messenger:location-request:v1',
   whatsappMenu: 'whatsapp:menu:v1',
   whatsappLive: 'whatsapp:live-location:v1',
-  routingGeocode: 'routing:geocode:v1',
+  // v3: مکان خارجی به هم‌نام داخل ایران نمی‌رسد و کل اسم یکجا کش می‌شود (نتیجه‌های قبلی دور ریخته می‌شوند)
+  routingGeocode: 'routing:geocode:v4',
   routingPlace: 'routing:place:v1',
-  routingRoutes: 'routing:routes:v2',
-  routingDistance: 'routing:distance:v1',
+  // v3: مسیر مبدأ/مقصد خارجی با OSRM جهانی (نشان تا مرز حساب می‌کرد)
+  routingRoutes: 'routing:routes:v3',
+  routingDistance: 'routing:distance:v2',
   routingTraffic: 'routing:traffic:v1',
   fuelStationChunk: 'routing:fuel-chunk:v1',
   rubikaPollOffset: 'rubika:poll-offset:v1',
@@ -27,6 +29,8 @@ export const KEY_PREFIXES = {
   marketPrices: 'market:prices:v1',
   marketRefreshLock: 'market:refresh-lock:v1',
   marketLiveMessages: 'market:live-messages:v1',
+  // وضعیت مرزها از borderpark.ir (فهرست، و صف/اطلاعیه/تیرپارک هر مرز)
+  borderData: 'border:data:v1',
 } as const;
 
 export type RedisKeyParts = {
@@ -58,6 +62,7 @@ export type RedisKeyParts = {
   marketPrices: [];
   marketRefreshLock: [];
   marketLiveMessages: [];
+  borderData: [kind: string, border: string];
 };
 
 /** کانال‌های pub/sub بین نمونه‌های برنامه. */

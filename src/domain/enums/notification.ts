@@ -27,3 +27,19 @@ export enum CargoRequestStatus {
   Cancelled = 'CANCELLED',
   Delivered = 'DELIVERED',
 }
+
+/**
+ * نوع بار و راننده: داخلی (داخل ایران)، صادراتی (از ایران به خارج)، وارداتی (از خارج به ایران).
+ * بار اعلام‌شده فقط به راننده‌های همان نوع می‌رسد.
+ */
+export enum CargoTripType {
+  Domestic = 'DOMESTIC',
+  Export = 'EXPORT',
+  Import = 'IMPORT',
+}
+
+/** اعلام بار به راننده‌ها: دستی (دکمه‌ی شرکت) یا خودکار هر چند ساعت. */
+export enum CargoAnnounceMode {
+  Manual = 'MANUAL',
+  Auto = 'AUTO',
+}

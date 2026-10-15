@@ -42,6 +42,7 @@ import { DriverVerificationService } from 'src/services/driver/driverVerificatio
 import { CargoRequestRepository } from 'src/infrastructure/repositories/notification/cargoRequest.repository';
 import { CargoInsightService } from 'src/services/notification/cargoInsight.service';
 import { CargoListingService } from 'src/services/notification/cargoListing.service';
+import { CargoVoiceService } from 'src/services/notification/cargoVoice.service';
 import { CargoTripService } from 'src/services/notification/cargoTrip.service';
 import { GeoPoint } from 'src/services/routing/geo';
 import { RoutingService } from 'src/services/routing/routing.service';
@@ -89,6 +90,7 @@ export class DriverController {
     private readonly routing: RoutingService,
     private readonly speech: TextToSpeechService,
     private readonly i18n: I18nService,
+    private readonly cargoVoice: CargoVoiceService,
   ) {}
 
   @Get('profile')
@@ -191,6 +193,18 @@ export class DriverController {
     const stations = (await this.insight.fuelAlong(route)).stations.filter((station) => station.diesel !== false);
     const text = routeStationsSpeech((key, args) => this.i18n.translate(`trip.${key}`, { lang: 'fa', args }) as string, stations);
     return new StreamableFile(await this.speech.synthesize(text, 'mp3'), { type: 'audio/mpeg', disposition: 'inline' });
+  }
+
+  // خود بار با صدا (mp3)، همان متنی که با اعلان بار در پیام‌رسان‌ها می‌رود
+  @Get('loads/:id/voice')
+  async loadVoice(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string) {
+    currentDriverId(request);
+    if (!this.cargoVoice.available) throw new ServiceUnavailableException('Text to speech is not available.');
+    const listing = await this.listings.findById(id);
+    if (!listing) throw new NotFoundException('Cargo listing not found.');
+    const audio = await this.cargoVoice.listingVoice(listing, 'mp3');
+    if (!audio) throw new ServiceUnavailableException('Text to speech failed.');
+    return new StreamableFile(audio, { type: 'audio/mpeg', disposition: 'inline' });
   }
 
   @Get('loads/:id/return-loads')

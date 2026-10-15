@@ -14,6 +14,8 @@ export const BotCallback = {
   DriverReturnLoads: 'driver_return_loads',
   DriverMyLocation: 'driver_my_location',
   DriverSendLocation: 'driver_send_location',
+  // وضعیت صف مرزهای زمینی (BorderDialog)
+  Borders: 'borders',
 
   CompanyCreateLoad: 'company_create_load',
   CompanyLoads: 'company_loads',

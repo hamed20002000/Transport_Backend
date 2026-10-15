@@ -74,8 +74,29 @@ async function bootstrap() {
   // WhatsApp socket closes and its session is saved before the process exits.
   app.enableShutdownHooks();
 
-  await app.listen(process.env.PORT ?? 3333);
+  await listenWithRetry(app, process.env.PORT ?? 3333);
 }
-bootstrap();
+
+// با --watch پروسه‌ی قبلی تا چند ثانیه (ذخیره‌ی نشست واتساپ) پورت را نگه می‌دارد؛
+// بدون تلاش دوباره listen با EADDRINUSE شکست می‌خورد و API بالا نمی‌آمد.
+async function listenWithRetry(app: Awaited<ReturnType<typeof NestFactory.create>>, port: number | string, attempts = 15) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await app.listen(port);
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== 'EADDRINUSE' || attempt >= attempts) throw error;
+      new Logger('Bootstrap').warn(`Port ${port} is still in use; retrying (${attempt}/${attempts})`);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+}
+
+// handler بالا خطاها را فقط لاگ می‌کند؛ اگر راه‌اندازی شکست بخورد پروسه نباید
+// نیمه‌جان (ربات‌ها روشن، API خاموش) بماند.
+bootstrap().catch((error: unknown) => {
+  new Logger('Bootstrap').error('Application failed to start', error instanceof Error ? error.stack : String(error));
+  process.exit(1);
+});
 //npm run typeorm migration:generate -n user_banner_image
 //npm run typeorm migration:run  

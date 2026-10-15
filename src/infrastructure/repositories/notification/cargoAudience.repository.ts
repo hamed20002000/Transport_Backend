@@ -7,8 +7,10 @@ import { CompanyUser } from '../../../domain/entities/auth/CompanyUser';
 import { RecordStatus } from '../../../domain/enums/RecordStatus';
 import { CustomerType } from '../../../domain/enums/company.enum';
 import { SubscriptionStatus } from '../../../domain/enums/subscription';
+import { CargoTripType } from '../../../domain/enums/notification';
 
 export const DRIVER_ROLE = 'DRIVER';
+export const COMPANY_ROLES = ['COMPANY', 'COMPANY_ADMIN'];
 
 export interface PublisherContact {
   mobile: string | null;
@@ -21,8 +23,11 @@ export interface PublisherContact {
 export class CargoAudienceRepository {
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
-  /** راننده‌های فعال؛ با requireSubscription فقط آن‌هایی که اشتراک فعال دارند. */
-  async findDriverIds(requireSubscription: boolean, now = new Date()): Promise<string[]> {
+  /**
+   * راننده‌های فعال؛ با requireSubscription فقط آن‌هایی که اشتراک فعال دارند و با tripType
+   * فقط راننده‌های همان نوع (راننده‌ی بدون پروفایل داخلی حساب می‌شود).
+   */
+  async findDriverIds(requireSubscription: boolean, tripType?: CargoTripType, now = new Date()): Promise<string[]> {
     const query = this.dataSource
       .getRepository(User)
       .createQueryBuilder('user')
@@ -37,8 +42,13 @@ export class CargoAudienceRepository {
           'AND subscription.startAt <= :now AND subscription.expireAt > :now',
       );
     }
+    if (tripType) {
+      query
+        .leftJoin('DriverProfile', 'profile', 'profile.userId = user.id')
+        .andWhere(`COALESCE(profile.tripType, '${CargoTripType.Domestic}') = :tripType`, { tripType });
+    }
     const rows = await query
-      .where('user.recordStatus = :active')
+      .andWhere('user.recordStatus = :active')
       .setParameters({
         driver: DRIVER_ROLE,
         active: RecordStatus.Active,
@@ -48,6 +58,22 @@ export class CargoAudienceRepository {
       .getRawMany<{ id: string }>();
 
     return rows.map((row) => row.id);
+  }
+
+  /** از میان این کاربرها، آن‌هایی که حساب فعال و نقش فعال شرکت دارند. */
+  async filterCompanyUserIds(userIds: string[]): Promise<string[]> {
+    if (!userIds.length) return [];
+    const rows = await this.dataSource
+      .getRepository(User)
+      .createQueryBuilder('user')
+      .select('DISTINCT user.id', 'id')
+      .innerJoin('user.userRoles', 'userRole')
+      .innerJoin('userRole.role', 'role', 'role.name IN (:...companyRoles) AND role.recordStatus = :active')
+      .where('user.id IN (:...userIds) AND user.recordStatus = :active')
+      .setParameters({ companyRoles: COMPANY_ROLES, userIds, active: RecordStatus.Active })
+      .getRawMany<{ id: string }>();
+    const companies = new Set(rows.map((row) => row.id));
+    return userIds.filter((id) => companies.has(id));
   }
 
   /** موبایل ثبت‌نام کاربر و شرکت حمل‌ونقلی که به آن وصل است (اگر باشد). */

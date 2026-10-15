@@ -26,6 +26,7 @@ import { DataSource } from 'typeorm';
 import { AgentGateway } from 'src/application/services/agent/agent.gateway';
 import { FunctionCallService } from 'src/application/services/agent/services/functioncall.service';
 import { SpeechToTextService } from 'src/application/services/agent/services/Speechtotext.service';
+import { TranscriptCorrectorService } from 'src/application/services/agent/services/transcriptCorrector.service';
 import { VOICE_IDENTIFIER_NOTICE } from 'src/application/services/agent/services/voiceIdentifiers';
 import { VoiceCodeResolverService } from 'src/application/services/agent/services/voiceCodeResolver.service';
 import { AgentRequest } from 'src/application/services/agent/types';
@@ -63,6 +64,7 @@ export class AgentChatController {
     private readonly speechToText: SpeechToTextService,
     private readonly voiceCodes: VoiceCodeResolverService,
     @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly corrector: TranscriptCorrectorService,
   ) {}
 
   @Post('sessions')
@@ -131,6 +133,8 @@ export class AgentChatController {
     }
 
     if (!text) throw new BadRequestException('No speech was recognized in the audio.');
+    // متنی که کاربر زیر ویسش می‌بیند همان است که اجرا می‌شود («کار تهران…» → «بار تهران…»)
+    text = await this.corrector.correct(text);
 
     // کد بار رو whisper تقریباً هیچ‌وقت دقیق نمی‌نویسه -- با بارهای خود کاربر تطبیق داده می‌شه.
     // در هر حالتی که کد داره، اجرا نمی‌شه تا کاربر متن (با کد دقیق) رو تایید کنه.

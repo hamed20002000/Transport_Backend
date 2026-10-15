@@ -1,5 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 
+import { persianTime } from 'src/domain/helper/persianDate';
+import { TRIP_TYPE_LABELS } from './cargoTripType';
 import { ContextManager } from 'src/application/services/agent/contextManager';
 import messages from 'src/application/services/agent/localFiles/messages.json';
 import { ToolRegister } from 'src/application/services/agent/toolRegister';
@@ -207,11 +209,18 @@ export class CompanyCargoTools implements OnModuleInit {
         );
         return ctx.done(
           { id: created.id, code: created.code ?? '', recipients: String(created.recipients) },
-          format(messages.cargo.created, {
-            cargo: cargoLine(created),
-            code: created.code ?? '',
-            recipients: created.recipients,
-          }),
+          created.pending
+            ? format(messages.cargo.queued, {
+                cargo: cargoLine(created),
+                code: created.code ?? '',
+                time: created.nextAnnounceAt ? persianTime(created.nextAnnounceAt) : '',
+              })
+            : format(messages.cargo.created, {
+                cargo: cargoLine(created),
+                code: created.code ?? '',
+                recipients: created.recipients,
+                type: TRIP_TYPE_LABELS[created.tripType],
+              }),
         );
       },
     });

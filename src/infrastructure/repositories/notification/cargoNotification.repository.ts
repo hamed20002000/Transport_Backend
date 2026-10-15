@@ -53,6 +53,14 @@ export class CargoNotificationRepository {
     return this.repository.find({ where: { sourceMessageId, userId: In(userIds), listingId: IsNull() } });
   }
 
+  /** پیشنهادهای بار کانال‌ها برای این شرکت از این زمان به بعد (اعلام خودکار). */
+  findSuggestionsSince(userId: string, since: Date): Promise<CargoNotification[]> {
+    return this.repository.find({
+      where: { userId, listingId: IsNull(), createdAt: MoreThanOrEqual(since) },
+      order: { createdAt: 'ASC' },
+    });
+  }
+
   /** اعلان‌های راننده‌ها برای یک بار منتشرشده. */
   findByListing(listingId: string): Promise<CargoNotification[]> {
     return this.repository.find({ where: { listingId }, relations: { listing: true } });

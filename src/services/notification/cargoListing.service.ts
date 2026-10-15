@@ -16,6 +16,8 @@ import { CargoAlertFilterService } from './cargoAlertFilter.service';
 import { CargoNotificationService } from './cargoNotification.service';
 import { SubscriptionPolicyService } from '../subscription/subscriptionPolicy.service';
 import { buildCargoListingText, buildCargoTakenText, CargoListingFields } from './cargoNotificationText';
+import { CargoTripTypeService } from './cargoTripType';
+import { CompanyAnnounceService } from './companyAnnounce.service';
 import {
   CARGO_LISTING_CHANGED_SOCKET_EVENT,
   CARGO_NOTIFICATION_SOCKET_EVENT,
@@ -57,6 +59,8 @@ export class CargoListingService {
     private readonly whatsapp: WhatsappService,
     private readonly gateway: NotificationsGateway,
     private readonly policy: SubscriptionPolicyService,
+    private readonly tripTypes: CargoTripTypeService,
+    private readonly announceSettings: CompanyAnnounceService,
   ) {}
 
   /** نمونه‌ی پیشنهادی برای انتشار؛ شرکت می‌تواند قبل از ارسال ویرایشش کند. */
@@ -97,7 +101,7 @@ export class CargoListingService {
     }
     // رویدادهای قدیمی کد ندارند؛ آن‌ها مثل بار دستی کد می‌گیرند.
     const code = (suggestion.payload as Partial<CargoDetectedEvent>).code ?? await this.listings.nextManualCode();
-    return this.publishListing(userId, { ...fields, code }, suggestion.sourceMessageId, suggestion.id);
+    return this.publishListing(userId, { ...fields, code }, suggestion.sourceMessageId, suggestion.id, true);
   }
 
   /**
@@ -107,7 +111,46 @@ export class CargoListingService {
    */
   async createManual(userId: string, fields: CargoListingFields) {
     const code = await this.listings.nextManualCode();
-    return this.publishListing(userId, { ...fields, code }, `manual:${randomUUID()}`, null);
+    // اعلام خودکار: بار در صف می‌ماند و در نوبت بعدی اعلام می‌شود
+    const announce = !(await this.announceSettings.isAuto(userId));
+    return this.publishListing(userId, { ...fields, code }, `manual:${randomUUID()}`, null, announce);
+  }
+
+  /** «📣 اعلام همین الان»: بار باز شرکت به راننده‌های همان نوع (بار در صف یا اعلام دوباره). */
+  async announceNow(userId: string, listingId: string) {
+    const listing = await this.listings.findOneForPublisher(listingId, userId);
+    if (!listing) throw new NotFoundException('Cargo listing not found.');
+    if (listing.status !== CargoListingStatus.Open) throw new ConflictException('Only open cargo can be announced.');
+    listing.announcedAt = new Date();
+    const saved = await this.listings.save(listing);
+    const recipients = await this.sendToDrivers(saved);
+    return { ...this.toView(saved), recipients, pending: false, nextAnnounceAt: null };
+  }
+
+  /**
+   * نوبت اعلام خودکار یک شرکت: پیشنهادهای تازه‌ی کانال‌ها (از روشن شدن خودکار، با مبدأ،
+   * مقصد و شماره‌ی تماس) منتشر می‌شوند و بارهای ثبت‌شده‌ی در صف اعلام می‌شوند.
+   */
+  async autoAnnounce(userId: string, since: Date): Promise<{ suggestions: number; pending: number }> {
+    let suggestions = 0;
+    for (const suggestion of await this.notifications.findSuggestionsSince(userId, since)) {
+      if (await this.listings.findBySourceAndPublisher(suggestion.sourceMessageId, userId)) continue;
+      const draft = await this.buildDraft(userId, suggestion.id);
+      if (!draft.origin.trim() || !draft.destination.trim() || !draft.contactPhones.length) continue;
+      try {
+        await this.publish(userId, suggestion.id, draft);
+        suggestions++;
+      } catch (error) {
+        if (!(error instanceof ConflictException)) throw error;
+      }
+    }
+    let pending = 0;
+    for (const listing of await this.listings.findPendingAnnounce(userId)) {
+      listing.announcedAt = new Date();
+      await this.sendToDrivers(await this.listings.save(listing));
+      pending++;
+    }
+    return { suggestions, pending };
   }
 
   private async publishListing(
@@ -115,21 +158,40 @@ export class CargoListingService {
     fields: CargoListingFields & { code: string },
     sourceMessageId: string,
     sourceNotificationId: string | null,
+    announce: boolean,
   ) {
     const contact = await this.audience.findPublisherContact(userId);
+    // داخلی/صادراتی/وارداتی همیشه از مبدأ و مقصد؛ شرکت انتخابش نمی‌کند
+    const tripType = await this.tripTypes.classify(fields.origin, fields.destination);
     const listing = await this.saveListing(
       this.listings.create({
         ...fields,
-        text: buildCargoListingText(fields),
+        tripType,
+        text: buildCargoListingText({ ...fields, tripType }),
         sourceMessageId,
         sourceNotificationId,
         publisherUserId: userId,
         companyId: contact.company?.id ?? null,
         status: CargoListingStatus.Open,
+        announcedAt: announce ? new Date() : null,
       }),
     );
+    this.announceChange(listing);
 
-    const drivers = (await this.audience.findDriverIds(await this.policy.isRequired())).filter((id) => id !== userId);
+    if (!announce) {
+      const { nextRunAt } = await this.announceSettings.get(userId);
+      this.logger.log(`User ${userId} queued listing ${listing.id} for the next automatic announcement`);
+      return { ...this.toView(listing), recipients: 0, pending: true, nextAnnounceAt: nextRunAt };
+    }
+    const recipients = await this.sendToDrivers(listing);
+    return { ...this.toView(listing), recipients, pending: false, nextAnnounceAt: null };
+  }
+
+  /** اعلان بار به راننده‌های همان نوع (داخلی/صادراتی/وارداتی) که فیلترشان جور است. */
+  private async sendToDrivers(listing: CargoListing): Promise<number> {
+    const drivers = (await this.audience.findDriverIds(await this.policy.isRequired(), listing.tripType)).filter(
+      (id) => id !== listing.publisherUserId,
+    );
     const recipients = await this.filters.filterInterestedUsers(drivers, listing);
 
     const safetyRetryAt = new Date(Date.now() + PUBLISH_SAFETY_RETRY_MS);
@@ -147,17 +209,17 @@ export class CargoListingService {
       })),
     );
 
-    const rows = await this.notifications.findByListing(listing.id);
+    // اعلام دوباره: راننده‌ای که قبلاً گرفته ردیفش «ارسال‌شده» است و deliver دوباره نمی‌فرستد
+    const rows = (await this.notifications.findByListing(listing.id)).filter((row) => recipients.includes(row.userId));
     for (const row of rows) {
       this.gateway.sendToUser(row.userId, CARGO_NOTIFICATION_SOCKET_EVENT, this.delivery.toView(row));
     }
-    this.announceChange(listing);
 
     // تلگرام/واتساپ برای تعداد زیاد راننده زمان می‌برد؛ درخواست شرکت منتظر نمی‌ماند.
     void this.dispatch(listing, rows);
 
-    this.logger.log(`User ${userId} published cargo ${listing.sourceMessageId} as listing ${listing.id} to ${rows.length} driver(s)`);
-    return { ...this.toView(listing), recipients: rows.length };
+    this.logger.log(`Listing ${listing.id} (${listing.tripType}) announced to ${rows.length} driver(s)`);
+    return rows.length;
   }
 
   private async dispatch(listing: CargoListing, rows: CargoNotification[]): Promise<void> {
@@ -361,6 +423,9 @@ export class CargoListingService {
       text: listing.text,
       status: listing.status,
       takenAt: listing.takenAt ?? null,
+      tripType: listing.tripType,
+      // null یعنی در صف اعلام خودکار
+      announcedAt: listing.announcedAt ?? null,
       createdAt: listing.createdAt,
     };
   }

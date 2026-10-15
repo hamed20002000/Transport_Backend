@@ -1,0 +1,157 @@
+{
+ "Error": {
+  "ErrorText_Fa": "عملیات با موفقیت انجام شد",
+  "ErrorText_En": "Success",
+  "ErrorCode": 0
+ },
+ "Tirparks": [
+  {
+   "TirparkID": "ANAVATAN",
+   "TirParkLongitude": 44.408294677734375,
+   "TirparkAccess": [
+    {
+     "QueueTypeTitle_Tr": "Transit,Export",
+     "QueueTypeTitle": "صادرات بومي",
+     "QueueTypeTitle_En": "Transit,Export",
+     "QueueTypeTitle_Fa": "صادرات بومي",
+     "QueueType": "B"
+    },
+    {
+     "QueueTypeTitle_Tr": "gümrükten yükleme",
+     "QueueTypeTitle": "بارگيري از انبار داخل گمرک",
+     "QueueTypeTitle_En": "Loading from custom",
+     "QueueTypeTitle_Fa": "بارگيري از انبار داخل گمرک",
+     "QueueType": "D"
+    },
+    {
+     "QueueTypeTitle_Tr": "Transit,Export",
+     "QueueTypeTitle": "ترانزيت و صادرات",
+     "QueueTypeTitle_En": "Transit,Export",
+     "QueueTypeTitle_Fa": "ترانزيت و صادرات",
+     "QueueType": "E"
+    },
+    {
+     "QueueTypeTitle_Tr": "gümrükten yükleme",
+     "QueueTypeTitle": "بارگيري از انبار خارج گمرک",
+     "QueueTypeTitle_En": "Loading from custom",
+     "QueueTypeTitle_Fa": "بارگيري از انبار خارج گمرک",
+     "QueueType": "F"
+    },
+    {
+     "QueueTypeTitle_Tr": "Perishable Transit,Export",
+     "QueueTypeTitle": "صادرات فسادپذر",
+     "QueueTypeTitle_En": "Perishable Transit,Export",
+     "QueueTypeTitle_Fa": "صادرات فسادپذر",
+     "QueueType": "G"
+    },
+    {
+     "QueueTypeTitle_Tr": "Dangerous Transit,Export",
+     "QueueTypeTitle": "صادرات خطرپذير",
+     "QueueTypeTitle_En": "Dangerous Transit,Export",
+     "QueueTypeTitle_Fa": "صادرات خطرپذير",
+     "QueueType": "K"
+    },
+    {
+     "QueueTypeTitle_Tr": "Transit",
+     "QueueTypeTitle": "ناوگان خالي",
+     "QueueTypeTitle_En": "Transit",
+     "QueueTypeTitle_Fa": "ناوگان خالي",
+     "QueueType": "N"
+    },
+    {
+     "QueueTypeTitle_Tr": "Export",
+     "QueueTypeTitle": "صادرات",
+     "QueueTypeTitle_En": "Export",
+     "QueueTypeTitle_Fa": "صادرات",
+     "QueueType": "S"
+    },
+    {
+     "QueueTypeTitle_Tr": "transhipment out off custom",
+     "QueueTypeTitle": "ترانشيپ خارج گمرک",
+     "QueueTypeTitle_En": "transhipment out off custom",
+     "QueueTypeTitle_Fa": "ترانشيپ خارج گمرک",
+     "QueueType": "T"
+    },
+    {
+     "QueueTypeTitle_Tr": "Transit",
+     "QueueTypeTitle": "ترانزيت",
+     "QueueTypeTitle_En": "Transit",
+     "QueueTypeTitle_Fa": "ترانزيت",
+     "QueueType": "V"
+    },
+    {
+     "QueueTypeTitle_Tr": "Other Customs Export",
+     "QueueTypeTitle": "صادرات ساير گمرکات",
+     "QueueTypeTitle_En": "Other Customs Export",
+     "QueueTypeTitle_Fa": "صادرات ساير گمرکات",
+     "QueueType": "W"
+    },
+    {
+     "QueueTypeTitle_Tr": "توليدات منطقه",
+     "QueueTypeTitle": "توليدات منطقه",
+     "QueueTypeTitle_En": "توليدات منطقه",
+     "QueueTypeTitle_Fa": "توليدات منطقه",
+     "QueueType": "Z"
+    }
+   ],
+   "TirparkAddress": "بازرگان جاده بورالان روبروي بازارچه مشترک ساري سو",
+   "TirparkName": "آنا وطن",
+   "TirParkLatitude": 39.402320861816406,
+   "ParkCapacity": 1017
+  },
+  {
+   "TirparkID": "MEHVARTALA",
+   "TirParkLongitude": 44.41561508178711,
+   "TirparkAccess": [
+    {
+     "QueueTypeTitle_Tr": "gümrükten yükleme",
+     "QueueTypeTitle": "بارگيري از انبار داخل گمرک",
+     "QueueTypeTitle_En": "Loading from custom",
+     "QueueTypeTitle_Fa": "بارگيري از انبار داخل گمرک",
+     "QueueType": "D"
+    },
+    {
+     "QueueTypeTitle_Tr": "gümrükten yükleme",
+     "QueueTypeTitle": "بارگيري از انبار خارج گمرک",
+     "QueueTypeTitle_En": "Loading from custom",
+     "QueueTypeTitle_Fa": "بارگيري از انبار خارج گمرک",
+     "QueueType": "F"
+    },
+    {
+     "QueueTypeTitle_Tr": "Dangerous Transit,Export",
+     "QueueTypeTitle": "صادرات خطرپذير",
+     "QueueTypeTitle_En": "Dangerous Transit,Export",
+     "QueueTypeTitle_Fa": "صادرات خطرپذير",
+     "QueueType": "K"
+    },
+    {
+     "QueueTypeTitle_Tr": "Gümrükte bosaltma",
+     "QueueTypeTitle": "تخليه در گمرگ(داخل)",
+     "QueueTypeTitle_En": "Unloading at custom",
+     "QueueTypeTitle_Fa": "تخليه در گمرگ(داخل)",
+     "QueueType": "U"
+    },
+    {
+     "QueueTypeTitle_Tr": "Gümrükte bosaltma",
+     "QueueTypeTitle": "تخليه در گمرک(خارج)",
+     "QueueTypeTitle_En": "Unloading at custom",
+     "QueueTypeTitle_Fa": "تخليه در گمرک(خارج)",
+     "QueueType": "Y"
+    }
+   ],
+   "TirparkAddress": "بازرگان جاده ساري سو جنب ترمينال منطقه آزاد ماکو",
+   "TirparkName": "محور طلايي",
+   "TirParkLatitude": 39.40019989013672,
+   "ParkCapacity": 40
+  },
+  {
+   "TirparkID": "TREQUEUE",
+   "TirParkLongitude": 0,
+   "TirparkAccess": [],
+   "TirparkAddress": "BorderPark.ir",
+   "TirparkName": "نوبت اینترنتی",
+   "TirParkLatitude": 0,
+   "ParkCapacity": 7468
+  }
+ ]
+}

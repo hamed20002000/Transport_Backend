@@ -46,5 +46,7 @@
   "get_driver_profile": "در حال آوردن پروفایل",
   "get_driver_profile_end": "اطلاعات پروفایل آماده است.",
   "update_driver_profile": "در حال ثبت اطلاعات پروفایل",
-  "update_driver_profile_end": "اطلاعات پروفایل ثبت شد."
+  "update_driver_profile_end": "اطلاعات پروفایل ثبت شد.",
+  "get_border_status": "در حال دریافت وضعیت مرزها",
+  "get_border_status_end": "وضعیت مرزها آماده است."
 }

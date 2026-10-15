@@ -12,6 +12,7 @@ type PlatformClient = Pick<
   sendLocation(chatId: string, latitude: number, longitude: number): Promise<unknown>;
   sendPhoto(chatId: string, photo: Buffer, options?: { caption?: string }, fileOptions?: object): Promise<unknown>;
   sendVoice(chatId: string, voice: Buffer, options?: { caption?: string }, fileOptions?: object): Promise<unknown>;
+  sendDocument(chatId: string, document: Buffer, options?: { caption?: string }, fileOptions?: { filename: string; contentType: string }): Promise<unknown>;
   answerCallbackQuery(id: string): Promise<boolean>;
   getFileStream(fileId: string): Readable;
   downloadFile(fileId: string, directory: string): Promise<string>;
@@ -87,6 +88,12 @@ export class MultiBot extends EventEmitter {
   async sendVoice(chatId: string | number, voice: Buffer, caption?: string) {
     const { client, nativeId } = this.route(chatId);
     await client.sendVoice(nativeId, voice, caption ? { caption } : {}, { filename: 'voice.ogg', contentType: 'audio/ogg' });
+  }
+
+  /** فایل با نام دلخواه (مثل فایل نمونه‌ی اکسل). */
+  async sendDocument(chatId: string | number, document: Buffer, fileName: string, contentType: string, caption?: string) {
+    const { client, nativeId } = this.route(chatId);
+    await client.sendDocument(nativeId, document, caption ? { caption } : {}, { filename: fileName, contentType });
   }
 
   async editMessageText(text: string, options: TelegramBot.EditMessageTextOptions) {

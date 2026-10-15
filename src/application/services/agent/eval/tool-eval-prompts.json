@@ -66,5 +66,13 @@
   {"role":"DRIVER","expect":"get_driver_profile","text":"چه اطلاعاتی ازم ثبت شده؟"},
   {"role":"DRIVER","expect":"get_driver_profile","text":"مشخصات ماشینم چیه"},
   {"role":"DRIVER","expect":"update_driver_profile","text":"اسم من رو رضا کن"},
-  {"role":"COMPANY","expect":"update_company_profile","text":"اسمم رو زهرا کن"}
+  {"role":"COMPANY","expect":"update_company_profile","text":"اسمم رو زهرا کن"},
+  {"role":"DRIVER","expect":"get_border_status","text":"صف مرز بازرگان الان چقدره؟"},
+  {"role":"DRIVER","expect":"get_border_status","text":"مرز جلفا شلوغه؟"},
+  {"role":"DRIVER","expect":"get_border_status","text":"وضعیت مرزهای ترکیه رو بگو"},
+  {"role":"DRIVER","expect":"get_border_status","text":"کدوم مرز خلوت‌تره؟"},
+  {"role":"DRIVER","expect":"get_border_status","text":"تو ریمدان چند ساعت باید تو صف بمونم"},
+  {"role":"DRIVER","expect":"get_border_status","text":"تیرپارک دوغارون کجاست"},
+  {"role":"COMPANY","expect":"get_border_status","text":"وضعیت گمرک‌های مرزی عراق"},
+  {"role":"COMPANY","expect":"get_border_status","text":"مرز سرو چند تا کامیون تو صف داره"}
 ]

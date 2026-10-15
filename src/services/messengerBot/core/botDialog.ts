@@ -46,6 +46,16 @@ export interface BotReply {
   photo?: { image: Buffer; caption?: string };
   /** پیام صوتی (ogg/opus) بعد از عکس و قبل از متن؛ مثل خواندن جایگاه‌های سوخت برای راننده‌ای که پشت فرمان است. */
   voice?: { audio: Buffer; caption?: string };
+  /** فایل قبل از متن (مثل فایل نمونه‌ی اکسل ثبت چند بار). */
+  document?: { file: Buffer; fileName: string; caption?: string };
+}
+
+/** فایلی که کاربر فرستاده؛ download فقط وقتی گفتگو واقعاً فایل را بخواهد صدا زده می‌شود. */
+export interface BotDocument {
+  fileName: string;
+  /** بایت؛ اگر پیام‌رسان گفته باشد */
+  size?: number;
+  download(): Promise<Buffer>;
 }
 
 /** لوکیشنی که کاربر فرستاده؛ edited = به‌روزرسانی Live Location تلگرام. */
@@ -89,6 +99,8 @@ export interface BotDialog {
   handleText(ctx: BotContext, text: string): Promise<BotReply | null>;
   /** لوکیشن کاربر؛ null یعنی این گفتگو کاری با آن ندارد. */
   handleLocation?(ctx: BotContext, location: BotLocation): Promise<BotReply | null>;
+  /** فایلی که کاربر فرستاده (مثل اکسل بارها)؛ null یعنی این گفتگو منتظر فایل نیست. */
+  handleDocument?(ctx: BotContext, document: BotDocument): Promise<BotReply | null>;
 }
 
 /**

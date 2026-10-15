@@ -35,6 +35,7 @@ import { MessengerBotModule } from './application/module/MessengerBotModule';
 import { RedisModule } from './application/module/RedisModule';
 import { CargoNotificationModule } from './application/module/CargoNotificationModule';
 import { MarketModule } from './application/module/MarketModule';
+import { BorderModule } from './application/module/BorderModule';
 import { SubscriptionAdminModule } from './application/module/SubscriptionAdminModule';
 
 @Module({
@@ -196,7 +197,10 @@ import { SubscriptionAdminModule } from './application/module/SubscriptionAdminM
 
         synchronize: false,
 
-        logging: true,
+        // Logging every query (especially the WhatsApp key writes on every
+        // message) flooded the terminal and printed the session's private
+        // keys. For debugging: DB_LOGGING=true
+        logging: process.env.DB_LOGGING === 'true' ? true : ['error', 'warn'],
 
         logger:
           'advanced-console',
@@ -235,6 +239,7 @@ import { SubscriptionAdminModule } from './application/module/SubscriptionAdminM
     CargoNotificationModule,
     // قیمت ارز و طلا برای پنل راننده و شرکت
     MarketModule,
+    BorderModule,
     SubscriptionAdminModule,
   ],
 

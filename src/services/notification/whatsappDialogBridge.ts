@@ -8,7 +8,7 @@ import { MessengerPlatform } from 'src/domain/enums/messenger';
 import { normalizePersianText } from 'src/domain/helper/persianText';
 import { IUserRepository } from 'src/domain/repositories/IUserRepopsitory';
 import { USER_REPOSITORY } from 'src/domain/repositories/repository.tokens';
-import { BotAction, BotContext, BotDialogRegistry, BotReply } from '../messengerBot/core/botDialog';
+import { BotAction, BotContext, BotDialogRegistry, BotDocument, BotReply } from '../messengerBot/core/botDialog';
 import { MarketAction } from '../market/marketBot.service';
 import { RedisService } from '../redis/redis.service';
 
@@ -37,6 +37,7 @@ const SECTIONS: { roles: string[]; key: string; action: string }[] = [
   { roles: COMPANY_ROLES, key: 'activeTrips', action: BotCallback.CompanyActiveTrips },
   { roles: [...DRIVER_ROLES, ...COMPANY_ROLES], key: 'filters', action: 'cg:fl' },
   { roles: [...DRIVER_ROLES, ...COMPANY_ROLES], key: 'marketPrices', action: MarketAction.Show },
+  { roles: DRIVER_ROLES, key: 'borders', action: BotCallback.Borders },
 ];
 
 interface MenuState {
@@ -65,6 +66,7 @@ export class WhatsappDialogBridge implements OnModuleInit {
     this.whatsapp.setDialogHandler({
       handleText: (jid, userId, text) => this.handleText(jid, userId, text),
       handleLocation: (jid, userId, location) => this.handleLocation(jid, userId, location),
+      handleDocument: (jid, userId, document) => this.handleDocument(jid, userId, document),
     });
   }
 
@@ -163,6 +165,17 @@ export class WhatsappDialogBridge implements OnModuleInit {
 
   //#region ----------- Helpers ---------------------------------------------------
 
+  async handleDocument(jid: string, userId: string, document: BotDocument): Promise<boolean> {
+    const ctx = this.ctx(userId);
+    for (const dialog of this.registry.all()) {
+      const reply = await dialog.handleDocument?.(ctx, document);
+      if (!reply) continue;
+      await this.send(jid, ctx, reply);
+      return true;
+    }
+    return false;
+  }
+
   /** callback منو یا action یکی از گفتگوها را اجرا و جوابش را می‌فرستد. */
   private async run(jid: string, ctx: BotContext, action: string): Promise<void> {
     const resolved = this.registry.resolve(action);
@@ -185,6 +198,13 @@ export class WhatsappDialogBridge implements OnModuleInit {
     if (reply.photo) {
       await this.whatsapp.sendImage(jid, reply.photo.image, reply.photo.caption).catch((error: Error) =>
         this.logger.warn(`WhatsApp image failed: ${error.message}`),
+      );
+    }
+    if (reply.document) {
+      const { file, fileName, caption } = reply.document;
+      const mimetype = fileName.endsWith('.xlsx') ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/octet-stream';
+      await this.whatsapp.sendDocument(jid, file, fileName, mimetype, caption).catch((error: Error) =>
+        this.logger.warn(`WhatsApp document failed: ${error.message}`),
       );
     }
     if (reply.voice) {

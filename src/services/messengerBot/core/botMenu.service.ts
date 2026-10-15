@@ -363,6 +363,15 @@ export class BotMenuService {
                 callback_data:
                   MarketAction.Show,
               },
+              {
+                text:
+                  this.messages.get(
+                    'menu.driver.borders',
+                  ),
+
+                callback_data:
+                  BotCallback.Borders,
+              },
             ],
 
             [

@@ -1,3 +1,5 @@
+import { CargoTripType } from '../../domain/enums/notification';
+import { TRIP_TYPE_LABELS } from './cargoTripType';
 import { CargoDetectedEvent } from '../../domain/constants/cargoEvents';
 
 /** متن ساده‌ی اعلان بار؛ برای تلگرام و واتساپ یکسان است (بدون Markdown/HTML). */
@@ -27,6 +29,22 @@ export function buildCargoNotificationText(event: CargoDetectedEvent): string {
     .slice(0, 3500);
 }
 
+/**
+ * اعلان کوتاه پیشنهاد بار در پیام‌رسان‌ها؛ جزئیات بار فقط در لیست «بارهای
+ * پیشنهادی» دیده می‌شود (وب همچنان متن کامل را نشان می‌دهد).
+ */
+export function buildCargoSuggestionNotice(unreadCount: number, openHint?: string): string {
+  return [
+    '📥 بار جدید در کانال‌های شما دیده شد.',
+    unreadCount > 0 ? `${toPersianDigits(unreadCount)} بار خوانده‌نشده دارید.` : '',
+    openHint ?? '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+const toPersianDigits = (value: number) => String(value).replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]);
+
 /** متن پیام قبلی وقتی بار برداشته شد؛ پیام ویرایش می‌شود، پیام جدید نمی‌رود. */
 export function buildCargoTakenText(originalText: string): string {
   return `❌ این بار برداشته شد\n\n${originalText}`;
@@ -44,6 +62,8 @@ export interface CargoListingFields {
   price?: string | null;
   extraNotes?: string | null;
   contactPhones: string[];
+  // داخلی/صادراتی/وارداتی، که CargoListingService از مبدأ و مقصد تشخیص می‌دهد (فقط برای متن)
+  tripType?: CargoTripType | null;
 }
 
 /** متن باری که شرکت برای راننده‌ها منتشر می‌کند (فیلد: مقدار). */
@@ -53,6 +73,7 @@ export function buildCargoListingText(fields: CargoListingFields): string {
     ['شرکت', fields.companyName],
     ['مبدا', fields.origin],
     ['مقصد', fields.destination],
+    ['نوع حمل', fields.tripType ? TRIP_TYPE_LABELS[fields.tripType] : null],
     ['نوع بار', fields.cargoType],
     ['وزن', fields.weight],
     ['نوع ماشین', fields.vehicleType],

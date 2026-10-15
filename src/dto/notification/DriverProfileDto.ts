@@ -1,6 +1,7 @@
+import { CargoTripType } from 'src/domain/enums/notification';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 
 import { trimToNull } from 'src/dto/user/update-user-profile.dto';
 
@@ -60,4 +61,14 @@ export class UpdateDriverProfileDto {
   @ApiPropertyOptional({ nullable: true })
   @Transform(trimToNull) @IsOptional() @Matches(/^[0-9]{5,20}$/, { message: 'fleetCardNumber must be digits' })
   fleetCardNumber?: string | null;
+
+  // خواندن صوتی بارهای اعلام‌شده در پیام‌رسان‌ها
+  @ApiPropertyOptional({ example: true })
+  @IsOptional() @IsBoolean()
+  cargoVoice?: boolean;
+
+  // داخلی، صادراتی یا وارداتی؛ بار اعلام‌شده فقط به راننده‌های همان نوع می‌رسد
+  @ApiPropertyOptional({ enum: CargoTripType })
+  @IsOptional() @IsEnum(CargoTripType)
+  tripType?: CargoTripType;
 }

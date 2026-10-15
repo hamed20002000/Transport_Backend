@@ -197,7 +197,7 @@ export class RubikaBotClient extends EventEmitter {
     // حالت polling: زدن دکمه‌ی کیبورد پایین = زدن دکمه‌ی شیشه‌ای پیام.
     const buttonId = message.aux_data?.button_id;
     if (buttonId && buttonId !== SHARE_PHONE_BUTTON_ID && !message.contact_message && !message.location) {
-      this.emitCallback(chatId, buttonId, this.keypadMessage.get(chatId) ?? message.message_id, message.message_id);
+      this.emitCallback(chatId, buttonId, this.keypadMessage.get(chatId) ?? message.message_id, message.message_id, true);
       return;
     }
 
@@ -210,9 +210,14 @@ export class RubikaBotClient extends EventEmitter {
     this.emitCallback(inline.chat_id, buttonId, inline.message_id, `${inline.message_id}:${Date.now()}`);
   }
 
-  private emitCallback(chatId: string, data: string, messageId: string, queryId: string): void {
+  /**
+   * fromChatKeypad: زدن دکمه‌ی کیبورد پایین متن دکمه را به‌صورت پیام کاربر در چت
+   * می‌گذارد؛ پس جواب باید پیام تازه‌ی زیر آن باشد، نه ویرایش منوی بالای آن.
+   */
+  private emitCallback(chatId: string, data: string, messageId: string, queryId: string, fromChatKeypad = false): void {
     const query = {
       id: queryId,
+      ...(fromChatKeypad ? { fromChatKeypad: true } : {}),
       from: this.toUser(chatId),
       chat_instance: chatId,
       data,
@@ -324,24 +329,39 @@ export class RubikaBotClient extends EventEmitter {
 
   /** عکس: درخواست آدرس آپلود، آپلود فایل و فرستادن file_id (روال فایل در API ربات روبیکا). */
   async sendPhoto(chatId: string, photo: Buffer, options?: { caption?: string }): Promise<void> {
-    const { upload_url } = await this.call<{ upload_url: string }>('requestSendFile', { type: 'Image' });
-    const form = new FormData();
-    form.append('file', new Blob([new Uint8Array(photo)], { type: 'image/jpeg' }), 'map.jpg');
-    const { data } = await axios.post<{ data?: { file_id?: string } }>(upload_url, form, { timeout: 60_000 });
-    const fileId = data?.data?.file_id;
-    if (!fileId) throw new RubikaBotApiError('upload', 'NO_FILE_ID');
-    await this.call('sendFile', { chat_id: chatId, file_id: fileId, ...(options?.caption ? { text: options.caption } : {}) });
+    await this.sendUploaded(chatId, 'Image', photo, 'image/jpeg', 'map.jpg', options?.caption);
   }
 
   /** پیام صوتی: همان روال فایل با نوع Voice. */
   async sendVoice(chatId: string, voice: Buffer, options?: { caption?: string }): Promise<void> {
-    const { upload_url } = await this.call<{ upload_url: string }>('requestSendFile', { type: 'Voice' });
+    await this.sendUploaded(chatId, 'Voice', voice, 'audio/ogg', 'voice.ogg', options?.caption);
+  }
+
+  /** فایل (مثل اکسل): همان روال با نوع File؛ نام فایل همان است که کاربر می‌بیند. */
+  async sendDocument(
+    chatId: string,
+    document: Buffer,
+    options?: { caption?: string },
+    fileOptions?: { filename: string; contentType: string },
+  ): Promise<void> {
+    await this.sendUploaded(
+      chatId,
+      'File',
+      document,
+      fileOptions?.contentType ?? 'application/octet-stream',
+      fileOptions?.filename ?? 'file',
+      options?.caption,
+    );
+  }
+
+  private async sendUploaded(chatId: string, type: 'Image' | 'Voice' | 'File', file: Buffer, contentType: string, fileName: string, caption?: string) {
+    const { upload_url } = await this.call<{ upload_url: string }>('requestSendFile', { type });
     const form = new FormData();
-    form.append('file', new Blob([new Uint8Array(voice)], { type: 'audio/ogg' }), 'voice.ogg');
+    form.append('file', new Blob([new Uint8Array(file)], { type: contentType }), fileName);
     const { data } = await axios.post<{ data?: { file_id?: string } }>(upload_url, form, { timeout: 60_000 });
     const fileId = data?.data?.file_id;
     if (!fileId) throw new RubikaBotApiError('upload', 'NO_FILE_ID');
-    await this.call('sendFile', { chat_id: chatId, file_id: fileId, ...(options?.caption ? { text: options.caption } : {}) });
+    await this.call('sendFile', { chat_id: chatId, file_id: fileId, ...(caption ? { text: caption } : {}) });
   }
 
   async sendLocation(chatId: string, latitude: number, longitude: number): Promise<void> {

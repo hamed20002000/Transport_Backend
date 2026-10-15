@@ -41,10 +41,22 @@ export function decimalToPersianWords(value: number): string {
   return whole ? `${integerToPersianWords(whole)} و ${ONES[tenth]} دهم` : `${ONES[tenth]} دهم`;
 }
 
-/** رقم‌های داخل متن (فارسی/عربی/لاتین) به حروف، مثل «جایگاه ۲۴» → «جایگاه بیست و چهار». */
+/**
+ * رقم‌های داخل متن (فارسی/عربی/لاتین) به حروف، مثل «جایگاه ۲۴» → «جایگاه بیست و چهار».
+ * جداکننده‌ی هزارگان («۶۰۰٬۰۰۰») و اعشار («۴٫۵ میلیون») هم یک عدد خوانده می‌شوند.
+ */
 export function spellNumbersInText(text: string): string {
   const latin = text
     .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
-    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
-  return latin.replace(/\d+/g, (digits) => integerToPersianWords(Number(digits)));
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/(\d)[,٬](?=\d{3}(\D|$))/g, '$1')
+    .replace(/(\d)[.٫](?=\d)/g, '$1.');
+  return latin.replace(/\d+(?:\.\d+)?/g, (number) => {
+    const [whole, fraction] = number.split('.');
+    if (!fraction) return integerToPersianWords(Number(whole));
+    if (fraction.length === 1) return decimalToPersianWords(Number(number));
+    // «۱٫۰۵» → «یک ممیز صفر پنج»
+    const digits = [...fraction].map((d) => integerToPersianWords(Number(d))).join(' ');
+    return `${integerToPersianWords(Number(whole))} ممیز ${digits}`;
+  });
 }

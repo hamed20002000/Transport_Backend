@@ -1,0 +1,21 @@
+{
+ "Messages": [
+  {
+   "messageType": "Info",
+   "messageBackColor": "#f2f28a",
+   "messageLanguage": "Fa",
+   "message": "قابل توجه رانندگان محترم:\nخواهشمند است تا زمان  فراخوانی نوبت، از مراجعه به پسکرانه مرزی و پارکینگ آنا وطن خودداری فرمایید.\nهمچنین توقف ناوگان در مسیرهای تردد و خیابان‌ها ممنوع است. در صورت مشاهده، نوبت ابطال خواهد شد."
+  },
+  {
+   "messageType": "Info",
+   "messageBackColor": "#f2f28a",
+   "messageLanguage": "Fa",
+   "message": "Değerli sürücülerimizin dikkatine\nSıranız çağrılana kadar sınır arka sahasına ve Ana Vatan otoparkına gelmemenizi rica ederiz\nAraçların güzergâhlarda ve caddelerde duraklaması yasaktır Aksi durumda sıra hakkınız iptal edilecektir"
+  }
+ ],
+ "Error": {
+  "ErrorText_Fa": "عملیات با موفقیت انجام شد",
+  "ErrorText_En": "Success",
+  "ErrorCode": 0
+ }
+}
