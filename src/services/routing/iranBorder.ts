@@ -1,4 +1,4 @@
-import { GeoPoint, resample } from './geo';
+import { GeoPoint, haversineKm, resample } from './geo';
 
 /**
  * مرز ساده‌شده‌ی ایران (OpenStreetMap/Nominatim، دقت حدود ۳ کیلومتر) به‌صورت
@@ -32,4 +32,57 @@ export function leavesIran(route: GeoPoint[]): boolean {
     if (outside >= 3) return true;
   }
   return false;
+}
+
+export interface IranCrossing {
+  /** نقطه‌ای که مسیر از مرز ایران می‌گذرد (دقت چند کیلومتر، مثل خود مرز ساده‌شده) */
+  point: GeoPoint;
+  /** کیلومترِ مسیر از مبدأ */
+  atKm: number;
+  /** exit: از ایران بیرون می‌رود، entry: وارد ایران می‌شود */
+  direction: 'exit' | 'entry';
+}
+
+/**
+ * جاهایی که مسیر از مرز ایران می‌گذرد، به ترتیب مسیر. چون مرز ساده‌شده است، تغییر
+ * داخل/خارج فقط وقتی حساب می‌شود که دست‌کم ۱۵ کیلومتر بماند (جاده‌ی کنار مرز، مثل کنار
+ * ارس، عبور حساب نشود)؛ مگر مسیر همان‌جا تمام شود (مقصد درست آن طرف مرز).
+ */
+export function iranCrossings(route: GeoPoint[]): IranCrossing[] {
+  const STEP_KM = 2;
+  const MIN_RUN = Math.ceil(15 / STEP_KM);
+  const { points, km } = resample(densify(route, STEP_KM), STEP_KM);
+  if (points.length < 2) return [];
+  const inside = points.map(isInIran);
+  const crossings: IranCrossing[] = [];
+  let state = inside[0];
+  for (let i = 1; i < points.length; i++) {
+    if (inside[i] === state) continue;
+    let run = i;
+    while (run < points.length && inside[run] !== state) run++;
+    if (run - i >= MIN_RUN || run === points.length) {
+      const a = points[i - 1];
+      const b = points[i];
+      crossings.push({
+        point: { lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 },
+        atKm: (km[i - 1] + km[i]) / 2,
+        direction: state ? 'exit' : 'entry',
+      });
+      state = !state;
+    }
+    i = run - 1;
+  }
+  return crossings;
+}
+
+/** نقطه‌های میانی روی پاره‌خط‌های بلند (هندسه‌ی کم‌نقطه هم عبور از مرز را از دست ندهد). */
+function densify(route: GeoPoint[], stepKm: number): GeoPoint[] {
+  const out: GeoPoint[] = route.slice(0, 1);
+  for (let i = 1; i < route.length; i++) {
+    const a = route[i - 1];
+    const b = route[i];
+    const parts = Math.ceil(haversineKm(a, b) / stepKm);
+    for (let j = 1; j <= parts; j++) out.push({ lat: a.lat + ((b.lat - a.lat) * j) / parts, lng: a.lng + ((b.lng - a.lng) * j) / parts });
+  }
+  return out;
 }

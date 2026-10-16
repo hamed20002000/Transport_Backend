@@ -1,4 +1,4 @@
-import { BorderDetail, BorderQueue } from './borderStatus.service';
+import { BorderDetail, borderOrder, BorderQueue } from './borderStatus.service';
 
 /** عدد فارسی با جداکننده‌ی هزارگان: ۸٬۳۹۴ */
 export const faNumber = (value: number) => value.toLocaleString('fa-IR');
@@ -32,10 +32,10 @@ export function borderLine(detail: BorderDetail): string {
     .join(' · ');
 }
 
-/** فهرست مرزها، به ترتیب کشور؛ شلوغی هر مرز با تعداد صف. */
+/** فهرست مرزها (ترتیب borderOrder)؛ شلوغی هر مرز با تعداد صف. */
 export function bordersText(details: BorderDetail[]): string {
   if (!details.length) return 'وضعیت مرزها الان در دسترس نیست؛ کمی بعد دوباره امتحان کنید.';
-  const sorted = [...details].sort((a, b) => a.border.country.localeCompare(b.border.country, 'fa') || b.totals.inQueue - a.totals.inQueue);
+  const sorted = [...details].sort(borderOrder);
   const latest = details.map((detail) => detail.lastUpdate).filter((value): value is string => !!value).sort().pop() ?? null;
   return [
     '🛃 وضعیت صف کامیون‌ها در مرزهای زمینی',

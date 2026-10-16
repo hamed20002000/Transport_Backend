@@ -5,7 +5,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DataSource, EntityManager, MoreThan } from 'typeorm';
-import { randomInt } from 'crypto';
 
 import { User } from 'src/domain/entities/auth/User';
 import { Role } from 'src/domain/entities/auth/Role';
@@ -23,7 +22,6 @@ import { SubscriptionOrderStatus } from 'src/domain/enums/subscription';
 import { PaymentReceiptStatus } from 'src/domain/enums/subscription';
 import { RecordStatus } from 'src/domain/enums/RecordStatus';
 
-import { PasswordService } from '../auth/password.service';
 
 export interface AccountProvisioningResult {
   userId: string;
@@ -35,8 +33,8 @@ export interface AccountProvisioningResult {
   /** شناسه‌ی کاربر در رباتی که خرید از آن انجام شد (برای ارسال نتیجه). */
   providerUserId: string;
 
-  /** فقط وقتی کاربر جدید ساخته شده؛ هرگز در دیتابیس ذخیره نمی‌شود. */
-  temporaryPassword?: string;
+  /** حساب همین الان ساخته شد (کاربر با شماره موبایل و کد پیامکی وارد وب می‌شود). */
+  newUser: boolean;
 
   subscriptionId: string;
 
@@ -47,7 +45,6 @@ export interface AccountProvisioningResult {
 export class AccountProvisioningService {
   constructor(
     private readonly dataSource: DataSource,
-    private readonly passwordService: PasswordService,
   ) {}
 
   async approveOrder(
@@ -253,7 +250,7 @@ export class AccountProvisioningService {
           where: [{ mobile: username }, { username }],
         });
 
-        let temporaryPassword: string | undefined;
+        const newUser = !savedUser;
 
         if (savedUser) {
           if (savedUser.recordStatus !== RecordStatus.Active) {
@@ -262,21 +259,14 @@ export class AccountProvisioningService {
             );
           }
         } else {
-          temporaryPassword =
-            this.generateTemporaryPassword();
-
+          // حساب بدون رمز؛ ورود فقط با شماره موبایل و کد پیامکی
           savedUser = await manager.save(
             User,
             manager.create(User, {
               username,
-              passwordHash:
-                await this.passwordService.hashPassword(
-                  temporaryPassword,
-                ),
               mobile: username,
               recordStatus:
                 RecordStatus.Active,
-              mustChangePassword: true,
             }),
           );
         }
@@ -427,10 +417,7 @@ export class AccountProvisioningService {
 
         /*
          * -------------------------------------------------
-         * 18. Return credentials
-         *
-         * IMPORTANT:
-         * temporaryPassword is NEVER stored in database.
+         * 18. Return the result
          * -------------------------------------------------
          */
 
@@ -446,7 +433,7 @@ export class AccountProvisioningService {
           providerUserId:
             order.providerUserId,
 
-          temporaryPassword,
+          newUser,
 
           subscriptionId:
             savedSubscription.id,
@@ -626,13 +613,6 @@ export class AccountProvisioningService {
    * User must change it after first login.
    * =====================================================
    */
-
-  private generateTemporaryPassword(): string {
-    return randomInt(
-      100000,
-      1000000,
-    ).toString();
-  }
 
   /*
    * =====================================================

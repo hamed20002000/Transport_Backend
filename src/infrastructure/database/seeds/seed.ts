@@ -1,6 +1,6 @@
 import { User } from 'src/domain/entities/auth/User';
 import { UserRole } from 'src/domain/entities/auth/UserRole';
-import { PasswordService } from 'src/services/auth/password.service';
+import { normalizePhoneNumber } from 'src/dto/auth/phone-number';
 import 'reflect-metadata';
 import { DataSource } from 'typeorm';
 import { Role } from 'src/domain/entities/auth/Role';
@@ -35,7 +35,15 @@ export async function seedRoles(dataSource: DataSource): Promise<boolean> {
   });
 }
 
-export async function seedAdmin(dataSource: DataSource): Promise<void> {
+/**
+ * مدیر سامانه (super_admin با نقش ADMIN). ورود فقط با موبایل و کد پیامکی است، پس شماره‌اش از
+ * SEED_ADMIN_MOBILE می‌آید؛ بدون آن حساب ساخته می‌شود ولی تا شماره ثبت نشود نمی‌تواند وارد شود.
+ */
+export async function seedAdmin(dataSource: DataSource, adminMobile = process.env.SEED_ADMIN_MOBILE): Promise<void> {
+  const mobile = adminMobile ? normalizePhoneNumber(adminMobile) : undefined;
+  if (mobile !== undefined && (typeof mobile !== 'string' || !/^09\d{9}$/.test(mobile))) {
+    throw new Error(`SEED_ADMIN_MOBILE must be an Iranian mobile number like 09121234567, got "${adminMobile}".`);
+  }
   await dataSource.transaction(async (manager) => {
     await manager.query('LOCK TABLE "Role", "User", "UserRole" IN SHARE ROW EXCLUSIVE MODE');
     let role = await manager.findOne(Role, { where: { name: 'ADMIN' } });
@@ -52,16 +60,17 @@ export async function seedAdmin(dataSource: DataSource): Promise<void> {
 
     let user = await manager.findOne(User, { where: { username: 'super_admin' } });
     if (!user) {
-      const passwordHash = await new PasswordService().hashPassword('123qwe$%AS');
       user = await manager.save(
         User,
         manager.create(User, {
           username: 'super_admin',
-          passwordHash,
+          ...(mobile && { mobile }),
           recordStatus: RecordStatus.Active,
-          mustChangePassword: false,
         }),
       );
+    } else if (mobile && !user.mobile) {
+      user.mobile = mobile;
+      user = await manager.save(User, user);
     }
 
     const existingLink = await manager.findOne(UserRole, {
@@ -88,7 +97,11 @@ async function seed(): Promise<void> {
       inserted ? 'Seeded roles: DRIVER, COMPANY, BROKER, ADMIN' : 'Role table is not empty; skipped seeding.',
     );
     await seedAdmin(AppDataSource);
-    console.log('Admin seed complete: super_admin / ADMIN');
+    console.log(
+      process.env.SEED_ADMIN_MOBILE
+        ? `Admin seed complete: super_admin / ADMIN, signs in with ${process.env.SEED_ADMIN_MOBILE} and an SMS code`
+        : 'Admin seed complete: super_admin / ADMIN. Set SEED_ADMIN_MOBILE and run again so it can sign in (SMS code only).',
+    );
   } finally {
     if (AppDataSource.isInitialized) {
       await AppDataSource.destroy();

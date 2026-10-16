@@ -1,8 +1,6 @@
-import { Body, Controller, Get, HttpCode, HttpException, HttpStatus, Post, Query } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { AuthService } from './auth.service';
-import { LoginDto } from 'src/dto/auth/login-dto';
-import { RegisterDto } from 'src/dto/auth/register-dto';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query } from '@nestjs/common';
+import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { CompleteRegistrationDto, RequestOtpDto } from 'src/dto/auth/register-dto';
 import { RegistrationService } from 'src/services/auth/registration.service';
 import { VerifyRegistrationDto, RefreshTokenDto } from 'src/dto/auth/verify-registration-dto';
 import { ImageService } from 'src/application/services/helper/image.service';
@@ -10,7 +8,6 @@ import { ImageService } from 'src/application/services/helper/image.service';
 @Controller('api/auth')
 export class AuthController {
   constructor(
-    private readonly authService: AuthService,
     private readonly imageService: ImageService,
     private readonly registration: RegistrationService,
   ) {}
@@ -25,19 +22,29 @@ export class AuthController {
 
     return { message: 'Image saved successfully', path: savedPath };
   }
-  @Post('register/request-otp')
+  // ثبت‌نام و ورود فقط با موبایل و OTP (یک مسیر برای هر دو؛ مدیرها هم). رمز عبوری در سامانه نیست.
+  @Post('otp/request')
   @HttpCode(HttpStatus.OK)
   @ApiTags('Auth')
-  @ApiOperation({ summary: 'Send a registration verification code by SMS' })
-  async requestOtp(@Body() dto: RegisterDto) {
-    return this.registration.requestOtp(dto);
+  @ApiOperation({ summary: 'Send a one-time code by SMS (sign-in or sign-up)' })
+  async requestOtp(@Body() dto: RequestOtpDto) {
+    return this.registration.requestOtp(dto.phoneNumber);
   }
 
-  @Post('register/verify-otp')
+  @Post('otp/verify')
+  @HttpCode(HttpStatus.OK)
   @ApiTags('Auth')
-  @ApiOperation({ summary: 'Verify phone number, create account and issue tokens' })
+  @ApiOperation({ summary: 'Verify the code: tokens for an existing account, otherwise a registrationToken' })
   async verifyOtp(@Body() dto: VerifyRegistrationDto) {
     return this.registration.verifyOtp(dto.phoneNumber, dto.code);
+  }
+
+  @Post('otp/complete')
+  @HttpCode(HttpStatus.OK)
+  @ApiTags('Auth')
+  @ApiOperation({ summary: 'Choose driver or company after verifying a new phone number; creates the account' })
+  async completeRegistration(@Body() dto: CompleteRegistrationDto) {
+    return this.registration.completeRegistration(dto.registrationToken, dto.accountType);
   }
 
   @Post('refresh')
@@ -48,18 +55,11 @@ export class AuthController {
     return this.registration.refresh(dto.refreshToken);
   }
 
-  @Post('login')
-  @HttpCode(HttpStatus.OK)
+  @Post('logout')
+  @HttpCode(HttpStatus.NO_CONTENT)
   @ApiTags('Auth')
-  @ApiOperation({ summary: 'Login with username and password' }) // Operation description
-  @ApiResponse({ status: 400, description: 'Bad request' }) // Error response
-  @ApiResponse({ status: 200, description: 'Successfull login', type: String })
-  @ApiResponse({ status: 401, description: 'Invalid credentials or no active roles' })
-  async login(@Body() user: LoginDto) {
-    const result = await this.authService.login(user);
-    if (!result.isAuthenticate || !result.accessToken) {
-      throw new HttpException(result.message ?? 'Authentication failed', HttpStatus.UNAUTHORIZED);
-    }
-    return result.accessToken;
+  @ApiOperation({ summary: 'Revoke a refresh token (sign out on this device)' })
+  async logout(@Body() dto: RefreshTokenDto) {
+    await this.registration.revoke(dto.refreshToken);
   }
 }

@@ -14,15 +14,57 @@ export const MARKET_REFRESH_MINUTES = 30;
 const SNAPSHOT_TTL_SECONDS = 24 * 3600;
 const MEMORY_TTL_MS = 60_000;
 
-/** نمادهایی که به راننده و شرکت نشان داده می‌شوند، به همین ترتیب. */
-export const MARKET_SYMBOLS = [
+/**
+ * همه‌ی قلم‌هایی که کاربر می‌تواند برای نوار قیمت انتخاب کند: پول کشورهای مسیر بار
+ * (ترکیه، عراق، ارمنستان، آذربایجان، گرجستان، ترکمنستان، افغانستان، پاکستان، …)،
+ * ارزهای رایج و طلا و سکه. ترتیب همین ترتیب فهرست انتخاب است.
+ */
+export const MARKET_CATALOG = [
   { symbol: 'USD_IRR_FREE', label: 'دلار', icon: '💵' },
   { symbol: 'EUR_IRR_FREE', label: 'یورو', icon: '💶' },
   { symbol: 'TRY_IRR_FREE', label: 'لیر ترکیه', icon: '🇹🇷' },
   { symbol: 'IQD_IRR_FREE', label: 'دینار عراق', icon: '🇮🇶' },
+  { symbol: 'AMD_IRR_FREE', label: 'درام ارمنستان', icon: '🇦🇲' },
+  { symbol: 'AZN_IRR_FREE', label: 'منات آذربایجان', icon: '🇦🇿' },
+  { symbol: 'GEL_IRR_FREE', label: 'لاری گرجستان', icon: '🇬🇪' },
+  { symbol: 'TMT_IRR_FREE', label: 'منات ترکمنستان', icon: '🇹🇲' },
+  { symbol: 'AFN_IRR_FREE', label: 'افغانی افغانستان', icon: '🇦🇫' },
+  { symbol: 'PKR_IRR_FREE', label: 'روپیه پاکستان', icon: '🇵🇰' },
+  { symbol: 'AED_IRR_FREE', label: 'درهم امارات', icon: '🇦🇪' },
+  { symbol: 'RUB_IRR_FREE', label: 'روبل روسیه', icon: '🇷🇺' },
+  { symbol: 'KZT_IRR_FREE', label: 'تنگه قزاقستان', icon: '🇰🇿' },
+  { symbol: 'TJS_IRR_FREE', label: 'سامانی تاجیکستان', icon: '🇹🇯' },
+  { symbol: 'UZS_IRR_FREE', label: 'سوم ازبکستان', icon: '🇺🇿' },
+  { symbol: 'CNY_IRR_FREE', label: 'یوان چین', icon: '🇨🇳' },
+  { symbol: 'SAR_IRR_FREE', label: 'ریال عربستان', icon: '🇸🇦' },
+  { symbol: 'KWD_IRR_FREE', label: 'دینار کویت', icon: '🇰🇼' },
+  { symbol: 'QAR_IRR_FREE', label: 'ریال قطر', icon: '🇶🇦' },
+  { symbol: 'OMR_IRR_FREE', label: 'ریال عمان', icon: '🇴🇲' },
+  { symbol: 'GBP_IRR_FREE', label: 'پوند انگلیس', icon: '🇬🇧' },
   { symbol: 'GOLD_18K_IRR', label: 'طلای ۱۸ عیار (گرم)', icon: '🟡' },
   { symbol: 'COIN_EMAMI_IRR', label: 'سکه امامی', icon: '🪙' },
+  { symbol: 'COIN_BAHAR_IRR', label: 'سکه بهار آزادی', icon: '🪙' },
+  { symbol: 'COIN_HALF_IRR', label: 'نیم سکه', icon: '🪙' },
+  { symbol: 'COIN_QUARTER_IRR', label: 'ربع سکه', icon: '🪙' },
 ] as const;
+
+/** پیش‌فرض نوار قیمت (کاربری که انتخاب نکرده)؛ کاربر تا MAX_MARKET_SYMBOLS قلم انتخاب می‌کند. */
+export const DEFAULT_MARKET_SYMBOLS: string[] = ['USD_IRR_FREE', 'EUR_IRR_FREE', 'TRY_IRR_FREE', 'IQD_IRR_FREE', 'GOLD_18K_IRR', 'COIN_EMAMI_IRR'];
+export const MAX_MARKET_SYMBOLS = 6;
+const CATALOG_SYMBOLS = new Set<string>(MARKET_CATALOG.map((item) => item.symbol));
+
+/** فقط نمادهای فهرست، بی‌تکرار و حداکثر MAX_MARKET_SYMBOLS؛ خالی یعنی پیش‌فرض. */
+export function validMarketSymbols(symbols: readonly string[] | null | undefined): string[] {
+  const valid = [...new Set((symbols ?? []).filter((symbol) => CATALOG_SYMBOLS.has(symbol)))].slice(0, MAX_MARKET_SYMBOLS);
+  return valid.length ? valid : [...DEFAULT_MARKET_SYMBOLS];
+}
+
+/** قیمت‌های انتخابی کاربر به ترتیب انتخابش؛ قلمی که منبع قیمت ندارد کنار می‌رود. */
+export function pickQuotes(snapshot: MarketSnapshot | null, symbols: readonly string[]): MarketSnapshot | null {
+  if (!snapshot) return null;
+  const bySymbol = new Map(snapshot.quotes.map((quote) => [quote.symbol, quote]));
+  return { ...snapshot, quotes: validMarketSymbols(symbols).flatMap((symbol) => bySymbol.get(symbol) ?? []) };
+}
 
 export interface MarketQuote {
   symbol: string;
@@ -113,7 +155,7 @@ export function parseSnapshot(body: unknown, now = new Date()): MarketSnapshot {
     if (!Array.isArray(items)) continue;
     for (const item of items as SourceItem[]) if (item?.symbol) bySymbol.set(item.symbol, item);
   }
-  const quotes = MARKET_SYMBOLS.flatMap(({ symbol, label, icon }) => {
+  const quotes = MARKET_CATALOG.flatMap(({ symbol, label, icon }) => {
     const item = bySymbol.get(symbol);
     if (typeof item?.price !== 'number' || !(item.price > 0)) return [];
     return [
@@ -134,6 +176,9 @@ export function parseSnapshot(body: unknown, now = new Date()): MarketSnapshot {
 const faNumber = (value: number, digits = 0) => value.toLocaleString('fa-IR', { maximumFractionDigits: digits });
 
 /** متن پیام قیمت‌ها برای ربات‌ها و واتساپ. */
+// آخرین معامله این‌قدر قدیمی‌تر از خواندن منبع: بازار ساکت است، نه اینکه سامانه به‌روز نشده
+const QUIET_MARKET_MS = 3 * 3600_000;
+
 export function formatSnapshot(snapshot: MarketSnapshot | null, live: boolean): string {
   if (!snapshot?.quotes.length) return '💰 قیمت‌ها فعلاً در دسترس نیست. چند دقیقه‌ی دیگر دوباره امتحان کنید.';
   const latest = Math.max(...snapshot.quotes.map((quote) => Date.parse(quote.updatedAt)));
@@ -143,13 +188,16 @@ export function formatSnapshot(snapshot: MarketSnapshot | null, live: boolean): 
     const old = latest - Date.parse(quote.updatedAt) > 24 * 3600_000 && quote.updatedAtJalali ? ` (${toFaDigits(quote.updatedAtJalali.split(' ')[0])})` : '';
     return `${quote.icon} ${quote.label}: ${faNumber(quote.price, quote.price < 1000 ? 1 : 0)}${change}${old}`;
   });
-  const time = new Date(latest).toLocaleString('fa-IR', { timeZone: 'Asia/Tehran', hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'long' });
+  const time = new Date(latest).toLocaleString('fa-IR', { timeZone: 'Asia/Tehran', weekday: 'long', hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'long' });
+  // منبع تازه خوانده شده ولی بازار معامله‌ی تازه‌ای ندارد (عصر پنجشنبه تا شنبه، تعطیلی‌ها)
+  const quiet = Date.parse(snapshot.fetchedAt) - latest > QUIET_MARKET_MS;
   return [
     '💰 قیمت‌های بازار (تومان)',
     '',
     ...lines,
     '',
     `🕒 آخرین قیمت: ${time}`,
+    ...(quiet ? ['ℹ️ از آن زمان معامله‌ی تازه‌ای در بازار ثبت نشده (مثلاً بازار تعطیل است)؛ منبع مرتب بررسی می‌شود.'] : []),
     live
       ? `🔄 این پیام تا ۴۸ ساعت هر ${faNumber(snapshot.refreshMinutes)} دقیقه خودکار به‌روز می‌شود.`
       : `🔄 قیمت‌ها هر ${faNumber(snapshot.refreshMinutes)} دقیقه به‌روز می‌شوند.`,

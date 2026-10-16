@@ -1,5 +1,7 @@
 export const KEY_PREFIXES = {
   registration: 'auth:registration',
+  // بعد از تأیید OTP برای شماره‌ای که حساب ندارد: یک‌بارمصرف تا انتخاب نوع حساب
+  registrationToken: 'auth:registration-token',
   registrationLock: 'auth:registration-lock',
   registrationCooldown: 'auth:registration-cooldown',
   refreshToken: 'auth:refresh',
@@ -26,15 +28,18 @@ export const KEY_PREFIXES = {
   fuelStationChunk: 'routing:fuel-chunk:v1',
   rubikaPollOffset: 'rubika:poll-offset:v1',
   subscriptionPolicy: 'settings:subscription-policy:v1',
-  marketPrices: 'market:prices:v1',
-  marketRefreshLock: 'market:refresh-lock:v1',
+  // v2: همه‌ی قلم‌های قابل انتخاب (MARKET_CATALOG)؛ نسخه‌ی v1 فقط ۶ قلم ثابت را داشت
+  marketPrices: 'market:prices:v2',
+  marketRefreshLock: 'market:refresh-lock:v2',
   marketLiveMessages: 'market:live-messages:v1',
   // وضعیت مرزها از borderpark.ir (فهرست، و صف/اطلاعیه/تیرپارک هر مرز)
   borderData: 'border:data:v1',
+  borderRefreshLock: 'border:refresh-lock:v1',
 } as const;
 
 export type RedisKeyParts = {
   registration: [phone: string];
+  registrationToken: [token: string];
   registrationLock: [phone: string];
   registrationCooldown: [phone: string];
   refreshToken: [token: string];
@@ -63,6 +68,7 @@ export type RedisKeyParts = {
   marketRefreshLock: [];
   marketLiveMessages: [];
   borderData: [kind: string, border: string];
+  borderRefreshLock: [];
 };
 
 /** کانال‌های pub/sub بین نمونه‌های برنامه. */

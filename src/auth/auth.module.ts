@@ -1,3 +1,4 @@
+import { PhoneAccountService } from 'src/services/auth/phoneAccount.service';
 import { jwtSigningOptions } from './jwtKeys';
 import { RedisModule } from 'src/application/module/RedisModule';
 import { RegistrationService } from 'src/services/auth/registration.service';
@@ -39,8 +40,8 @@ import { UserModule } from 'src/application/module/UserModule';
 
     
   ],
-  providers: [RegistrationService, SmsService, AuthService,ImageService, JwtStrategy,UserService,EmailService,AppleAuthService],  // No need to manually inject UserRepository anymore
+  providers: [RegistrationService, PhoneAccountService, SmsService, AuthService,ImageService, JwtStrategy,UserService,EmailService,AppleAuthService],  // No need to manually inject UserRepository anymore
   controllers: [AuthController],
-  exports: [AuthService,AppleAuthService],
+  exports: [AuthService,AppleAuthService, PhoneAccountService],
 })
 export class AuthModule {}

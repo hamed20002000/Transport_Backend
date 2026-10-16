@@ -41,6 +41,7 @@ import {
 import { DriverVerificationService } from 'src/services/driver/driverVerification.service';
 import { CargoRequestRepository } from 'src/infrastructure/repositories/notification/cargoRequest.repository';
 import { CargoInsightService } from 'src/services/notification/cargoInsight.service';
+import { BorderStatusService } from 'src/services/border/borderStatus.service';
 import { CargoListingService } from 'src/services/notification/cargoListing.service';
 import { CargoVoiceService } from 'src/services/notification/cargoVoice.service';
 import { CargoTripService } from 'src/services/notification/cargoTrip.service';
@@ -91,6 +92,7 @@ export class DriverController {
     private readonly speech: TextToSpeechService,
     private readonly i18n: I18nService,
     private readonly cargoVoice: CargoVoiceService,
+    private readonly borders: BorderStatusService,
   ) {}
 
   @Get('profile')
@@ -176,6 +178,19 @@ export class DriverController {
     const route = insight?.routes[routeIndex];
     if (!route) throw new NotFoundException('Route not found.');
     return this.insight.fuelAlong(route);
+  }
+
+  // وضعیت مرزهایی که یکی از مسیرهای بار از آن‌ها می‌گذرد (بار صادراتی، وارداتی، ترانزیت)
+  @Get('loads/:id/borders')
+  async loadBorders(
+    @Req() request: AuthRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('route', new DefaultValuePipe(0), ParseIntPipe) routeIndex: number,
+  ) {
+    const insight = await this.insight.build(id, currentDriverId(request));
+    const route = insight?.routes[routeIndex];
+    if (!route) throw new NotFoundException('Route not found.');
+    return this.borders.onRoute(route.points);
   }
 
   // همان جایگاه‌های مسیر با صدا (mp3) برای راننده‌ای که پشت فرمان است؛ متن مثل ربات

@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 
 import { BotCallback } from 'src/domain/constants/bot/BotCallback';
 import { BotAction, BotContext, BotDialog, BotDialogRegistry, BotReply } from '../messengerBot/core/botDialog';
-import { BorderStatusService } from './borderStatus.service';
+import { borderOrder, BorderStatusService } from './borderStatus.service';
 import { borderDetailText, bordersText, faNumber, tirparkMapUrl } from './borderText';
 
 const PREFIX = 'br:';
@@ -82,9 +82,9 @@ export class BorderDialog implements BotDialog, OnModuleInit {
   private async list(ctx: BotContext): Promise<BotReply> {
     await ctx.progress?.('⏳ در حال دریافت وضعیت مرزها…');
     const details = await this.borders.details();
-    // دکمه‌ی هر مرز با تعداد صفش، شلوغ‌ترین اول
+    // دکمه‌ی هر مرز با تعداد صفش
     const buttons = [...details]
-      .sort((a, b) => b.totals.inQueue - a.totals.inQueue)
+      .sort(borderOrder)
       .map((detail) => ({ id: `${Action.Detail}${detail.border.id}`, label: `${detail.border.name} · ${faNumber(detail.totals.inQueue)}` }));
     return {
       text: `${bordersText(details)}\n\nبرای جزئیات صف‌ها، اطلاعیه‌ها و تیرپارک‌های هر مرز، دکمه‌اش را بزنید.`,

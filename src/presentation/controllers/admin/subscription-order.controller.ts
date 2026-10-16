@@ -64,11 +64,10 @@ export class SubscriptionOrderController {
     // اشتراک ثبت شده؛ خطای ارسال پیام نباید تأیید را خراب کند.
     let notified = true;
     try {
-      if (result.temporaryPassword) {
+      if (result.newUser) {
         await this.bots.sendAccountCredentials(result.providerUserId, {
           accountType: result.accountType,
           username: result.username,
-          temporaryPassword: result.temporaryPassword,
           expireAt: result.expireAt,
         });
       } else {
@@ -79,13 +78,12 @@ export class SubscriptionOrderController {
       this.logger.warn(`Could not notify ${result.providerUserId} about approved order ${orderId}: ${(error as Error).message}`);
     }
 
-    // رمز موقت فقط برای خود کاربر در ربات فرستاده می‌شود، نه در پاسخ ادمین.
     return {
       userId: result.userId,
       username: result.username,
       subscriptionId: result.subscriptionId,
       expireAt: result.expireAt,
-      newUser: !!result.temporaryPassword,
+      newUser: result.newUser,
       notified,
     };
   }

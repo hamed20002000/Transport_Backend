@@ -12,7 +12,8 @@ export class RedisService implements OnModuleDestroy {
     if (parts.some((part) => !part)) {
       throw new Error('Redis key parts must be non-empty.');
     }
-    const identifiers = kind === 'refreshToken'
+    // توکن‌های راز (refresh و ثبت‌نام) فقط به‌صورت هش در کلید می‌آیند
+    const identifiers = kind === 'refreshToken' || kind === 'registrationToken'
       ? [createHash('sha256').update((parts as RedisKeyParts['refreshToken'])[0]).digest('hex')]
       : parts.map(RedisService.escapePart);
     return [KEY_PREFIXES[kind], ...identifiers].join(':');

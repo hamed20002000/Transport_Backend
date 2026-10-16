@@ -1013,9 +1013,10 @@ export class CargoDialog implements BotDialog, OnModuleInit {
 
   //#region ----------- Driver: find cargo -------------------------------------
 
-  /** بارهای باز با فیلترهای فعال خود راننده (همان‌هایی که اعلانشان برایش می‌رود). */
+  /** بارهای باز نوع راننده با فیلترهای فعال خودش (همان‌هایی که اعلانشان برایش می‌رود). */
   private async openCargoView(ctx: BotContext, page: number): Promise<BotReply> {
-    const result = await this.listings.listOpen({ page, pageSize: FIND_PAGE_SIZE, userId: ctx.userId });
+    const tripType = await this.profiles.tripTypeOf(ctx.userId);
+    const result = await this.listings.listOpen({ page, pageSize: FIND_PAGE_SIZE, userId: ctx.userId, tripType });
     const pages = Math.max(1, Math.ceil(result.total / FIND_PAGE_SIZE));
     if (page > pages && result.total > 0) return this.openCargoView(ctx, pages);
 

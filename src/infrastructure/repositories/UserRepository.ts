@@ -105,6 +105,18 @@ export class UserRepository
     });
   }
 
+  /** نقش اولیه‌ی حسابی که هنوز نقشی ندارد (مثلاً ساخته‌شده در ربات پیش از انتخاب نوع حساب). */
+  async assignInitialRole(userId: string, roleName: string): Promise<void> {
+    await this.repository.manager.transaction(async manager => {
+      const user = await manager.findOne(User, { where: { id: userId, recordStatus: RecordStatus.Active }, lock: { mode: 'pessimistic_write' } });
+      if (!user) throw new NotFoundException('Active user not found.');
+      if (await manager.findOne(UserRole, { where: { userId } })) return;
+      const role = await manager.findOne(Role, { where: { name: roleName, recordStatus: RecordStatus.Active } });
+      if (!role) throw new NotFoundException(`Active role "${roleName}" not found`);
+      await manager.save(UserRole, manager.create(UserRole, { userId, roleId: role.id }));
+    });
+  }
+
   update(
     user: User,
   ): Promise<User> {

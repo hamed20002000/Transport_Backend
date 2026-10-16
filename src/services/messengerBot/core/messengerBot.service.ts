@@ -574,11 +574,12 @@ export class MessengerBotService implements OnModuleInit {
       // منوی بعدی پیام تازه است، نه ویرایش پیام قیمت (که هر ۳۰ دقیقه ویرایش می‌شود)
       this.keyboard.clearCallbackMessage(chatId);
       try {
+        const userId = await this.botIdentityService.getUserId(externalUserId);
         if (data === MarketAction.Refresh && query.message && !belowMenu) {
-          await this.market.refresh(chatId, query.message.message_id);
+          await this.market.refresh(chatId, query.message.message_id, userId);
           return;
         }
-        await this.market.send(chatId);
+        await this.market.send(chatId, userId);
       } catch (error) {
         this.logger.warn(`Market prices message failed: ${this.getErrorMessage(error)}`);
       }
@@ -768,7 +769,6 @@ export class MessengerBotService implements OnModuleInit {
     params: {
       accountType: AccountType;
       username: string;
-      temporaryPassword: string;
       expireAt: Date;
     },
   ): Promise<void> {
@@ -787,11 +787,9 @@ export class MessengerBotService implements OnModuleInit {
           accountType:
             accountTypeTitle,
 
+          // ورود وب با موبایل و کد پیامکی است؛ رمز موقت فرستاده نمی‌شود
           username:
             params.username,
-
-          password:
-            params.temporaryPassword,
 
           expireAt:
             this.formatDate(

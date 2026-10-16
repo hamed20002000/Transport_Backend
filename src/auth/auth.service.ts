@@ -7,8 +7,6 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 
-import { PasswordService } from 'src/services/auth/password.service';
-
 import { User } from 'src/domain/entities/auth/User';
 import { RecordStatus } from 'src/domain/enums/RecordStatus';
 
@@ -20,8 +18,6 @@ import {
 
 import { JwtPayload,UserLoginResultDto } from 'src/domain/entities/auth/jwt-payload.dto';
 
-import { LoginDto } from 'src/dto/auth/login-dto';
-
 @Injectable()
 export class AuthService {
   constructor(
@@ -30,37 +26,8 @@ export class AuthService {
     @Inject(USER_REPOSITORY)
     private readonly userRepository: IUserRepository,
 
-    private readonly passwordService: PasswordService,
-
     private readonly configService: ConfigService,
   ) {}
-
-  async login(
-    loginDto: LoginDto,
-  ): Promise<UserLoginResultDto> {
-    const check = await this.validateUser(loginDto);
-
-    if (!check.isAuthenticate || !check.user) {
-      return check;
-    }
-
-    const payload = new JwtPayload(check.user);
-
-    if (payload.roles.length === 0) {
-      throw new HttpException(
-        'User has no active roles',
-        HttpStatus.UNAUTHORIZED,
-      );
-    }
-
-    check.accessToken = this.jwtService.sign({
-      ...payload,
-    });
-
-    check.user = null;
-
-    return check;
-  }
 
   async loginWithGoogle(
     email: string,
@@ -116,28 +83,6 @@ export class AuthService {
     return check;
   }
 
-  async loginForResetPassword(
-    loginDto: LoginDto,
-  ): Promise<UserLoginResultDto> {
-    const check = await this.validateExternalLogin(
-      loginDto.username,
-    );
-
-    if (!check.isAuthenticate || !check.user) {
-      return check;
-    }
-
-    const payload = new JwtPayload(check.user);
-
-    check.accessToken = this.jwtService.sign({
-      ...payload,
-    });
-
-    check.user = null;
-
-    return check;
-  }
-
   async generateTokenWithoutLogin(
     user: User,
   ): Promise<string> {
@@ -146,48 +91,6 @@ export class AuthService {
     return this.jwtService.sign({
       ...payload,
     });
-  }
-
-  async validateUser(
-    loginDto: LoginDto,
-  ): Promise<UserLoginResultDto> {
-    const result = new UserLoginResultDto();
-
-    const user = await this.userRepository.findByUsernameWithRoles(
-      loginDto.username,
-    );
-
-    if (
-      !user ||
-      user.recordStatus !== RecordStatus.Active
-    ) {
-      result.isAuthenticate = false;
-      result.user = null;
-      result.message =
-        'User does not exist or is inactive.';
-
-      return result;
-    }
-
-    const passwordIsValid =
-      await this.passwordService.comparePasswords(
-        loginDto.password,
-        user.passwordHash,
-      );
-
-    if (!passwordIsValid) {
-      result.isAuthenticate = false;
-      result.user = null;
-      result.message =
-        'Username or password is incorrect.';
-
-      return result;
-    }
-
-    result.isAuthenticate = true;
-    result.user = user;
-
-    return result;
   }
 
   private async validateExternalLogin(

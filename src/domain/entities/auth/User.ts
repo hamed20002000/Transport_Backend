@@ -28,12 +28,6 @@ export class User {
 
   @Column({
     type: 'varchar',
-    length: 255,
-  })
-  passwordHash!: string;
-
-  @Column({
-    type: 'varchar',
     length: 150,
     nullable: true,
     unique: true,
@@ -113,10 +107,4 @@ export class User {
   updatedAt!: Date;
 
  
-
-@Column({
-  type: 'boolean',
-  default: false,
-})
-mustChangePassword!: boolean;
 }

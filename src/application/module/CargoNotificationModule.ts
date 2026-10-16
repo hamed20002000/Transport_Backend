@@ -57,6 +57,7 @@ import { CargoAutoAnnounceWorker } from '../../services/notification/cargoAutoAn
 import { WhatsappDialogBridge } from '../../services/notification/whatsappDialogBridge';
 import { CargoInsightService } from '../../services/notification/cargoInsight.service';
 import { RoutingModule } from './RoutingModule';
+import { BorderModule } from './BorderModule';
 import { CompanyCargoTools } from '../../services/notification/companyCargoTools';
 import { CompanyFilterTools } from '../../services/notification/companyFilterTools';
 import { DriverCargoTools } from '../../services/notification/driverCargoTools';
@@ -69,6 +70,7 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
  */
 @Module({
   imports: [
+    BorderModule,
     TypeOrmModule.forFeature([CargoNotification, CargoAlertFilter, CargoListing, CargoRequest, DriverLocation, DriverLocationLog, DriverProfile, CompanyAnnounceSetting]),
     JwtModule.registerAsync({
       imports: [ConfigModule],

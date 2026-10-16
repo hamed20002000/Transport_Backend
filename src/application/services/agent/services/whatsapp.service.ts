@@ -20,7 +20,11 @@ import { WhatsappUserMapping } from 'src/domain/entities/agent/WhatsappUserMappi
 import { useDbAuthState } from '../hooks/useDbAuthState';
 import { FunctionCallService } from './functioncall.service';
 import { AgentRequest } from '../types';
-import { AuthService } from 'src/auth/auth.service';
+import { PhoneAccountService } from 'src/services/auth/phoneAccount.service';
+import { AccountType } from 'src/domain/enums/subscription';
+import { RecordStatus } from 'src/domain/enums/RecordStatus';
+import { normalizePhoneNumber } from 'src/dto/auth/phone-number';
+import { dialablePhones } from 'src/services/messengerBot/core/dialablePhones';
 import { SpeechToTextService } from './Speechtotext.service';
 import { TranscriptCorrectorService } from './transcriptCorrector.service';
 import { VOICE_IDENTIFIER_NOTICE } from './voiceIdentifiers';
@@ -44,11 +48,17 @@ const NOTIFICATION_JITTER_MS = Number(process.env.WHATSAPP_NOTIFICATION_JITTER_M
 // کلمه‌های کنترلی که کاربر در واتس‌اپ می‌نویسد؛ معادل ترکی قبلی هم پذیرفته می‌شود.
 const CANCEL_WORDS = ['لغو', 'انصراف', 'نه', 'iptal', 'vazgeç', 'hayır'];
 // پیام ورود برای شماره‌ای که هنوز به حسابی وصل نشده (متن، ویس و فایل).
-const ONBOARDING_PROMPT =
-  'این شماره هنوز به حسابی در سامانه وصل نشده است.\n' +
-  'لطفاً نام کاربری و رمز حساب سامانه را به این شکل بفرستید:\nنام‌کاربری رمز\n\n' +
-  'همان نام کاربری و رمزی که با آن وارد سایت می‌شوید. اگر با ربات تلگرام، بله یا روبیکا ثبت‌نام کرده‌اید، ' +
-  'نام کاربری شماره موبایلتان است و رمز را ربات برایتان فرستاده است.';
+// حساب از روی شماره‌ی خود واتساپ شناخته می‌شود (مثل دکمه‌ی «ارسال شماره» ربات‌ها)؛ نام کاربری و رمز لازم نیست.
+const ONBOARDING_ACCOUNT_TYPES = [
+  { type: AccountType.Driver, label: 'راننده' },
+  { type: AccountType.Company, label: 'شرکت حمل‌ونقل' },
+] as const;
+const ACCOUNT_TYPE_PROMPT =
+  'به سامانه خوش آمدید! برای این شماره هنوز حسابی ساخته نشده است.\nنوع حسابتان را با فرستادن شماره‌اش انتخاب کنید:\n' +
+  ONBOARDING_ACCOUNT_TYPES.map((item, index) => `${index + 1}. ${item.label}`).join('\n');
+const UNKNOWN_PHONE_MESSAGE =
+  'شماره‌ی موبایل این حساب واتساپ قابل تشخیص نیست یا شماره‌ی ایران نیست.\n' +
+  'حساب‌ها با شماره‌ی موبایل ایران ساخته می‌شوند؛ لطفاً از واتساپی که با شماره‌ی ایران فعال شده پیام بدهید.';
 const NEW_CHAT_WORDS = ['گفتگوی جدید', 'گفتگو جدید', 'yeni sohbet'];
 const NEXT_PAGE_WORDS = ['بعدی', 'ادامه', 'devam'];
 const PREVIOUS_PAGE_WORDS = ['قبلی', 'برگشت', 'geri'];
@@ -136,7 +146,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     private readonly userMappingRepo: Repository<WhatsappUserMapping>,
     @Inject(forwardRef(() => FunctionCallService))
     private readonly functionCallService: FunctionCallService,
-    private readonly authService: AuthService,
+    private readonly accounts: PhoneAccountService,
     private readonly speechToTextService: SpeechToTextService,
     private readonly corrector: TranscriptCorrectorService,
     private readonly voiceCodes: VoiceCodeResolverService,
@@ -244,6 +254,17 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       // every message/event; only its warnings and errors are shown now.
       logger: pino({ level: process.env.WHATSAPP_LOG_LEVEL || 'warn' }),
     });
+    // Every outgoing text/caption (replies, notifications, edits, polls) goes
+    // through here: phone numbers become +98… so a tap starts a call.
+    const send = this.sock.sendMessage.bind(this.sock);
+    this.sock.sendMessage = ((jid, content, options) => {
+      const message = content as { text?: string; caption?: string };
+      const dialable =
+        typeof message.text === 'string' || typeof message.caption === 'string'
+          ? { ...content, ...(message.text !== undefined && { text: dialablePhones(message.text) }), ...(message.caption !== undefined && { caption: dialablePhones(message.caption) }) }
+          : content;
+      return send(jid, dialable as typeof content, options);
+    }) as typeof send;
 
     // Baileys emits 'creds.update' every time the connection's core
     // credentials change -- this happens frequently, especially right after
@@ -451,7 +472,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
           // We pass the FULL msg.key (not just jid/text) because onboarding
           // needs it later to delete the message that contained the user's
           // password.
-          await this.handleIncomingMessage(jid, text, msg.key);
+          await this.handleIncomingMessage(jid, text);
         } catch (error) {
           // Per-message error handling: if processing ONE message in this
           // batch throws, it's logged and the loop moves on -- it does not
@@ -470,10 +491,6 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private async handleIncomingMessage(
     jid: string,
     text: string,
-    // We need the full message key (not just jid/text) so that, in the
-    // onboarding path below, we can delete the message that contained the
-    // user's password.
-    messageKey: proto.IMessageKey,
   ): Promise<void> {
     // Look up which system user (if any) this WhatsApp number belongs to.
     const mapping = await this.resolveUserFromJid(jid);
@@ -481,10 +498,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     // ---- ONBOARDING: this number isn't registered yet ----
     // If there's no mapping, we can't know which system user this is, so we
     // can't do anything else -- hand off entirely to the onboarding flow
-    // (which tries to interpret the message as "username password") and
-    // stop here.
+    // (which links the account of this WhatsApp number) and stop here.
     if (!mapping) {
-      await this.handleOnboardingMessage(jid, text, messageKey);
+      await this.handleOnboardingMessage(jid, text);
       return;
     }
 
@@ -704,138 +720,68 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
 
   // Called only for messages coming from a jid that has no entry in
-  // WhatsappUserMapping yet -- i.e. the very first contact from this number,
-  // or any message sent before onboarding succeeds. Tries to interpret the
-  // message as "username password".
-  private async handleOnboardingMessage(
-    jid: string,
-    text: string,
-    // Needed so the password-containing message can be deleted afterward,
-    // regardless of whether login succeeds or fails.
-    messageKey: proto.IMessageKey,
-  ): Promise<void> {
-    // Split on any whitespace. A valid login attempt is expected to be
-    // exactly two space-separated tokens: "username password".
-    const parts = text.trim().split(/\s+/);
-
-    // Doesn't look like "username password" at all (wrong word count) --
-    // don't even attempt verification, just remind the user of the expected
-    // format and stop.
-    if (parts.length !== 2) {
-      await this.sendMessage(
-        jid,
-        ONBOARDING_PROMPT,
-      );
-      return;
+  // WhatsappUserMapping yet. Like the Telegram/Bale/Rubika "send my number"
+  // button, the account is the one owning this WhatsApp phone number:
+  // an existing account is linked straight away; otherwise the user picks
+  // driver or company (by number) and the account is created. Stateless: the
+  // answer «۱»/«۲» is read from the next message of the same unlinked number.
+  private async handleOnboardingMessage(jid: string, text: string): Promise<boolean> {
+    const phone = await this.phoneOfJid(jid);
+    if (!phone) {
+      await this.sendMessage(jid, UNKNOWN_PHONE_MESSAGE);
+      return false;
     }
 
-    const [username, password] = parts;
-
-    // Declared outside the try block so it's still accessible afterward
-    // (for the below `if (!authResult)` check) once verification succeeds.
-    let authResult: { userid: string } | null;
-    try {
-      authResult = await this.verifyCredentials(username, password);
-    } catch (error) {
-      // verifyCredentials calling the real AuthService can throw for
-      // reasons unrelated to "wrong password" (e.g. a DB error) -- this is
-      // caught separately from a normal "invalid credentials" result so we
-      // can log the unexpected failure and still give the user *some*
-      // response, instead of the whole thing failing silently.
-      this.logger.error(`verifyCredentials hata verdi: ${username}`, error as Error);
-      // Even on an unexpected error, the message still contained a real
-      // password -- delete it regardless of outcome.
-      await this.deleteMessage(jid, messageKey);
-      await this.sendMessage(jid, 'هنگام ورود خطایی رخ داد. لطفاً دوباره تلاش کنید.');
-      return;
+    let user = await this.accounts.findByPhone(phone);
+    if (user && user.recordStatus !== RecordStatus.Active) {
+      await this.sendMessage(jid, 'حساب این شماره غیرفعال است. با پشتیبانی تماس بگیرید.');
+      return false;
     }
 
-    // The password has now been read/processed either way (success or
-    // expected failure below) -- delete the message so it doesn't remain as
-    // plain, readable text sitting in the chat history.
-    await this.deleteMessage(jid, messageKey);
-
-    // verifyCredentials completed without throwing, but returned null --
-    // meaning the username/password combination itself was wrong (as
-    // opposed to a system error, which was already handled above).
-    if (!authResult) {
-      await this.sendMessage(jid, 'نام کاربری یا رمز عبور اشتباه است. لطفاً دوباره تلاش کنید.');
-      return;
+    if (!user || !(await this.accounts.hasRole(user.id))) {
+      // «۱»، «اول» یا خود نام نوع («راننده»، «شرکت»)
+      const choice = parseChoice(text);
+      const accountType =
+        (choice ? ONBOARDING_ACCOUNT_TYPES[choice - 1]?.type : null) ??
+        ONBOARDING_ACCOUNT_TYPES.find((item) => text.includes(item.label.split(' ')[0]))?.type ??
+        null;
+      if (!accountType) {
+        await this.sendMessage(jid, ACCOUNT_TYPE_PROMPT);
+        return false;
+      }
+      try {
+        user = user ? await this.accounts.assignRole(user.id, accountType) : await this.accounts.create(phone, accountType);
+      } catch (error) {
+        this.logger.error(`WhatsApp account creation failed: ${phone}`, error as Error);
+        await this.sendMessage(jid, 'ساخت حساب انجام نشد. لطفاً دوباره تلاش کنید.');
+        return false;
+      }
     }
 
-    // Login succeeded -- link this WhatsApp number to the system user going
-    // forward. upsert (not save/insert) is used with `jid` as the conflict
-    // column so that if this same number was previously linked to a
-    // different account, it gets re-linked instead of throwing a duplicate
-    // key error.
-    await this.userMappingRepo.upsert(
-      { userid: authResult.userid, username, jid },
-      ['jid'],
-    );
-
-    // Confirm success -- from this point on, resolveUserFromJid(jid) will
-    // find this mapping and treat this number as a known, logged-in user.
+    // upsert on jid: a number re-linked to another account replaces the old row.
+    await this.userMappingRepo.upsert({ userid: user.id, username: user.username, jid }, ['jid']);
     await this.sendMessage(
       jid,
-      `${username} عزیز، خوش آمدید! از این به بعد می‌توانید درخواست‌هایتان را همین‌جا بفرستید.`,
+      `✅ حساب شماره ${phone} به این واتساپ وصل شد. از این به بعد درخواست‌هایتان را همین‌جا بفرستید.
+` +
+        `🌐 برای ورود به پنل وب، همین شماره را وارد کنید تا کد ورود پیامک شود؛ رمز عبوری لازم نیست.`,
     );
+    return true;
   }
 
-
-
-  // Thin wrapper around the real authentication service -- exists so that
-  // handleOnboardingMessage doesn't need to know the exact shape of
-  // AuthService's response, only this function's simplified { userid } | null
-  // contract.
-  private async verifyCredentials(
-    username: string,
-    password: string,
-  ): Promise<{ userid: string } | null> {
-    // Delegates the actual check (password hashing/comparison, DB lookup,
-    // etc.) to the SAME AuthService used by the web login and by
-    // MessengerBotService.handleLinkCommand -- so WhatsApp isn't running its own
-    // separate, potentially inconsistent auth logic. Note the parameter
-    // order here ({ password, username }) matches what AuthService.validateUser
-    // expects, not necessarily the order this function's own params are in.
-    const result = await this.authService.validateUser({ password, username });
-
-    // Wrong username/password or inactive user -- validateUser always returns
-    // an object, with isAuthenticate=false and user=null, so check those
-    // instead of the result itself. Otherwise a mapping with an empty userid
-    // gets saved and every later message from this number fails.
-    if (!result.isAuthenticate || !result.user?.id) return null;
-
-    // We only pass back the `userid`, since that's the only piece the
-    // onboarding flow and the WhatsappUserMapping row actually require.
-    return { userid: result.user.id };
-  }
-
-  // Deletes a previously-sent (or previously-received) message using its
-  // key. Currently only used in the onboarding flow, to remove the message
-  // that contained the user's plaintext password after it's been processed.
-  private async deleteMessage(jid: string, messageKey: proto.IMessageKey): Promise<void> {
-    // No active connection -- nothing we can do, and nothing worth erroring
-    // loudly about (deleting a message is a best-effort cleanup step, not a
-    // critical operation).
-    if (!this.sock) return;
-
-    try {
-      // In Baileys, "deleting" a message is done by sending a special
-      // message whose payload is `{ delete: <key of the message to remove> }`,
-      // rather than calling some dedicated `deleteMessage()` method. This
-      // only removes the message on this bot's side of the chat (WhatsApp's
-      // "delete for everyone" has its own constraints/time limits, and isn't
-      // guaranteed to fully scrub it from the other device depending on
-      // timing/version).
-      await this.sock.sendMessage(jid, { delete: messageKey });
-    } catch (error) {
-      // Deletion can fail for reasons outside our control (e.g. the message
-      // is too old, the other side already deleted/read it, a transient
-      // connection issue). This is treated as non-fatal: we log it as a
-      // warning and move on, rather than letting it interrupt the onboarding
-      // flow that called this.
-      this.logger.warn(`Mesaj silinemedi: ${jid}`, error as Error);
+  // The verified phone number behind a WhatsApp jid, as 09xxxxxxxxx. A
+  // "@lid" jid (WhatsApp's newer privacy id) carries no number; Baileys'
+  // LID mapping is asked for it. Only Iranian mobile numbers can hold an
+  // account (SMS login is Iran-only).
+  private async phoneOfJid(jid: string): Promise<string | null> {
+    let pn: string | null = jid;
+    if (jid.endsWith('@lid')) {
+      pn = await this.sock?.signalRepository.lidMapping.getPNForLID(jid).catch(() => null) ?? null;
     }
+    const digits = pn?.match(/^(\d+)(?::\d+)?@s\.whatsapp\.net$/)?.[1];
+    if (!digits) return null;
+    const phone = normalizePhoneNumber(`+${digits}`);
+    return typeof phone === 'string' && /^09[0-9]{9}$/.test(phone) ? phone : null;
   }
 
 
@@ -908,10 +854,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     // would waste a speech-to-text call).
     const mapping = await this.resolveUserFromJid(jid);
     if (!mapping) {
-      await this.sendMessage(
-        jid,
-        ONBOARDING_PROMPT,
-      );
+      // حساب همین شماره وصل می‌شود؛ ویس یا فایل را کاربر بعد از وصل شدن دوباره می‌فرستد
+      if (await this.handleOnboardingMessage(jid, '')) await this.sendMessage(jid, 'لطفاً پیامتان را دوباره بفرستید.');
       return;
     }
 
@@ -1070,10 +1014,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     const mapping = await this.resolveUserFromJid(jid);
     if (!mapping) {
-      await this.sendMessage(
-        jid,
-        ONBOARDING_PROMPT,
-      );
+      // حساب همین شماره وصل می‌شود؛ ویس یا فایل را کاربر بعد از وصل شدن دوباره می‌فرستد
+      if (await this.handleOnboardingMessage(jid, '')) await this.sendMessage(jid, 'لطفاً پیامتان را دوباره بفرستید.');
       return;
     }
 

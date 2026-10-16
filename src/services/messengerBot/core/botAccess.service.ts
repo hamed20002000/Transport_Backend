@@ -1,7 +1,7 @@
 import { Inject, Injectable, ConflictException } from '@nestjs/common';
 import { botNamespace } from './botPlatform';
 import { ConfigService } from '@nestjs/config';
-import { randomBytes, randomInt } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import TelegramBot from 'node-telegram-bot-api';
 import { MultiBot } from './multiBot';
 import { USER_REPOSITORY, BOT_LINK_REPOSITORY } from '../../../domain/repositories/repository.tokens';
@@ -13,7 +13,6 @@ import { RecordStatus } from '../../../domain/enums/RecordStatus';
 import { AccountType } from '../../../domain/enums/subscription';
 import { BotCallback } from '../../../domain/constants/bot/BotCallback';
 import { normalizePhoneNumber } from '../../../dto/auth/phone-number';
-import { PasswordService } from '../../auth/password.service';
 import { RedisService } from '../../redis/redis.service';
 import { BotIdentityService } from './botIdentity.service';
 import { BotSessionService } from './botSession.service';
@@ -29,15 +28,12 @@ interface BotIdentityMetadata {
 }
 
 const ACCESS_LOCK_TTL_SECONDS = 120;
-const PASSWORD_LENGTH = 10;
-const PASSWORD_CHARACTERS = 'abcdefghjkmnpqrstuvwxyz23456789';
 
 @Injectable()
 export class BotAccessService {
   constructor(
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     @Inject(BOT_LINK_REPOSITORY) private readonly links: IBotLinkRepository,
-    private readonly passwords: PasswordService,
     private readonly identity: BotIdentityService,
     private readonly sessions: BotSessionService,
     private readonly redis: RedisService,
@@ -238,7 +234,7 @@ export class BotAccessService {
 
   /**
    * کاربر و بات مربوطه رو ثبت میکنه
-   * بعد از ثبت اطلاعات ورود به وب نیز ارسال میشود
+   * بعد از ثبت، راهنمای ورود به وب با موبایل و کد پیامکی ارسال میشود
    * @param metadata 
    * @param phoneNumber 
    */
@@ -249,16 +245,11 @@ export class BotAccessService {
     phoneNumber: string,
   ): Promise<void> {
     const { chatId, externalUserId } = metadata;
-    const password = Array.from(
-      { length: PASSWORD_LENGTH },
-      () => PASSWORD_CHARACTERS[randomInt(PASSWORD_CHARACTERS.length)],
-    ).join('');
+    // ورود فقط با موبایل و کد پیامکی است؛ حساب رمز عبور ندارد
     const user = Object.assign(new User(), {
       username: phoneNumber,
-      passwordHash: await this.passwords.hashPassword(password),
       mobile: phoneNumber,
       recordStatus: RecordStatus.Active,
-      mustChangePassword: false,
     });
     if (await this.links.findByExternalUserId(externalUserId)) {
       throw new ConflictException('Messenger account is already linked.');
@@ -272,38 +263,22 @@ export class BotAccessService {
       lastInteractionAt: new Date(),
     });
     const saved = await this.links.createUserWithLink(user, link);
-    await this.sendWebCredentials(chatId, user.username, password);
+    await this.sendWebLoginHint(chatId, phoneNumber);
     await this.identity.cacheUserId(externalUserId, saved.userId);
   }
   //#endregion --------------------------------------------------------------------------------------
 
   /**
-   * ارسال اطلاعات ورود کاربر به بات در حال استفاده
+   * راهنمای ورود به وب: فقط شماره موبایل و کد پیامکی؛ رمزی فرستاده نمی‌شود
    * @param chatId
-   * @param username 
-   * @param password 
+   * @param phone
    */
 
-  //#region ------------------------- ارسال اطلاعات کاربر برای ورود به وب -------------------------------
-  private async sendWebCredentials(
-    chatId: string,
-    username: string,
-    password: string,
-  ): Promise<void> {
-    // Send directly: never persist plaintext credentials in keyboard/session state.
-    try {
-      await this.bot.sendMessage(
-        chatId,
-        this.messages.get('identity.credentials', 'fa', {
-          username: username,
-          password,
-        }),
-        { protect_content: true, reply_markup: { remove_keyboard: true } },
-      );
-    } catch {
-      // A Telegram transport error may contain the message text, including the password.
-      throw new Error('Could not deliver Web credentials through the messenger bot.');
-    }
+  //#region ------------------------- راهنمای ورود به وب -------------------------------
+  private async sendWebLoginHint(chatId: string, phone: string): Promise<void> {
+    await this.bot.sendMessage(chatId, this.messages.get('identity.webLogin', 'fa', { phone }), {
+      reply_markup: { remove_keyboard: true },
+    });
   }
   //#endregion ------------------------------------------------------------------------------------------
 

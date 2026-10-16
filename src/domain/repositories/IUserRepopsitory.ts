@@ -21,6 +21,8 @@ export interface IUserRepository {
 
   createWithRole(user: User, roleName: string): Promise<User>;
 
+  assignInitialRole(userId: string, roleName: string): Promise<void>;
+
   update(
     user: User,
   ): Promise<User>;

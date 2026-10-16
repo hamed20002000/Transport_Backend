@@ -77,7 +77,9 @@ export class CargoTripService {
     options: { page: number; pageSize: number; matchFilters?: boolean } & CargoSearch,
   ) {
     const { matchFilters, ...rest } = options;
-    const result = await this.listings.listOpen({ ...rest, userId: matchFilters ? driverUserId : undefined });
+    // هر راننده فقط بارهای نوع خودش (داخلی، صادراتی، وارداتی)
+    const tripType = await this.profiles.tripTypeOf(driverUserId);
+    const result = await this.listings.listOpen({ ...rest, tripType, userId: matchFilters ? driverUserId : undefined });
     const ids = result.items.map((item) => item.id);
     const mine = new Map((await this.requests.findForDriverByListings(driverUserId, ids)).map((r) => [r.listingId, r]));
     // بار سپرده‌شده به راننده‌ی دیگر: «رزرو شده» و بدون دکمه‌ی درخواست

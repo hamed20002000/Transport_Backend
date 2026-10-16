@@ -4,7 +4,6 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { User } from 'src/domain/entities/auth/User';
 
 import { UserService } from 'src/services/UserService';
-import { PasswordService } from 'src/services/auth/password.service';
 
 import { UserProfileController } from 'src/presentation/controllers/user/user-profile.controller';
 import { UserRepository } from 'src/infrastructure/repositories/UserRepository';
@@ -29,7 +28,6 @@ import { CompanyProfileTools } from 'src/services/companyProfileTools';
       useExisting: UserRepository,
     },
 
-    PasswordService,
     UserService,
     // ابزارهای agent برای پروفایل
     CompanyProfileTools,
@@ -38,7 +36,6 @@ import { CompanyProfileTools } from 'src/services/companyProfileTools';
   exports: [
     USER_REPOSITORY,
     UserService,
-    PasswordService,
   ],
 })
 export class UserModule {}

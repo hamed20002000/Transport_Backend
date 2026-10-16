@@ -5,7 +5,7 @@ import { QueryFailedError } from 'typeorm';
 import { CargoDetectedEvent } from '../../domain/constants/cargoEvents';
 import { CargoListing } from '../../domain/entities/notification/CargoListing';
 import { CargoNotification } from '../../domain/entities/notification/CargoNotification';
-import { CargoListingStatus } from '../../domain/enums/notification';
+import { CargoListingStatus, CargoTripType } from '../../domain/enums/notification';
 import { CargoSearch, matchesCargoSearch, prepareCargoSearch } from './cargoSearch';
 import { CargoAudienceRepository } from '../../infrastructure/repositories/notification/cargoAudience.repository';
 import { CargoListingRepository } from '../../infrastructure/repositories/notification/cargoListing.repository';
@@ -308,7 +308,8 @@ export class CargoListingService {
    * اعلانی که برایش می‌رود). match روی متن آزاد در SQL ممکن نیست، پس
    * جدیدترین OPEN_SCAN_LIMIT بار در برنامه فیلتر می‌شوند.
    */
-  async listOpen(options: { page: number; pageSize: number; userId?: string } & CargoSearch) {
+  /** tripType: فقط بارهای همین نوع (فهرست بار راننده، مثل اعلام بار فقط به راننده‌های همان نوع). */
+  async listOpen(options: { page: number; pageSize: number; userId?: string; tripType?: CargoTripType } & CargoSearch) {
     const skip = (options.page - 1) * options.pageSize;
     const filters = options.userId ? await this.filters.activeFor(options.userId) : [];
     // جستجوی مبدأ/مقصد/نوع بار/ماشین («شامل بودن» مثل فیلترها)؛ بار برگشتی هم از همین استفاده می‌کند
@@ -316,9 +317,9 @@ export class CargoListingService {
     let items: CargoListing[];
     let total: number;
     if (filters.length === 0 && !search) {
-      [items, total] = await this.listings.findOpenPage({ skip, take: options.pageSize });
+      [items, total] = await this.listings.findOpenPage({ skip, take: options.pageSize, tripType: options.tripType });
     } else {
-      const [recent] = await this.listings.findOpenPage({ skip: 0, take: OPEN_SCAN_LIMIT });
+      const [recent] = await this.listings.findOpenPage({ skip: 0, take: OPEN_SCAN_LIMIT, tripType: options.tripType });
       const matching = recent.filter(
         (listing) => this.filters.matchesAny(filters, listing) && (!search || matchesCargoSearch(listing, search)),
       );

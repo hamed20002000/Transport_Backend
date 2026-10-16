@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import { Readable } from 'node:stream';
 import TelegramBot from 'node-telegram-bot-api';
 import { BotPlatform, parseBotId, toBotId } from './botPlatform';
+import { dialablePhones } from './dialablePhones';
 
 /** متدهایی از TelegramBot که ربات اصلی استفاده می‌کند -- RubikaBotClient هم همین‌ها را دارد. */
 type PlatformClient = Pick<
@@ -69,7 +70,8 @@ export class MultiBot extends EventEmitter {
 
   async sendMessage(chatId: string | number, text: string, options?: TelegramBot.SendMessageOptions) {
     const { platform, client, nativeId } = this.route(chatId);
-    const message = await client.sendMessage(nativeId, text, options);
+    // شماره‌ها به شکل بین‌المللی تا با لمس، تماس گرفته شود (همه‌ی متن‌ها از همین‌جا می‌روند)
+    const message = await client.sendMessage(nativeId, dialablePhones(text), options);
     return prefixMessage(platform, message);
   }
 
@@ -81,24 +83,24 @@ export class MultiBot extends EventEmitter {
   /** عکس (مثلاً نقشه‌ی مسیر و جایگاه‌های سوخت) با زیرنویس. */
   async sendPhoto(chatId: string | number, photo: Buffer, caption?: string) {
     const { client, nativeId } = this.route(chatId);
-    await client.sendPhoto(nativeId, photo, caption ? { caption } : {}, { filename: 'map.jpg', contentType: 'image/jpeg' });
+    await client.sendPhoto(nativeId, photo, caption ? { caption: dialablePhones(caption) } : {}, { filename: 'map.jpg', contentType: 'image/jpeg' });
   }
 
   /** پیام صوتی ogg/opus (تلگرام و بله sendVoice؛ روبیکا فایل Voice). */
   async sendVoice(chatId: string | number, voice: Buffer, caption?: string) {
     const { client, nativeId } = this.route(chatId);
-    await client.sendVoice(nativeId, voice, caption ? { caption } : {}, { filename: 'voice.ogg', contentType: 'audio/ogg' });
+    await client.sendVoice(nativeId, voice, caption ? { caption: dialablePhones(caption) } : {}, { filename: 'voice.ogg', contentType: 'audio/ogg' });
   }
 
   /** فایل با نام دلخواه (مثل فایل نمونه‌ی اکسل). */
   async sendDocument(chatId: string | number, document: Buffer, fileName: string, contentType: string, caption?: string) {
     const { client, nativeId } = this.route(chatId);
-    await client.sendDocument(nativeId, document, caption ? { caption } : {}, { filename: fileName, contentType });
+    await client.sendDocument(nativeId, document, caption ? { caption: dialablePhones(caption) } : {}, { filename: fileName, contentType });
   }
 
   async editMessageText(text: string, options: TelegramBot.EditMessageTextOptions) {
     const { client, nativeId } = this.route(options.chat_id!);
-    return client.editMessageText(text, { ...options, chat_id: nativeId });
+    return client.editMessageText(dialablePhones(text), { ...options, chat_id: nativeId });
   }
 
   async editMessageReplyMarkup(

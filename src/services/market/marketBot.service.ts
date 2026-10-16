@@ -2,17 +2,23 @@ import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy, OnModuleIn
 import { ConfigService } from '@nestjs/config';
 import TelegramBot from 'node-telegram-bot-api';
 
-import { BotContext, BotDialog, BotDialogRegistry, BotReply } from '../messengerBot/core/botDialog';
+import { BotAction, BotContext, BotDialog, BotDialogRegistry, BotReply } from '../messengerBot/core/botDialog';
 import { MultiBot } from '../messengerBot/core/multiBot';
 import { RedisService } from '../redis/redis.service';
-import { formatSnapshot, MARKET_REFRESH_MINUTES, MarketPriceService } from './marketPrice.service';
+import { formatSnapshot, MARKET_CATALOG, MARKET_REFRESH_MINUTES, MarketPriceService, MarketSnapshot, MAX_MARKET_SYMBOLS, pickQuotes } from './marketPrice.service';
+import { MarketPreferenceService } from './marketPreference.service';
 
 export const MarketAction = {
   // دکمه‌ی منوی راننده و شرکت (و بخش واتساپ)
   Show: 'mk:show',
   // دکمه‌ی زیر همان پیام قیمت
   Refresh: 'mk:refresh',
+  // انتخاب ارزها و طلای نوار قیمت
+  Choose: 'mk:cfg',
+  Toggle: 'mk:t:', // + symbol
 } as const;
+
+const faNumber = (value: number) => value.toLocaleString('fa-IR');
 
 // پیام قیمت تا این مدت بعد از آخرین «قیمت‌ها»/«به‌روزرسانی» خودکار ویرایش می‌شود
 const LIVE_HOURS = 48;
@@ -22,6 +28,8 @@ const EDIT_GAP_MS = 60;
 interface LiveMessage {
   messageId: number;
   until: number;
+  // قلم‌های صاحب چت؛ پیام‌های قدیمی‌تر ندارند و پیش‌فرض می‌گیرند
+  symbols?: string[];
 }
 
 /**
@@ -42,6 +50,7 @@ export class MarketBotService implements BotDialog, OnModuleInit, OnApplicationB
     private readonly redis: RedisService,
     private readonly registry: BotDialogRegistry,
     private readonly config: ConfigService,
+    private readonly preferences: MarketPreferenceService,
   ) {}
 
   onModuleInit(): void {
@@ -64,15 +73,53 @@ export class MarketBotService implements BotDialog, OnModuleInit, OnApplicationB
     if (this.timer) clearTimeout(this.timer);
   }
 
-  // ---------------- BotDialog (واتساپ) ----------------
+  // ---------------- BotDialog (واتساپ، و انتخاب ارزها در همه‌ی پیام‌رسان‌ها) ----------------
 
   ownsAction(id: string): boolean {
-    return id === MarketAction.Show || id === MarketAction.Refresh;
+    return id.startsWith('mk:');
   }
 
-  async handleAction(_ctx: BotContext, id: string): Promise<BotReply | null> {
+  async handleAction(ctx: BotContext, id: string): Promise<BotReply | null> {
     if (!this.ownsAction(id)) return null;
-    return { text: formatSnapshot(await this.prices.current(), false), actions: [] };
+    if (id === MarketAction.Choose) return this.chooser(ctx);
+    if (id.startsWith(MarketAction.Toggle)) {
+      const symbol = id.slice(MarketAction.Toggle.length);
+      const saved = await this.preferences.toggle(ctx.userId, symbol);
+      const label = (value: string) => MARKET_CATALOG.find((item) => item.symbol === value)?.label ?? value;
+      const notice = !saved
+        ? 'دست‌کم یک قلم باید بماند.'
+        : saved.replaced
+          ? `«${label(symbol)}» جای «${label(saved.replaced)}» را گرفت (حداکثر ${faNumber(MAX_MARKET_SYMBOLS)} قلم).`
+          : null;
+      return this.chooser(ctx, notice);
+    }
+    return {
+      text: formatSnapshot(pickQuotes(await this.prices.current(), await this.preferences.symbolsOf(ctx.userId)), false),
+      actions: [{ id: MarketAction.Choose, label: '⚙️ انتخاب ارزها' }],
+    };
+  }
+
+  /** همه‌ی قلم‌ها با ✅ روی انتخاب‌ها؛ زدن هر کدام اضافه یا برداشته می‌شود. */
+  private async chooser(ctx: BotContext, notice?: string | null): Promise<BotReply> {
+    const selected = await this.preferences.symbolsOf(ctx.userId);
+    const actions: BotAction[] = MARKET_CATALOG.map((item, index) => ({
+      id: `${MarketAction.Toggle}${item.symbol}`,
+      label: `${selected.includes(item.symbol) ? '✅' : item.icon} ${item.label}`,
+      row: Math.floor(index / 2),
+    }));
+    actions.push({ id: MarketAction.Show, label: '💰 دیدن قیمت‌ها', row: Math.ceil(MARKET_CATALOG.length / 2) });
+    const chosen = selected.map((symbol) => MARKET_CATALOG.find((item) => item.symbol === symbol)?.label).filter(Boolean);
+    return {
+      text: [
+        notice,
+        `⚙️ انتخاب ارزها و طلا (حداکثر ${faNumber(MAX_MARKET_SYMBOLS)} قلم)`,
+        `انتخاب فعلی: ${chosen.join('، ')}`,
+        'برای افزودن یا برداشتن، دکمه‌ی هر قلم را بزنید؛ همین قلم‌ها در پیام قیمت و پنل وب نشان داده می‌شوند.',
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+      actions,
+    };
   }
 
   async hasSession(): Promise<boolean> {
@@ -85,16 +132,20 @@ export class MarketBotService implements BotDialog, OnModuleInit, OnApplicationB
 
   // ---------------- تلگرام، بله، روبیکا ----------------
 
-  /** پیام تازه‌ی قیمت؛ پیام زنده‌ی قبلی همین چت دیگر ویرایش نمی‌شود. */
-  async send(chatId: string): Promise<void> {
-    const message = await this.multiBot.sendMessage(chatId, formatSnapshot(await this.prices.current(), true), { reply_markup: this.markup() });
-    await this.keepLive(chatId, message.message_id);
+  /** پیام تازه‌ی قیمت با قلم‌های کاربر؛ پیام زنده‌ی قبلی همین چت دیگر ویرایش نمی‌شود. */
+  async send(chatId: string, userId?: string | null): Promise<void> {
+    const symbols = await this.preferences.symbolsOf(userId);
+    const message = await this.multiBot.sendMessage(chatId, formatSnapshot(pickQuotes(await this.prices.current(), symbols), true), {
+      reply_markup: this.markup(),
+    });
+    await this.keepLive(chatId, message.message_id, symbols);
   }
 
   /** دکمه‌ی «به‌روزرسانی» زیر پیام قیمت: همان پیام ویرایش و ۴۸ ساعت دیگر زنده می‌ماند. */
-  async refresh(chatId: string, messageId: number): Promise<void> {
-    await this.edit(chatId, messageId, formatSnapshot(await this.prices.current(), true));
-    await this.keepLive(chatId, messageId);
+  async refresh(chatId: string, messageId: number, userId?: string | null): Promise<void> {
+    const symbols = await this.preferences.symbolsOf(userId);
+    await this.edit(chatId, messageId, formatSnapshot(pickQuotes(await this.prices.current(), symbols), true));
+    await this.keepLive(chatId, messageId, symbols);
   }
 
   /** یک دور: قیمت تازه از منبع، بعد ویرایش همه‌ی پیام‌های زنده. */
@@ -104,7 +155,7 @@ export class MarketBotService implements BotDialog, OnModuleInit, OnApplicationB
     try {
       // فقط نمونه‌ای که قفل را گرفت و قیمت تازه خواند پیام‌ها را ویرایش می‌کند
       const snapshot = await this.prices.refresh();
-      if (snapshot && this.multiBot.configured) await this.editLiveMessages(formatSnapshot(snapshot, true));
+      if (snapshot && this.multiBot.configured) await this.editLiveMessages(snapshot);
     } catch (error: unknown) {
       this.logger.error(`Market prices tick failed: ${(error as Error).message}`);
     } finally {
@@ -112,7 +163,14 @@ export class MarketBotService implements BotDialog, OnModuleInit, OnApplicationB
     }
   }
 
-  private async editLiveMessages(text: string): Promise<void> {
+  /** هر پیام زنده با قلم‌های صاحبش؛ متن هر ترکیب یک بار ساخته می‌شود. */
+  private async editLiveMessages(snapshot: MarketSnapshot): Promise<void> {
+    const texts = new Map<string, string>();
+    const textFor = (symbols: string[] | undefined) => {
+      const key = (symbols ?? []).join(',');
+      if (!texts.has(key)) texts.set(key, formatSnapshot(pickQuotes(snapshot, symbols ?? []), true));
+      return texts.get(key)!;
+    };
     const key = RedisService.key('marketLiveMessages');
     const all = await this.redis.hashGetAll(key);
     const expired: string[] = [];
@@ -123,7 +181,7 @@ export class MarketBotService implements BotDialog, OnModuleInit, OnApplicationB
         expired.push(chatId);
         continue;
       }
-      if (!(await this.edit(chatId, live.messageId, text))) expired.push(chatId);
+      if (!(await this.edit(chatId, live.messageId, textFor(live.symbols)))) expired.push(chatId);
       else edited++;
       await new Promise((resolve) => setTimeout(resolve, EDIT_GAP_MS));
     }
@@ -142,13 +200,20 @@ export class MarketBotService implements BotDialog, OnModuleInit, OnApplicationB
     }
   }
 
-  private async keepLive(chatId: string, messageId: number): Promise<void> {
-    const live: LiveMessage = { messageId, until: Date.now() + LIVE_HOURS * 3600_000 };
+  private async keepLive(chatId: string, messageId: number, symbols: string[]): Promise<void> {
+    const live: LiveMessage = { messageId, until: Date.now() + LIVE_HOURS * 3600_000, symbols };
     await this.redis.hashSet(RedisService.key('marketLiveMessages'), chatId, JSON.stringify(live));
   }
 
   private markup(): TelegramBot.InlineKeyboardMarkup {
     // دکمه‌ی دیگری (مثل منوی اصلی) ندارد: منوی بعدی نباید جای این پیام را بگیرد
-    return { inline_keyboard: [[{ text: '🔄 به‌روزرسانی', callback_data: MarketAction.Refresh }]] };
+    return {
+      inline_keyboard: [
+        [
+          { text: '🔄 به‌روزرسانی', callback_data: MarketAction.Refresh },
+          { text: '⚙️ انتخاب ارزها', callback_data: MarketAction.Choose },
+        ],
+      ],
+    };
   }
 }

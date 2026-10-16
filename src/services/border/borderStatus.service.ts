@@ -1,9 +1,22 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 
 import { normalizePersianText } from '../../domain/helper/persianText';
 import { RedisService } from '../redis/redis.service';
+import { GeoPoint } from '../routing/geo';
+import { BorderOnRoute, bordersOnRoute } from './borderLocations';
+
+/**
+ * ترتیب نمایش مرزها (وب، دکمه‌ها و متن ربات‌ها): ترکیه، باشماق، آذربایجان، ارمنستان، بقیه؛
+ * در هر گروه شلوغ‌ترین اول.
+ */
+export function borderOrder(a: BorderDetail, b: BorderDetail): number {
+  const rank = ({ border }: BorderDetail) =>
+    border.countryCode === 'TR' ? 0 : border.id === 'bashmaq' ? 1 : border.countryCode === 'AZ' ? 2 : border.countryCode === 'AM' ? 3 : 4;
+  return rank(a) - rank(b) || b.totals.inQueue - a.totals.inQueue;
+}
 
 /** آمار اخیر هر مرز در فهرست borderpark (تعداد ناوگان). */
 export interface BorderStats {
@@ -71,6 +84,9 @@ const TIMEOUT_MS = 15_000;
 // صف‌ها چند دقیقه یک‌بار در borderpark به‌روز می‌شوند
 const STATUS_FRESH_MS = 10 * 60 * 1000;
 const TIRPARKS_FRESH_MS = 24 * 60 * 60 * 1000;
+// کار پس‌زمینه هر ۵ دقیقه صف‌ها و اطلاعیه‌ها را تازه می‌کند تا کاربر منتظر borderpark نماند؛
+// اگر کار نکند، درخواست کاربر بعد از STATUS_FRESH_MS خودش داده‌ی تازه می‌گیرد.
+const REFRESH_MINUTES = 5;
 // داده‌ی قدیمی برای وقتی که borderpark در دسترس نیست
 const KEEP_SECONDS = 3 * 24 * 60 * 60;
 
@@ -97,21 +113,57 @@ const text = (value: unknown) =>
  * اگر borderpark در دسترس نبود آخرین داده با stale نشان داده می‌شود.
  */
 @Injectable()
-export class BorderStatusService {
+export class BorderStatusService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(BorderStatusService.name);
   private readonly baseUrl: string;
   // درخواست هم‌زمان برای یک داده فقط یک بار به borderpark می‌رود
   private readonly inFlight = new Map<string, Promise<unknown>>();
 
+  private timer?: NodeJS.Timeout;
+
   constructor(
     private readonly redis: RedisService,
-    config: ConfigService,
+    private readonly config: ConfigService,
   ) {
     this.baseUrl = config.get<string>('BORDERPARK_URL', BASE_URL).replace(/\/$/, '');
   }
 
-  async borders(): Promise<BorderSummary[]> {
-    const { data } = await this.cached('list', 'all', STATUS_FRESH_MS, async () => {
+  onApplicationBootstrap(): void {
+    if (this.config.get('BORDER_STATUS_WORKER', 'true') === 'false') return;
+    void this.refreshAll();
+    this.timer = setInterval(() => void this.refreshAll(), REFRESH_MINUTES * 60_000);
+    this.timer.unref?.();
+  }
+
+  onModuleDestroy(): void {
+    if (this.timer) clearInterval(this.timer);
+  }
+
+  /**
+   * همه‌ی مرزها از borderpark (بی‌توجه به تازگی کش)؛ با قفل Redis فقط یک نمونه‌ی سرور در هر دور.
+   * مرزها پشت‌سرهم خوانده می‌شوند تا borderpark یک‌باره ده‌ها درخواست نگیرد.
+   */
+  async refreshAll(): Promise<void> {
+    const owner = randomUUID();
+    const locked = await this.redis
+      .setIfAbsent(RedisService.key('borderRefreshLock'), owner, REFRESH_MINUTES * 60 - 30)
+      .catch(() => true);
+    if (!locked) return;
+    try {
+      const borders = await this.borders(true);
+      let failed = 0;
+      for (const border of borders) {
+        const detail = await this.detail(border.id, true).catch(() => null);
+        if (!detail || detail.stale) failed++;
+      }
+      if (failed) this.logger.warn(`Border refresh: ${failed} of ${borders.length} border(s) did not answer.`);
+    } catch (error) {
+      this.logger.warn(`Border refresh failed: ${(error as Error).message}`);
+    }
+  }
+
+  async borders(force = false): Promise<BorderSummary[]> {
+    const { data } = await this.cached('list', 'all', force ? 0 : STATUS_FRESH_MS, async () => {
       const body = await this.get<{ Borders?: Record<string, unknown>[] }>('/api/Border/List/Fa');
       return (body.Borders ?? [])
         .filter((border) => border.Enabled !== false && border.APIRouteAddress)
@@ -120,16 +172,18 @@ export class BorderStatusService {
     return data;
   }
 
-  async detail(id: string): Promise<BorderDetail | null> {
+  /** force: صف‌ها و اطلاعیه‌ها تازه از borderpark (کار پس‌زمینه)؛ تیرپارک‌ها روزی یک بار. */
+  async detail(id: string, force = false): Promise<BorderDetail | null> {
     const border = (await this.borders()).find((item) => item.id === id);
+    const fresh = force ? 0 : STATUS_FRESH_MS;
     if (!border) return null;
     const route = `/${border.id}-api`;
     const [status, notices, tirparks] = await Promise.all([
-      this.cached('status', border.id, STATUS_FRESH_MS, async () => {
+      this.cached('status', border.id, fresh, async () => {
         const body = await this.get<{ LastUpdate?: string; QueueStatusList?: Record<string, unknown>[] }>(`${route}/BorderQueue/LastStatusII/Fa`);
         return { lastUpdate: body.LastUpdate ? text(body.LastUpdate) : null, queues: (body.QueueStatusList ?? []).map((queue) => this.queue(queue)) };
       }),
-      this.cached('notices', border.id, STATUS_FRESH_MS, async () => {
+      this.cached('notices', border.id, fresh, async () => {
         const body = await this.get<{ Messages?: { message?: string; messageLanguage?: string }[] }>(`${route}/BorderQueue/NotificationsSection/Fa`);
         // برچسب زبان قابل اعتماد نیست (متن ترکی هم «Fa» دارد)
         return (body.Messages ?? [])
@@ -153,6 +207,21 @@ export class BorderStatusService {
       tirparks: tirparks.data,
       stale: status.stale,
     };
+  }
+
+  /** وضعیت مرزهایی که مسیر از آن‌ها می‌گذرد (جزئیات بار برای راننده)، به ترتیب مسیر. */
+  async onRoute(route: GeoPoint[]): Promise<(BorderDetail & { crossing: Omit<BorderOnRoute, 'id'> })[]> {
+    const crossings = bordersOnRoute(route);
+    const details = await Promise.all(
+      crossings.map(async ({ id, ...crossing }) => {
+        const detail = await this.detail(id).catch((error: Error) => {
+          this.logger.warn(`Border ${id} on route failed: ${error.message}`);
+          return null;
+        });
+        return detail && { ...detail, crossing };
+      }),
+    );
+    return details.filter((detail) => detail !== null);
   }
 
   /** وضعیت همه‌ی مرزها (برای فهرست با تعداد صف)؛ مرزی که جواب نداد کنار گذاشته می‌شود. */

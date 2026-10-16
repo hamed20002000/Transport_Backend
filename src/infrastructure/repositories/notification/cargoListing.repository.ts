@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Repository } from 'typeorm';
 import { CargoListing } from '../../../domain/entities/notification/CargoListing';
 import { cargoCodeMatch } from './cargoCodeMatch';
-import { CargoListingStatus } from '../../../domain/enums/notification';
+import { CargoListingStatus, CargoTripType } from '../../../domain/enums/notification';
 
 @Injectable()
 export class CargoListingRepository {
@@ -94,9 +94,9 @@ export class CargoListingRepository {
   }
 
   /** بارهای هنوز برداشته‌نشده‌ی همه‌ی شرکت‌ها، جدیدترین اول (برای «پیدا کردن بار» راننده). */
-  findOpenPage(options: { skip: number; take: number }): Promise<[CargoListing[], number]> {
+  findOpenPage(options: { skip: number; take: number; tripType?: CargoTripType }): Promise<[CargoListing[], number]> {
     return this.repository.findAndCount({
-      where: { status: CargoListingStatus.Open },
+      where: { status: CargoListingStatus.Open, ...(options.tripType && { tripType: options.tripType }) },
       order: { createdAt: 'DESC' },
       skip: options.skip,
       take: options.take,
