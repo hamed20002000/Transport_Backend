@@ -1,6 +1,7 @@
 import { CargoTripType } from '../../domain/enums/notification';
 import { TRIP_TYPE_LABELS } from './cargoTripType';
 import { CargoDetectedEvent } from '../../domain/constants/cargoEvents';
+import { card } from '../messengerBot/core/botCard';
 
 /** متن ساده‌ی اعلان بار؛ برای تلگرام و واتساپ یکسان است (بدون Markdown/HTML). */
 export function buildCargoNotificationText(event: CargoDetectedEvent): string {
@@ -46,6 +47,17 @@ export function buildCargoSuggestionNotice(unreadCount: number, openHint?: strin
 const toPersianDigits = (value: number) => String(value).replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]);
 
 /** متن پیام قبلی وقتی بار برداشته شد؛ پیام ویرایش می‌شود، پیام جدید نمی‌رود. */
+/**
+ * اعلان بار در پیام‌رسان‌ها: عنوان‌ها («🚚 بار جدید»، «❌ این بار برداشته شد») بیرون و ردیف‌های
+ * «عنوان: مقدار» در کارت. متن ذخیره‌شده (وب، فهرست‌ها) دست نمی‌خورد؛ فقط هنگام ارسال.
+ */
+export function cargoTextWithCard(text: string): string {
+  const lines = text.split('\n');
+  const start = lines.findIndex((line) => /^[^:\n]{1,20}: /.test(line));
+  if (start < 0) return text;
+  return [...lines.slice(0, start), card(lines.slice(start).join('\n'))].join('\n');
+}
+
 export function buildCargoTakenText(originalText: string): string {
   return `❌ این بار برداشته شد\n\n${originalText}`;
 }

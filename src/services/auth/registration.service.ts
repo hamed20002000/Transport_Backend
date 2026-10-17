@@ -57,6 +57,14 @@ export class RegistrationService {
     private readonly config: ConfigService,
   ) {}
 
+  /**
+   * فعلاً پیامک کار نمی‌کند: تا وقتی SMS_OTP_ENABLED=true نشده، پیامکی فرستاده نمی‌شود و
+   * otp/verify هر کدی را می‌پذیرد. کد پیامک دست‌نخورده مانده؛ با همین env دوباره فعال می‌شود.
+   */
+  private get smsOtpEnabled(): boolean {
+    return this.config.get<string>('SMS_OTP_ENABLED')?.trim().toLowerCase() === 'true';
+  }
+
   private digest(phone: string, code: string): string {
     return createHmac('sha256', this.config.getOrThrow<string>('JWT_SECRET_KEY'))
       .update(`registration:${phone}:${code}`)
@@ -77,6 +85,7 @@ export class RegistrationService {
   }
 
   async requestOtp(phone: string) {
+    if (!this.smsOtpEnabled) return { phoneNumber: phone, expiresIn: OTP_TTL_SECONDS, retryAfter: 0 };
     return this.withLock(phone, async () => {
       const cooldown = RedisService.key('registrationCooldown', phone);
       if (!(await this.redis.setIfAbsent(cooldown, '1', OTP_COOLDOWN_SECONDS))) {
@@ -99,19 +108,21 @@ export class RegistrationService {
   /** کد درست: حساب فعال با نقش → توکن‌ها؛ وگرنه registrationToken برای انتخاب نوع حساب. */
   async verifyOtp(phone: string, code: string) {
     return this.withLock(phone, async () => {
-      const key = RedisService.key('registration', phone);
-      const pending = await this.redis.getJson<PendingOtp>(key);
-      if (!pending || pending.expiresAt <= Date.now()) {
-        throw new BadRequestException('Verification code has expired or does not exist.');
+      if (this.smsOtpEnabled) {
+        const key = RedisService.key('registration', phone);
+        const pending = await this.redis.getJson<PendingOtp>(key);
+        if (!pending || pending.expiresAt <= Date.now()) {
+          throw new BadRequestException('Verification code has expired or does not exist.');
+        }
+        if (pending.attempts >= MAX_ATTEMPTS) throw new HttpException('Too many incorrect attempts. Request a new code.', 429);
+        const matches = timingSafeEqual(Buffer.from(pending.codeHash, 'hex'), Buffer.from(this.digest(phone, code), 'hex'));
+        if (!matches) {
+          pending.attempts += 1;
+          await this.redis.setJson(key, pending, Math.max(1, Math.ceil((pending.expiresAt - Date.now()) / 1000)));
+          throw new BadRequestException('Invalid verification code.');
+        }
+        await this.redis.delete(key);
       }
-      if (pending.attempts >= MAX_ATTEMPTS) throw new HttpException('Too many incorrect attempts. Request a new code.', 429);
-      const matches = timingSafeEqual(Buffer.from(pending.codeHash, 'hex'), Buffer.from(this.digest(phone, code), 'hex'));
-      if (!matches) {
-        pending.attempts += 1;
-        await this.redis.setJson(key, pending, Math.max(1, Math.ceil((pending.expiresAt - Date.now()) / 1000)));
-        throw new BadRequestException('Invalid verification code.');
-      }
-      await this.redis.delete(key);
 
       const user = await this.accounts.findByPhone(phone);
       if (user && user.recordStatus !== RecordStatus.Active) throw new UnauthorizedException('This account is inactive.');

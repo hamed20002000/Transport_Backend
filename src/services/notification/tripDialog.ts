@@ -16,6 +16,7 @@ import {
   BotLocation,
   BotReply,
 } from '../messengerBot/core/botDialog';
+import { card } from '../messengerBot/core/botCard';
 import { RedisService } from '../redis/redis.service';
 import { CargoInsight, CargoInsightService, CargoRouteOption } from './cargoInsight.service';
 import { CargoListingService } from './cargoListing.service';
@@ -399,12 +400,14 @@ export class TripDialog implements BotDialog, OnModuleInit {
         .map((item, i) => {
           const index = fa((page - 1) * RETURN_PAGE_SIZE + i + 1);
           requests.push({ id: `${Action.Detail}${item.id}`, label: this.t('actions.detailN', { index }) });
-          return [
-            `${index}. ${cargoLine(item)}${item.code ? ` · کد ${item.code}` : ''}`,
-            item.companyName ? `🏢 ${item.companyName}${item.contactPhones?.length ? ` · 📞 ${item.contactPhones.join('، ')}` : ''}` : '',
-          ]
-            .filter(Boolean)
-            .join('\n');
+          return card(
+            [
+              `${index}. ${cargoLine(item)}${item.code ? ` · کد ${item.code}` : ''}`,
+              item.companyName ? `🏢 ${item.companyName}${item.contactPhones?.length ? ` · 📞 ${item.contactPhones.join('، ')}` : ''}` : '',
+            ]
+              .filter(Boolean)
+              .join('\n'),
+          );
         })
         .join('\n\n');
       if (pages > 1) body += `\n\n${this.t('page', { page: fa(page), pages: fa(pages) })}`;
@@ -431,7 +434,7 @@ export class TripDialog implements BotDialog, OnModuleInit {
     if (!insight) return { text: this.t('notFound'), actions: [{ id: FIND_CARGO, label: this.t('actions.findCargo') }, this.back()] };
 
     const { listing, routes, profile } = insight;
-    const lines: string[] = [this.t('detail.title'), listing.text, '➖➖➖', this.t('detail.routeTitle', { origin: listing.origin, destination: listing.destination })];
+    const lines: string[] = [this.t('detail.title'), card(listing.text), this.t('detail.routeTitle', { origin: listing.origin, destination: listing.destination })];
 
     const missing = !insight.originPoint ? listing.origin : !insight.destinationPoint ? listing.destination : null;
     if (missing) lines.push(this.t('detail.noGeo', { place: missing }));
@@ -439,13 +442,19 @@ export class TripDialog implements BotDialog, OnModuleInit {
     else {
       const best = routes[0];
       lines.push(
-        this.t('detail.distance', { km: this.km(best.distanceKm), time: this.duration(best.truckMinutes), vehicle: profile.label }),
-        this.trafficLine(best),
-        this.t('detail.fuel', {
-          liters: this.number(best.fuelLiters),
-          fuel: this.t(`fuel.${profile.fuel}`),
-          rate: this.number(profile.litersPer100Km),
-        }),
+        card(
+          [
+            this.t('detail.distance', { km: this.km(best.distanceKm), time: this.duration(best.truckMinutes), vehicle: profile.label }),
+            this.trafficLine(best),
+            this.t('detail.fuel', {
+              liters: this.number(best.fuelLiters),
+              fuel: this.t(`fuel.${profile.fuel}`),
+              rate: this.number(profile.litersPer100Km),
+            }),
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        ),
       );
     }
     lines.push(this.driverLine(insight));
@@ -456,8 +465,9 @@ export class TripDialog implements BotDialog, OnModuleInit {
       lines.push(
         [
           this.t('detail.routesTitle', { count: fa(routes.length) }),
+          // هر مسیر در کادر جدا (کارت)
           ...routes.map((route, i) =>
-            this.t('detail.routeItem', {
+            card(this.t('detail.routeItem', {
               index: fa(i + 1),
               name: this.routeName(route),
               km: this.km(route.distanceKm),
@@ -465,7 +475,7 @@ export class TripDialog implements BotDialog, OnModuleInit {
               liters: this.number(route.fuelLiters),
               extra: i > 0 ? this.t('detail.longer', { km: this.km(route.distanceKm - fastest.distanceKm) }) : '',
               traffic: route.traffic ? ` · 🚦 ${this.t(`traffic.${route.traffic.level}`)}` : '',
-            }),
+            })),
           ),
           this.fasterNow(routes),
           routes.length === 1 ? this.t('detail.singleRoute') : '',
@@ -507,10 +517,16 @@ export class TripDialog implements BotDialog, OnModuleInit {
     let shown: RouteFuelStation[] = [];
     const lines = [
       this.t('route.title', { index: fa(index), count: fa(routes.length), origin: listing.origin, destination: listing.destination }),
-      this.routeName(route),
-      this.t('detail.distance', { km: this.km(route.distanceKm), time: this.duration(route.truckMinutes), vehicle: profile.label }),
-      this.trafficLine(route),
-      this.t('detail.fuel', { liters: this.number(route.fuelLiters), fuel: this.t(`fuel.${profile.fuel}`), rate: this.number(profile.litersPer100Km) }),
+      card(
+        [
+          this.routeName(route),
+          this.t('detail.distance', { km: this.km(route.distanceKm), time: this.duration(route.truckMinutes), vehicle: profile.label }),
+          this.trafficLine(route),
+          this.t('detail.fuel', { liters: this.number(route.fuelLiters), fuel: this.t(`fuel.${profile.fuel}`), rate: this.number(profile.litersPer100Km) }),
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      ),
     ];
 
     if (fuel.coverage === 'none') lines.push(this.t('route.stationsLoading'));
@@ -532,13 +548,17 @@ export class TripDialog implements BotDialog, OnModuleInit {
         lines.push(
           [
             shown.length < fuel.stations.length ? this.t('route.stationsSome', { shown: fa(shown.length) }) : this.t('route.stationsAll'),
-            ...shown.map((station, i) =>
-              this.t('route.station', {
-                index: fa(i + 1),
-                km: this.km(station.atKm),
-                name: station.name || this.t('route.unnamed'),
-                kinds: this.kinds(station),
-              }),
+            card(
+              shown
+                .map((station, i) =>
+                  this.t('route.station', {
+                    index: fa(i + 1),
+                    km: this.km(station.atKm),
+                    name: station.name || this.t('route.unnamed'),
+                    kinds: this.kinds(station),
+                  }),
+                )
+                .join('\n'),
             ),
           ].join('\n'),
           this.t('route.legend'),
@@ -586,12 +606,14 @@ export class TripDialog implements BotDialog, OnModuleInit {
           .map((item, i) => {
             const index = fa((page - 1) * RETURN_PAGE_SIZE + i + 1);
             details.push({ id: `${Action.Detail}${item.id}`, label: this.t('actions.detailN', { index }) });
-            return [
-              `${index}. ${cargoLine(item)}${item.code ? ` · کد ${item.code}` : ''}${item.toOrigin ? ` ${this.t('returns.toOrigin')}` : ''}`,
-              item.companyName ? `🏢 ${item.companyName}` : '',
-            ]
-              .filter(Boolean)
-              .join('\n');
+            return card(
+              [
+                `${index}. ${cargoLine(item)}${item.code ? ` · کد ${item.code}` : ''}${item.toOrigin ? ` ${this.t('returns.toOrigin')}` : ''}`,
+                item.companyName ? `🏢 ${item.companyName}` : '',
+              ]
+                .filter(Boolean)
+                .join('\n'),
+            );
           })
           .join('\n\n')
       : this.t('return.empty', { city: listing.destination });

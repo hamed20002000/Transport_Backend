@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import { Readable } from 'node:stream';
 import TelegramBot from 'node-telegram-bot-api';
 import { BotPlatform, parseBotId, toBotId } from './botPlatform';
+import { cardsFor } from './botCard';
 import { dialablePhones } from './dialablePhones';
 
 /** متدهایی از TelegramBot که ربات اصلی استفاده می‌کند -- RubikaBotClient هم همین‌ها را دارد. */
@@ -71,7 +72,8 @@ export class MultiBot extends EventEmitter {
   async sendMessage(chatId: string | number, text: string, options?: TelegramBot.SendMessageOptions) {
     const { platform, client, nativeId } = this.route(chatId);
     // شماره‌ها به شکل بین‌المللی تا با لمس، تماس گرفته شود (همه‌ی متن‌ها از همین‌جا می‌روند)
-    const message = await client.sendMessage(nativeId, dialablePhones(text), options);
+    const formatted = cardsFor(platform, dialablePhones(text));
+    const message = await client.sendMessage(nativeId, formatted.text, formatted.entities ? { ...options, entities: formatted.entities } : options);
     return prefixMessage(platform, message);
   }
 
@@ -99,8 +101,9 @@ export class MultiBot extends EventEmitter {
   }
 
   async editMessageText(text: string, options: TelegramBot.EditMessageTextOptions) {
-    const { client, nativeId } = this.route(options.chat_id!);
-    return client.editMessageText(dialablePhones(text), { ...options, chat_id: nativeId });
+    const { platform, client, nativeId } = this.route(options.chat_id!);
+    const formatted = cardsFor(platform, dialablePhones(text));
+    return client.editMessageText(formatted.text, { ...options, chat_id: nativeId, ...(formatted.entities ? { entities: formatted.entities } : {}) });
   }
 
   async editMessageReplyMarkup(

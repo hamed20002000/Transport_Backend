@@ -15,7 +15,8 @@ import { MessengerBotService } from '../messengerBot/core/messengerBot.service';
 import { CargoAlertFilterService } from './cargoAlertFilter.service';
 import { CargoNotificationService } from './cargoNotification.service';
 import { SubscriptionPolicyService } from '../subscription/subscriptionPolicy.service';
-import { buildCargoListingText, buildCargoTakenText, CargoListingFields } from './cargoNotificationText';
+import { buildCargoListingText, buildCargoTakenText, cargoTextWithCard, CargoListingFields } from './cargoNotificationText';
+import { whatsappCards } from '../messengerBot/core/botCard';
 import { CargoTripTypeService } from './cargoTripType';
 import { CompanyAnnounceService } from './companyAnnounce.service';
 import {
@@ -352,7 +353,7 @@ export class CargoListingService {
         takenAt: listing.takenAt ?? null,
       });
 
-      const text = taken ? buildCargoTakenText(row.text) : row.text;
+      const text = cargoTextWithCard(taken ? buildCargoTakenText(row.text) : row.text);
 
       // پیام‌های ربات‌ها (تلگرام، بله، روبیکا) -- chatId پیشونددار مسیر را تعیین می‌کند.
       const botMessages: [string, string | null | undefined, number | string | null | undefined][] = [
@@ -371,7 +372,7 @@ export class CargoListingService {
 
         await this.tryUpdate('WhatsApp update', row, () =>
           canEdit
-            ? this.whatsapp.editNotification(key, text)
+            ? this.whatsapp.editNotification(key, whatsappCards(text))
             : this.whatsapp.reactToNotification(key, taken ? TAKEN_REACTION : ''),
         );
       }

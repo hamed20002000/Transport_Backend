@@ -184,7 +184,7 @@
     "returnsBack": " (که {count} تا به {origin} برمی‌گردد)",
     "noReturn": "🔄 فعلاً بار بازی از {destination} نیست.",
     "routesTitle": "🛣 مسیرهای پیشنهادی ({count}):",
-    "routeItem": "{index}) {name}\n    {km} کیلومتر · {time} · ⛽ {liters} لیتر{traffic}{extra}",
+    "routeItem": "{index}) {name}\n{km} کیلومتر · {time} · ⛽ {liters} لیتر{traffic}{extra}",
     "longer": " (+{km} کیلومتر)",
     "singleRoute": "برای این مسیر جاده‌ی جایگزین معقولی (بدون دور زدن زیاد) پیدا نشد.",
     "traffic": "🚦 ترافیک همین الان: {level}{delay}",

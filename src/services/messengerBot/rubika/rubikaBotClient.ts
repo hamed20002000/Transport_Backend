@@ -99,6 +99,8 @@ export class RubikaBotClient extends EventEmitter {
   private offsetId?: string;
   // حالت polling: آخرین پیامی که دکمه‌هایش روی کیبورد پایین چت است.
   private readonly keypadMessage = new Map<string, string>();
+  // حالت polling: دکمه‌های فعلی کیبورد پایین؛ همان دکمه‌ها دوباره فرستاده نمی‌شوند تا کیبورد هی از نو ساخته نشود.
+  private readonly keypadShown = new Map<string, string>();
 
   constructor(
     token: string,
@@ -306,15 +308,21 @@ export class RubikaBotClient extends EventEmitter {
       if (this.inlineMode) {
         if (keypad.rows.length) body.inline_keypad = keypad;
       } else if (keypad.rows.length) {
-        body.chat_keypad = { ...keypad, resize_keyboard: true };
-        body.chat_keypad_type = 'New';
+        const signature = JSON.stringify(keypad);
+        if (this.keypadShown.get(chatId) !== signature) {
+          body.chat_keypad = { ...keypad, resize_keyboard: true };
+          body.chat_keypad_type = 'New';
+          this.keypadShown.set(chatId, signature);
+        }
         keypadAttached = true;
       }
     } else if (markup?.keyboard) {
       body.chat_keypad = { ...toKeypad(markup.keyboard), resize_keyboard: true, on_time_keyboard: true };
       body.chat_keypad_type = 'New';
+      this.keypadShown.delete(chatId);
     } else if (markup?.remove_keyboard) {
       body.chat_keypad_type = 'Remove';
+      this.keypadShown.delete(chatId);
     }
 
     const data = await this.call<{ message_id: string }>('sendMessage', body);
@@ -394,9 +402,13 @@ export class RubikaBotClient extends EventEmitter {
     // polling: فقط اگر کیبورد پایین چت مال همین پیام باشد عوضش می‌کنیم.
     if (this.keypadMessage.get(chatId) !== messageId) return true;
     if (keypad.rows.length) {
+      const signature = JSON.stringify(keypad);
+      if (this.keypadShown.get(chatId) === signature) return true;
       await this.call('editChatKeypad', { chat_id: chatId, chat_keypad: { ...keypad, resize_keyboard: true }, chat_keypad_type: 'New' });
+      this.keypadShown.set(chatId, signature);
     } else {
       this.keypadMessage.delete(chatId);
+      this.keypadShown.delete(chatId);
       await this.call('editChatKeypad', { chat_id: chatId, chat_keypad_type: 'Remove' });
     }
     return true;
@@ -407,6 +419,7 @@ export class RubikaBotClient extends EventEmitter {
     await this.call('deleteMessage', { chat_id: chatId, message_id: id });
     if (!this.inlineMode && this.keypadMessage.get(chatId) === id) {
       this.keypadMessage.delete(chatId);
+      this.keypadShown.delete(chatId);
       await this.call('editChatKeypad', { chat_id: chatId, chat_keypad_type: 'Remove' }).catch(() => undefined);
     }
     return true;

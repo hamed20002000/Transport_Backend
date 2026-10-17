@@ -20,7 +20,8 @@ import { MessengerBotService } from '../messengerBot/core/messengerBot.service';
 import { CargoAlertFilterService, CargoRouteFields } from './cargoAlertFilter.service';
 import { BOT_DELIVERY_COLUMNS, isPermanentTelegramError, nextDeliveryRetryAt } from './cargoDeliveryRetry';
 import { BOT_PLATFORMS, BotPlatform } from '../messengerBot/core/botPlatform';
-import { buildCargoNotificationText, buildCargoSuggestionNotice } from './cargoNotificationText';
+import { buildCargoNotificationText, buildCargoSuggestionNotice, cargoTextWithCard } from './cargoNotificationText';
+import { whatsappCards } from '../messengerBot/core/botCard';
 import { CargoVoiceService } from './cargoVoice.service';
 import { DriverProfileService } from '../driver/driverProfile.service';
 import { CargoSearch, matchesCargoSearch, prepareCargoSearch } from './cargoSearch';
@@ -194,7 +195,7 @@ export class CargoNotificationService {
       // بار اعلام‌شده برای راننده: دکمه‌ی «درخواست این بار»؛ با «برداشته شد»
       // پیام ویرایش و دکمه برداشته می‌شود. پیشنهاد بار: فقط اعلان کوتاه.
       const messageId = row.listingId
-        ? await this.bots.sendActionNotification(link.chatId, row.text, [
+        ? await this.bots.sendActionNotification(link.chatId, cargoTextWithCard(row.text), [
             { id: `${TripAction.Detail}${row.listingId}`, label: DETAIL_BUTTON, row: 0 },
             { id: `${TripAction.Request}${row.listingId}`, label: REQUEST_BUTTON, row: 0 },
           ])
@@ -238,7 +239,7 @@ export class CargoNotificationService {
 
     const attempts = row.whatsappAttempts + 1;
     try {
-      const text = row.listingId ? row.text : await this.suggestionNoticeText(row.userId, WHATSAPP_SUGGESTIONS_HINT);
+      const text = row.listingId ? whatsappCards(cargoTextWithCard(row.text)) : await this.suggestionNoticeText(row.userId, WHATSAPP_SUGGESTIONS_HINT);
       const key = await this.whatsapp.sendNotification(jid, text);
       if (!row.listingId) this.markSuggestionNoticeSent('whatsapp', row.userId);
       await this.notifications.updateDelivery(row.id, {

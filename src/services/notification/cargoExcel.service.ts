@@ -3,9 +3,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as XLSX from 'xlsx';
 
+import { CargoTripType } from '../../domain/enums/notification';
 import { normalizePersianText } from '../../domain/helper/persianText';
 import { CargoListingService } from './cargoListing.service';
 import { CargoListingFields } from './cargoNotificationText';
+import { CargoTripTypeService } from './cargoTripType';
 
 // یک فایل = یک بار اعلام دسته‌جمعی؛ بیشتر از این را باید چند فایل کرد
 export const MAX_EXCEL_ROWS = 200;
@@ -41,6 +43,8 @@ export interface ExcelCargoRow {
   /** شماره‌ی ردیف در اکسل (همان که کاربر می‌بیند؛ ردیف ۱ عنوان‌هاست) */
   row: number;
   fields: CargoListingFields;
+  /** نوع بار از مبدأ و مقصد (پیش‌نمایش)؛ هنگام انتشار دوباره از مبدأ و مقصد تعیین می‌شود */
+  tripType?: CargoTripType;
 }
 
 export interface ExcelCargoError {
@@ -84,7 +88,10 @@ function phones(text: string): string[] {
  */
 @Injectable()
 export class CargoExcelService {
-  constructor(private readonly listings: CargoListingService) {}
+  constructor(
+    private readonly listings: CargoListingService,
+    private readonly tripTypes: CargoTripTypeService,
+  ) {}
 
   template(): Buffer {
     return readFileSync(TEMPLATE_PATH);
@@ -163,10 +170,22 @@ export class CargoExcelService {
     return { rows, errors };
   }
 
-  /** بررسی فایل بدون ثبت؛ شماره تماس خالی با شماره‌های پروفایل شرکت پر می‌شود. */
+  /**
+   * بررسی فایل بدون ثبت؛ شماره تماس خالی با شماره‌های پروفایل شرکت پر می‌شود. نوع بار
+   * (داخلی/صادراتی/وارداتی) هر ردیف از مبدأ و مقصد تعیین می‌شود تا شرکت پیش از انتشار ببیند
+   * بار به کدام راننده‌ها می‌رسد.
+   */
   async check(userId: string, file: Buffer) {
     const defaults = await this.listings.buildManualDraft(userId);
-    return this.parse(file, defaults.contactPhones);
+    const { rows, errors } = this.parse(file, defaults.contactPhones);
+    // مسیرهای تکراری یک بار مکان‌یابی می‌شوند (Nominatim یک درخواست در ثانیه)
+    const byRoute = new Map<string, CargoTripType>();
+    for (const row of rows) {
+      const route = `${row.fields.origin}\u0000${row.fields.destination}`;
+      if (!byRoute.has(route)) byRoute.set(route, await this.tripTypes.classify(row.fields.origin, row.fields.destination));
+      row.tripType = byRoute.get(route);
+    }
+    return { rows, errors };
   }
 
   /** انتشار ردیف‌های بررسی‌شده، هر کدام مثل «ثبت بار» دستی، به نام شرکت. */
@@ -197,7 +216,7 @@ export class CargoExcelService {
   async import(userId: string, file: Buffer, dryRun = false) {
     const { rows, errors } = await this.check(userId, file);
     if (errors.length || dryRun) {
-      return { created: [], rows: rows.map(({ row, fields }) => ({ row, ...fields })), errors, dryRun };
+      return { created: [], rows: rows.map(({ row, fields, tripType }) => ({ row, ...fields, tripType })), errors, dryRun };
     }
     return { created: await this.publish(userId, rows), rows: [], errors: [], dryRun };
   }

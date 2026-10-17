@@ -235,19 +235,7 @@ export class BotMenuService {
               },
             ],
 
-            [
-              {
-                text:
-                  this.messages.get(
-                    'account.broker',
-                  ),
-
-                callback_data:
-                  BotCallbackBuilder.accountType(
-                    AccountType.Broker,
-                  ),
-              },
-            ],
+            // Broker is not offered for now.
 
             [
               {

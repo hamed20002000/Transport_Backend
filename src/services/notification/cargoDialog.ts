@@ -20,6 +20,7 @@ import { readFile } from 'node:fs/promises';
 import { CargoNotificationService } from './cargoNotification.service';
 import { TripAction } from 'src/domain/constants/bot/TripAction';
 import { buildCargoListingText, CargoListingFields } from './cargoNotificationText';
+import { card } from '../messengerBot/core/botCard';
 import { CargoExcelService, ExcelCargoRow, MAX_EXCEL_BYTES, MAX_EXCEL_ROWS } from './cargoExcel.service';
 
 const PREFIX = 'cg:';
@@ -441,7 +442,7 @@ export class CargoDialog implements BotDialog, OnModuleInit {
           if (!item.published) {
             announce.push({ id: `${Action.Announce}${item.id}`, label: this.t('actions.announce', { index }) });
           }
-          return lines.filter(Boolean).join('\n');
+          return card(lines.filter(Boolean).join('\n'));
         })
         .join('\n\n');
       if (pages > 1) body += `\n\n${this.t('mine.page', { page: fa(page), pages: fa(pages) })}`;
@@ -528,14 +529,16 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     if (result.items.length) {
       body = result.items
         .map((item, index) =>
-          this.t('mine.item', {
-            index: fa((page - 1) * MINE_PAGE_SIZE + index + 1),
-            code: item.code,
-            route: cargoLine(item),
-            status: this.t(item.status === CargoListingStatus.Taken ? 'mine.taken' : 'mine.open'),
-          }) +
-            `\n${this.t('mine.tripType', { type: TRIP_TYPE_LABELS[item.tripType] })}` +
-            (item.status === CargoListingStatus.Open && item.announcedAt === null ? `\n${this.t('mine.queued')}` : ''),
+          card(
+            this.t('mine.item', {
+              index: fa((page - 1) * MINE_PAGE_SIZE + index + 1),
+              code: item.code,
+              route: cargoLine(item),
+              status: this.t(item.status === CargoListingStatus.Taken ? 'mine.taken' : 'mine.open'),
+            }) +
+              `\n${this.t('mine.tripType', { type: TRIP_TYPE_LABELS[item.tripType] })}` +
+              (item.status === CargoListingStatus.Open && item.announcedAt === null ? `\n${this.t('mine.queued')}` : ''),
+          ),
         )
         .join('\n\n');
       for (const item of result.items) {
@@ -1089,7 +1092,9 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     }
 
     await this.saveSession(ctx, { kind: 'excel', rows });
-    const lines = rows.slice(0, EXCEL_SHOWN).map((row, i) => `${fa(i + 1)}. ${cargoLine(row.fields)}`);
+    const lines = rows
+      .slice(0, EXCEL_SHOWN)
+      .map((row, i) => `${fa(i + 1)}. ${cargoLine(row.fields)}${row.tripType ? ` · ${TRIP_TYPE_LABELS[row.tripType]}` : ''}`);
     return {
       text: [this.t('excel.preview', { count: fa(rows.length) }), lines.join('\n'), this.more(rows.length)].filter(Boolean).join('\n\n'),
       actions: new Rows()

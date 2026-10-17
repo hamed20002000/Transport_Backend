@@ -29,6 +29,9 @@ interface BotIdentityMetadata {
 
 const ACCESS_LOCK_TTL_SECONDS = 120;
 
+// Broker is not offered for now: the bot only creates driver and company accounts.
+const SELF_SERVICE_ACCOUNT_TYPES = [AccountType.Driver, AccountType.Company];
+
 @Injectable()
 export class BotAccessService {
   constructor(
@@ -118,7 +121,7 @@ export class BotAccessService {
     }
 
     //#region ------------------- آیا کاربر همین الان روی  یکی از دکمه های نوع حساب کلیک کرده؟ ---------------
-    const accountType = Object.values(AccountType).find(
+    const accountType = SELF_SERVICE_ACCOUNT_TYPES.find(
       type => callback === `${BotCallback.RegisterAccountTypePrefix}${type}`,
     );
     if (!accountType) {
@@ -323,7 +326,7 @@ export class BotAccessService {
   private async showAccountTypes(chatId: string): Promise<void> {
     await this.bot.sendMessage(chatId, this.messages.get('identity.selectAccountType'), {
       reply_markup: {
-        inline_keyboard: Object.values(AccountType).map((type) => [
+        inline_keyboard: SELF_SERVICE_ACCOUNT_TYPES.map((type) => [
           {
             text: this.messages.get(`account.${type.toLowerCase()}`),
             callback_data: `${BotCallback.RegisterAccountTypePrefix}${type}`,

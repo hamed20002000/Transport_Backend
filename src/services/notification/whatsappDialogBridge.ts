@@ -9,6 +9,7 @@ import { normalizePersianText } from 'src/domain/helper/persianText';
 import { IUserRepository } from 'src/domain/repositories/IUserRepopsitory';
 import { USER_REPOSITORY } from 'src/domain/repositories/repository.tokens';
 import { BotAction, BotContext, BotDialogRegistry, BotDocument, BotReply } from '../messengerBot/core/botDialog';
+import { whatsappCards } from '../messengerBot/core/botCard';
 import { MarketAction } from '../market/marketBot.service';
 import { RedisService } from '../redis/redis.service';
 
@@ -239,7 +240,7 @@ export class WhatsappDialogBridge implements OnModuleInit {
   private render(text: string, actions: BotAction[]): string {
     const links = actions.filter((action) => action.url).map((action) => `${action.label}: ${action.url}`);
     const options = this.options(actions).map((action, index) => `${index + 1}. ${action.label}`);
-    const parts = [text];
+    const parts = [whatsappCards(text)];
     if (links.length) parts.push(links.join('\n'));
     if (options.length) parts.push(options.join('\n'), this.t('whatsapp.numberHint'));
     return parts.join('\n\n');
