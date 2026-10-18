@@ -154,6 +154,7 @@
     "closed": "بستید. برای دیدن منو «منو» بنویسید.",
     "locationHint": "📎 در واتساپ از منوی پیوست ← Location (موقعیت) ← «Send your current location» یا «Share live location» را بزنید.",
     "sections": {
+      "companyProfile": "🏢 پروفایل شرکت",
       "findCargo": "🔎 پیدا کردن بار",
       "myRequests": "📋 درخواست‌های من",
       "activeTrip": "🚚 سفر فعال",

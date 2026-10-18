@@ -457,6 +457,8 @@ export class BotMenuService {
               },
             ],
 
+            [{ text: this.messages.get('menu.company.profile'), callback_data: BotCallback.CompanyProfile }],
+
             [
               {
                 text:

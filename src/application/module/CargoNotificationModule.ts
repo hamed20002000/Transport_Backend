@@ -2,6 +2,7 @@ import { jwtVerifyOnlyOptions } from '../../auth/jwtKeys';
 import { HttpModule } from '@nestjs/axios';
 import { forwardRef, Module } from '@nestjs/common';
 import { AgentModule } from '../services/agent/appModule/agent.module';
+import { CompanyProfileDialog } from '../../services/companyProfileDialog';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -139,6 +140,7 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
     CargoAutoAnnounceWorker,
     // همین گفتگوها در واتساپ با گزینه‌های شماره‌دار
     WhatsappDialogBridge,
+    CompanyProfileDialog,
   ],
 })
 export class CargoNotificationModule {}

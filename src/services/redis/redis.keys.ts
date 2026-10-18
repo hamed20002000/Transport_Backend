@@ -13,6 +13,7 @@ export const KEY_PREFIXES = {
   telegramKeyboard: 'telegram:keyboard:v1',
   telegramAgentSession: 'telegram:agent-session:v1',
   companyChannelsDialog: 'messenger:channel-flow:v1',
+  companyProfileDialog: 'messenger:company-profile:v1',
   cargoSuggestionNoticeActivity: 'messenger:cargo-suggestion-activity:v1',
   cargoDialog: 'messenger:cargo-flow:v1',
   tripDialog: 'messenger:trip-flow:v1',
@@ -52,6 +53,7 @@ export type RedisKeyParts = {
   telegramKeyboard: [namespace: string, chatId: string];
   telegramAgentSession: [namespace: string, userId: string];
   companyChannelsDialog: [platform: string, externalUserId: string];
+  companyProfileDialog: [platform: string, externalUserId: string];
   cargoSuggestionNoticeActivity: [platform: string, userId: string];
   cargoDialog: [platform: string, externalUserId: string];
   tripDialog: [platform: string, externalUserId: string];

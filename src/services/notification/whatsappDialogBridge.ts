@@ -33,6 +33,7 @@ const SECTIONS: { roles: string[]; key: string; action: string }[] = [
   { roles: DRIVER_ROLES, key: 'myLocation', action: TripAction.MyLocation },
   { roles: DRIVER_ROLES, key: 'nearStations', action: 'tr:ns' },
   { roles: COMPANY_ROLES, key: 'companyLoads', action: BotCallback.CompanyLoads },
+  { roles: COMPANY_ROLES, key: 'companyProfile', action: BotCallback.CompanyProfile },
   { roles: COMPANY_ROLES, key: 'createLoad', action: BotCallback.CompanyCreateLoad },
   { roles: COMPANY_ROLES, key: 'driverRequests', action: BotCallback.CompanyDriverRequests },
   { roles: COMPANY_ROLES, key: 'activeTrips', action: BotCallback.CompanyActiveTrips },

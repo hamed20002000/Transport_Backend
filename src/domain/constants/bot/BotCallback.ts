@@ -1,5 +1,6 @@
 export const BotCallback = {
   MainMenu: 'main_menu',
+  CompanyProfile: 'company_profile',
 
   BuyAccount: 'buy_account',
   PaymentStatus: 'payment_status',
