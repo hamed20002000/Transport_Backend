@@ -224,7 +224,7 @@ export class WhatsappDialogBridge implements OnModuleInit {
     }
     // واتساپ دکمه‌ی «ارسال موقعیت» ندارد؛ راهنمای منوی پیوست.
     const text = reply.locationButton ? `${reply.text}\n\n${this.t('whatsapp.locationHint')}` : reply.text;
-    await this.whatsapp.sendMessage(jid, this.render(text, reply.actions));
+    await this.whatsapp.sendMenuMessage(jid, ctx.userId, this.render(text, reply.actions));
     if (this.options(reply.actions).length) await this.saveMenu(ctx.userId, reply.actions, reply.refreshAction);
     else await this.clearMenu(ctx.userId);
   }
@@ -237,7 +237,7 @@ export class WhatsappDialogBridge implements OnModuleInit {
       return;
     }
     const actions = sections.map((item) => ({ id: item.action, label: this.sectionLabel(item.key) }));
-    await this.whatsapp.sendMessage(jid, this.render(this.t('whatsapp.menuTitle'), actions));
+    await this.whatsapp.sendMenuMessage(jid, ctx.userId, this.render(this.t('whatsapp.menuTitle'), actions));
     await this.saveMenu(ctx.userId, actions);
   }
 

@@ -171,6 +171,10 @@ export class MessengerBotService implements OnModuleInit {
       command === '/start' ||
       message.text === this.messages.get('menu.common.mainMenu')
     ) {
+      if (command === '/start') {
+        await this.keyboard.clearMenus(chatId);
+        await this.botSessionService.clearDialogSessions(externalUserId);
+      }
       await this.openMainMenu(chatId, externalUserId);
 
       return;
@@ -579,7 +583,8 @@ export class MessengerBotService implements OnModuleInit {
           await this.market.refresh(chatId, query.message.message_id, userId);
           return;
         }
-        await this.market.send(chatId, userId);
+        const messageId = await this.market.send(chatId, userId);
+        await this.keyboard.trackMenuMessage(chatId, messageId);
       } catch (error) {
         this.logger.warn(`Market prices message failed: ${this.getErrorMessage(error)}`);
       }
@@ -1325,12 +1330,9 @@ ${order.text}`, {
   ): Promise<TelegramBot.Message | null> {
 
     try {
-      return await this.keyboard.sendMessage(chatId,
-        text,
-        options,
-        false,
-        refreshAction,
-      );
+      return refreshAction
+        ? await this.keyboard.sendMessage(chatId, text, options, false, refreshAction)
+        : await this.keyboard.sendMessage(chatId, text, options);
     } catch (error: unknown) {
       this.logger.error(
         `Bot sendMessage failed: ${this.getErrorMessage(

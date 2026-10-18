@@ -19,6 +19,7 @@ export const KEY_PREFIXES = {
   tripDialog: 'messenger:trip-flow:v1',
   locationRequest: 'messenger:location-request:v1',
   whatsappMenu: 'whatsapp:menu:v1',
+  whatsappMenuMessages: 'whatsapp:menu-messages:v1',
   whatsappLive: 'whatsapp:live-location:v1',
   // v3: مکان خارجی به هم‌نام داخل ایران نمی‌رسد و کل اسم یکجا کش می‌شود (نتیجه‌های قبلی دور ریخته می‌شوند)
   routingGeocode: 'routing:geocode:v4',
@@ -59,6 +60,7 @@ export type RedisKeyParts = {
   tripDialog: [platform: string, externalUserId: string];
   locationRequest: [driverUserId: string];
   whatsappMenu: [userId: string];
+  whatsappMenuMessages: [userId: string];
   whatsappLive: [userId: string];
   routingGeocode: [place: string];
   routingPlace: [point: string];

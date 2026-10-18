@@ -137,12 +137,13 @@ export class MarketBotService implements BotDialog, OnModuleInit, OnApplicationB
   // ---------------- تلگرام، بله، روبیکا ----------------
 
   /** پیام تازه‌ی قیمت با قلم‌های کاربر؛ پیام زنده‌ی قبلی همین چت دیگر ویرایش نمی‌شود. */
-  async send(chatId: string, userId?: string | null): Promise<void> {
+  async send(chatId: string, userId?: string | null): Promise<number> {
     const symbols = await this.preferences.symbolsOf(userId);
     const message = await this.multiBot.sendMessage(chatId, formatSnapshot(pickQuotes(await this.prices.current(), symbols), true), {
       reply_markup: this.markup(),
     });
     await this.keepLive(chatId, message.message_id, symbols);
+    return message.message_id;
   }
 
   /** دکمه‌ی «به‌روزرسانی» زیر پیام قیمت: همان پیام ویرایش و ۴۸ ساعت دیگر زنده می‌ماند. */

@@ -5,9 +5,15 @@ import { randomBytes } from 'node:crypto';
 import { BotSessionState } from '../../../domain/enums/botSession';
 import { BotSession } from '../../../domain/interfaces/botSession.interface';
 import { RedisService } from '../../redis/redis.service';
+import { MessengerPlatform } from '../../../domain/enums/messenger';
 
 @Injectable()
 export class BotSessionService {
+  async clearDialogSessions(externalUserId: string): Promise<void> {
+    for (const kind of ['companyChannelsDialog', 'companyProfileDialog', 'cargoDialog', 'tripDialog'] as const) {
+      await this.redis.delete(RedisService.key(kind, MessengerPlatform.Bot, externalUserId));
+    }
+  }
   private readonly ttlSeconds: number;
   private readonly namespace: string;
 

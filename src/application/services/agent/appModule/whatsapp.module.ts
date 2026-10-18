@@ -9,6 +9,7 @@ import { WhatsappUserMapping } from 'src/domain/entities/agent/WhatsappUserMappi
 import { AgentModule } from './agent.module';
 import { AuthModule } from 'src/auth/auth.module';
 import { ChannelModule } from 'src/application/module/ChannelModule';
+import { RedisModule } from 'src/application/module/RedisModule';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { ChannelModule } from 'src/application/module/ChannelModule';
     // forwardRef چون AgentGateway هم برعکس به WhatsappService نیاز داره
     forwardRef(() => AgentModule),
     AuthModule,
+    RedisModule,
     forwardRef(() => ChannelModule),
   ],
   providers: [WhatsappService, WhatsappPollService],

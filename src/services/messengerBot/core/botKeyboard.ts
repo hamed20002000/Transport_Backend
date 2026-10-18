@@ -7,6 +7,7 @@ import { MultiBot } from './multiBot';
 import { MenuButton } from './menuTextMatch';
 
 interface ChatKeyboard {
+  menuMessageIds?: number[];
   refreshAction?: string;
   messageId?: number;
   /** دکمه‌های آخرین منو تا کاربر بتواند با تایپ/ویس هم انتخاب کند. */
@@ -110,6 +111,7 @@ export class BotKeyboardService {
         delete current.mainMenuSignature;
       }
       current.messageId = message.message_id;
+      current.menuMessageIds = [...new Set([...(current.menuMessageIds ?? []), ...[previousId, previousMainMenuId, message.message_id].filter((id): id is number => id !== undefined)])];
       current.refreshAction = refreshAction;
       current.buttons = inlineButtons(options.reply_markup);
 
@@ -130,11 +132,13 @@ export class BotKeyboardService {
             );
           } else {
             await this.bot.deleteMessage(chatId, messageId);
+            current.menuMessageIds = current.menuMessageIds.filter((id) => String(id) !== String(messageId));
           }
         } catch {
           this.logger.warn(`Could not remove previous operation in chat ${chatId}, message ${messageId}.`);
         }
       }
+      await this.redis.setJson(key, current, this.ttlSeconds);
       return message;
     });
     const settled = operation.catch(() => undefined);
@@ -168,6 +172,29 @@ export class BotKeyboardService {
       }
     }
     return { message_id: messageId, date: Math.floor(Date.now() / 1000), chat: { id: chatId }, text } as unknown as TelegramBot.Message;
+  }
+
+  async trackMenuMessage(chatId: string, messageId: number): Promise<void> {
+    const key = RedisService.key('telegramKeyboard', this.namespace, chatId);
+    const current = (await this.redis.getJson<ChatKeyboard>(key)) ?? {};
+    current.menuMessageIds = [...new Set([...(current.menuMessageIds ?? []), messageId])];
+    await this.redis.setJson(key, current, this.ttlSeconds);
+  }
+
+  async clearMenus(chatId: string): Promise<void> {
+    const key = RedisService.key('telegramKeyboard', this.namespace, chatId);
+    await this.pending.get(key);
+    this.editTargets.delete(chatId);
+    const current = await this.redis.getJson<ChatKeyboard>(key);
+    const ids = new Set([...(current?.menuMessageIds ?? []), current?.messageId, current?.mainMenu?.message_id]);
+    const failed: number[] = [];
+    for (const id of ids) {
+      if (id === undefined) continue;
+      try { await this.bot.deleteMessage(chatId, id); }
+      catch { failed.push(id); }
+    }
+    if (failed.length) await this.redis.setJson(key, { menuMessageIds: failed }, this.ttlSeconds);
+    else await this.redis.delete(key);
   }
 
   sendMainMenu(

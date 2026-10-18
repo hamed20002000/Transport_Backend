@@ -25,6 +25,7 @@ import { AccountType } from 'src/domain/enums/subscription';
 import { RecordStatus } from 'src/domain/enums/RecordStatus';
 import { normalizePhoneNumber } from 'src/dto/auth/phone-number';
 import { dialablePhones } from 'src/services/messengerBot/core/dialablePhones';
+import { RedisService } from 'src/services/redis/redis.service';
 import { SpeechToTextService } from './Speechtotext.service';
 import { TranscriptCorrectorService } from './transcriptCorrector.service';
 import { VOICE_IDENTIFIER_NOTICE } from './voiceIdentifiers';
@@ -154,6 +155,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     private readonly polls: WhatsappPollService,
     private readonly pendingConfirmationService: PendingConfirmationService,
     private readonly channelsDialog: CompanyChannelsDialog,
+    private readonly redis: RedisService,
   ) { }
 
   async onModuleInit() {
@@ -506,6 +508,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     }
 
     const { userid, username } = mapping;
+    if (/^\/start(?:@\S+)?(?:\s|$)/i.test(text.trim()) && this.dialogHandler) {
+      await this.clearMenuMessages(userid);
+      await this.dialogHandler.handleText(jid, userid, '/start');
+      return;
+    }
 
     // Checked FIRST: is this user in the middle of confirming a
     // voice-transcribed command? This takes priority over everything else
@@ -644,7 +651,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       ? await this.channelsDialog.open(ctx)
       : await this.channelsDialog.handleText(ctx, text);
     if (!reply) return false;
-    await this.sendMessage(jid, this.channelsDialog.renderNumbered(reply));
+    await this.sendMenuMessage(jid, userid, this.channelsDialog.renderNumbered(reply));
     return true;
   }
 
@@ -654,7 +661,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const jid = await this.getJidForUsername(userId);
     if (!jid) return;
     const reply = await this.channelsDialog.refresh(ctx);
-    if (reply) await this.sendMessage(jid, this.channelsDialog.renderNumbered(reply));
+    if (reply) await this.sendMenuMessage(jid, userId, this.channelsDialog.renderNumbered(reply));
   }
 
   async refreshCargoMenu(userId: string): Promise<void> {
@@ -1579,6 +1586,30 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       // AgentGateway relaying a result).
       this.logger.error(`sendMessage başarısız: ${jid}`, error as Error);
     }
+  }
+
+  async sendMenuMessage(jid: string, userId: string, text: string): Promise<void> {
+    if (!this.sock) throw new Error('WhatsApp socket is not connected.');
+    const message = await this.sendTextWithTimeout(jid, text);
+    if (!message?.key) return;
+    const key = RedisService.key('whatsappMenuMessages', userId);
+    const menus = await this.redis.getJson<proto.IMessageKey[]>(key) ?? [];
+    await this.redis.setJson(key, [...menus, message.key], 30 * 24 * 60 * 60);
+  }
+
+  private async clearMenuMessages(userId: string): Promise<void> {
+    const key = RedisService.key('whatsappMenuMessages', userId);
+    const menus = await this.redis.getJson<proto.IMessageKey[]>(key) ?? [];
+    const failed: proto.IMessageKey[] = [];
+    for (const menu of menus) {
+      try { await this.deleteNotification(menu); } catch { failed.push(menu); }
+    }
+    if (failed.length) await this.redis.setJson(key, failed, 30 * 24 * 60 * 60);
+    else await this.redis.delete(key);
+    for (const kind of ['companyChannelsDialog', 'companyProfileDialog', 'cargoDialog', 'tripDialog'] as const) {
+      await this.redis.delete(RedisService.key(kind, MessengerPlatform.Whatsapp, userId));
+    }
+    await this.redis.delete(RedisService.key('whatsappMenu', userId));
   }
 
   // For system notifications (e.g. new cargo alerts). Unlike sendMessage,
