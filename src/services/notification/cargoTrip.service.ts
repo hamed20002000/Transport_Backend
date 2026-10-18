@@ -78,8 +78,8 @@ export class CargoTripService {
   ) {
     const { matchFilters, ...rest } = options;
     // هر راننده فقط بارهای نوع خودش (داخلی، صادراتی، وارداتی)
-    const tripType = await this.profiles.tripTypeOf(driverUserId);
-    const result = await this.listings.listOpen({ ...rest, tripType, userId: matchFilters ? driverUserId : undefined });
+    const tripTypes = await this.profiles.tripTypesOf(driverUserId);
+    const result = await this.listings.listOpen({ ...rest, tripTypes, userId: matchFilters ? driverUserId : undefined });
     const ids = result.items.map((item) => item.id);
     const mine = new Map((await this.requests.findForDriverByListings(driverUserId, ids)).map((r) => [r.listingId, r]));
     // بار سپرده‌شده به راننده‌ی دیگر: «رزرو شده» و بدون دکمه‌ی درخواست
@@ -119,9 +119,11 @@ export class CargoTripService {
 
     const full = (await this.requests.findById(saved.id))!;
     const driver = await this.contact(driverUserId);
+    const text = this.t('notify.newRequest', { driver: this.describe(driver), cargo: this.cargoTitle(full) });
+    this.changed(full, { type: 'newRequest', text });
     await this.notify(
       listing.publisherUserId,
-      this.t('notify.newRequest', { driver: this.describe(driver), cargo: this.cargoTitle(full) }),
+      text,
       [
         { id: `${TripAction.Accept}${saved.id}`, label: this.t('actions.accept'), row: 0 },
         { id: `${TripAction.Reject}${saved.id}`, label: this.t('actions.reject'), row: 0 },
@@ -349,8 +351,8 @@ export class CargoTripService {
   }
 
   /** پنل‌های باز شرکت و راننده بدون رفرش به‌روز شوند. */
-  private changed(request: CargoRequest): void {
-    const event = { requestId: request.id, listingId: request.listingId, status: request.status };
+  private changed(request: CargoRequest, notice?: { type: 'newRequest'; text: string }): void {
+    const event = { requestId: request.id, listingId: request.listingId, status: request.status, ...notice };
     this.gateway.sendToUser(request.companyUserId, CARGO_REQUEST_CHANGED_SOCKET_EVENT, event);
     this.gateway.sendToUser(request.driverUserId, CARGO_REQUEST_CHANGED_SOCKET_EVENT, event);
   }
@@ -513,19 +515,20 @@ export class CargoTripService {
 
   /** به همه‌ی پیام‌رسان‌هایی که کاربر وصل کرده (و واتساپ)؛ خطای یکی بقیه را متوقف نمی‌کند. */
   private async notify(userId: string, text: string, actions: BotAction[] = []): Promise<void> {
-    for (const link of await this.botLinks.findAllByUserId(userId)) {
-      if (!link.chatId || !this.bots.hasPlatform(link.platform)) continue;
-      try {
-        await this.bots.sendActionNotification(link.chatId, text, actions);
-      } catch (error) {
-        this.logger.warn(`Trip notification to ${userId} on ${link.platform} failed: ${(error as Error).message}`);
-      }
-    }
-    try {
-      await this.whatsapp.notify(userId, text, actions);
-    } catch (error) {
-      this.logger.warn(`Trip notification to ${userId} on WhatsApp failed: ${(error as Error).message}`);
-    }
+    const bots = async () => {
+      const links = await this.botLinks.findAllByUserId(userId);
+      await Promise.all(links.filter((link) => link.chatId && this.bots.hasPlatform(link.platform)).map(async (link) => {
+        try {
+          await this.bots.sendActionNotification(link.chatId, text, actions);
+        } catch (error) {
+          this.logger.warn(`Trip notification to ${userId} on ${link.platform} failed: ${(error as Error).message}`);
+        }
+      }));
+    };
+    await Promise.all([
+      bots().catch((error: Error) => this.logger.warn(`Trip bot notification to ${userId} failed: ${error.message}`)),
+      this.whatsapp.notify(userId, text, actions).catch((error: Error) => this.logger.warn(`Trip notification to ${userId} on WhatsApp failed: ${error.message}`)),
+    ]);
   }
 
   private async notifyLocation(userId: string, text: string, latitude: number, longitude: number): Promise<boolean> {

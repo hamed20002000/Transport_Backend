@@ -2,6 +2,7 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 
 import { persianTime } from 'src/domain/helper/persianDate';
 import { TRIP_TYPE_LABELS } from './cargoTripType';
+import { NoCargoRecipientsException } from './cargoAnnouncementError';
 import { ContextManager } from 'src/application/services/agent/contextManager';
 import messages from 'src/application/services/agent/localFiles/messages.json';
 import { ToolRegister } from 'src/application/services/agent/toolRegister';
@@ -204,13 +205,16 @@ export class CompanyCargoTools implements OnModuleInit {
             price: textParam(param.fare) ?? null,
             extraNotes: textParam(param.notes) ?? null,
             contactPhones,
+          }).catch((error) => {
+            if (error instanceof NoCargoRecipientsException) ctx.fail(error.message);
+            throw error;
           }),
           messages.cargo.createFailed,
         );
         return ctx.done(
           { id: created.id, code: created.code ?? '', recipients: String(created.recipients) },
           created.pending
-            ? format(messages.cargo.queued, {
+            ? ('message' in created && created.message) || format(messages.cargo.queued, {
                 cargo: cargoLine(created),
                 code: created.code ?? '',
                 time: created.nextAnnounceAt ? persianTime(created.nextAnnounceAt) : '',
@@ -397,10 +401,13 @@ export class CompanyCargoTools implements OnModuleInit {
     if (phones.length) fields.contactPhones = phones;
     if (!fields.contactPhones?.length) ctx.fail(messages.suggested.needPhone);
 
-    const published = await ctx.call(this.listings.publish(ctx.userId, suggestionId, fields), messages.suggested.publishFailed);
+    const published = await ctx.call(this.listings.publish(ctx.userId, suggestionId, fields).catch((error) => {
+      if (error instanceof NoCargoRecipientsException) ctx.fail(error.message);
+      throw error;
+    }), messages.suggested.publishFailed);
     return ctx.done(
       { id: published.id, code: published.code ?? '', recipients: String(published.recipients) },
-      format(messages.suggested.published, {
+      ('message' in published && published.message) || format(messages.suggested.published, {
         cargo: cargoLine(published),
         code: published.code ?? '',
         recipients: published.recipients,

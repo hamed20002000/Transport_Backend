@@ -20,7 +20,7 @@ import { ChannelModule } from 'src/application/module/ChannelModule';
     // forwardRef چون AgentGateway هم برعکس به WhatsappService نیاز داره
     forwardRef(() => AgentModule),
     AuthModule,
-    ChannelModule,
+    forwardRef(() => ChannelModule),
   ],
   providers: [WhatsappService, WhatsappPollService],
   exports: [WhatsappService],

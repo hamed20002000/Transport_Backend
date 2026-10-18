@@ -6,7 +6,7 @@ import { BotKeyboardService } from '../../services/messengerBot/core/botKeyboard
 import { BotDialogRegistry } from '../../services/messengerBot/core/botDialog';
 import { TelegramWebhookController } from '../../services/messengerBot/telegram/telegramWebhook.controller';
 import { RubikaWebhookController } from '../../services/messengerBot/rubika/rubikaWebhook.controller';
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { BotLink } from '../../domain/entities/agent/BotLink';
@@ -51,7 +51,7 @@ import { MarketBotService } from 'src/services/market/marketBot.service';
     SubscriptionModule,
     RedisModule,
     UserModule,
-    ChannelModule,
+    forwardRef(() => ChannelModule),
     MarketModule,
   ],
 

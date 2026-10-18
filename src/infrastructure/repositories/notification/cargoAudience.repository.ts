@@ -25,9 +25,9 @@ export class CargoAudienceRepository {
 
   /**
    * راننده‌های فعال؛ با requireSubscription فقط آن‌هایی که اشتراک فعال دارند و با tripType
-   * فقط راننده‌های همان نوع (راننده‌ی بدون پروفایل داخلی حساب می‌شود).
+   * فقط راننده‌های عضو نوع حمل و شرکت منتشرکننده.
    */
-  async findDriverIds(requireSubscription: boolean, tripType?: CargoTripType, now = new Date()): Promise<string[]> {
+  async findDriverIds(requireSubscription: boolean, tripType?: CargoTripType, publisherUserId?: string, now = new Date()): Promise<string[]> {
     const query = this.dataSource
       .getRepository(User)
       .createQueryBuilder('user')
@@ -42,11 +42,9 @@ export class CargoAudienceRepository {
           'AND subscription.startAt <= :now AND subscription.expireAt > :now',
       );
     }
-    if (tripType) {
-      query
-        .leftJoin('DriverProfile', 'profile', 'profile.userId = user.id')
-        .andWhere(`COALESCE(profile.tripType, '${CargoTripType.Domestic}') = :tripType`, { tripType });
-    }
+    if (tripType || publisherUserId) query.innerJoin('DriverProfile', 'profile', 'profile.userId = user.id');
+    if (tripType) query.andWhere(':tripType = ANY(profile.tripTypes)', { tripType });
+    if (publisherUserId) query.andWhere('profile.companyUserIds @> ARRAY[:publisherUserId]::uuid[]', { publisherUserId });
     const rows = await query
       .andWhere('user.recordStatus = :active')
       .setParameters({

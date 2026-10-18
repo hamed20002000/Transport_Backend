@@ -1,7 +1,7 @@
 import { CargoTripType } from 'src/domain/enums/notification';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
+import { ArrayMaxSize, ArrayNotEmpty, ArrayUnique, IsArray, IsBoolean, IsEnum, IsNumber, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateIf } from 'class-validator';
 
 import { trimToNull } from 'src/dto/user/update-user-profile.dto';
 
@@ -71,4 +71,14 @@ export class UpdateDriverProfileDto {
   @ApiPropertyOptional({ enum: CargoTripType })
   @IsOptional() @IsEnum(CargoTripType)
   tripType?: CargoTripType;
+
+  @ApiPropertyOptional({ enum: CargoTripType, isArray: true })
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsArray() @ArrayNotEmpty() @ArrayMaxSize(3) @ArrayUnique() @IsEnum(CargoTripType, { each: true })
+  tripTypes?: CargoTripType[];
+
+  @ApiPropertyOptional({ type: [String] })
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsArray() @ArrayMaxSize(500) @ArrayUnique() @IsUUID('4', { each: true })
+  companyUserIds?: string[];
 }

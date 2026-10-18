@@ -75,6 +75,7 @@ const toLatinDigits = (value: string) =>
  * راه‌اندازی خودش را اینجا ثبت می‌کند تا این ماژول به آن وابسته نشود.
  */
 export interface WhatsappDialogHandler {
+  refreshCargoMenu?(jid: string, userId: string): Promise<void>;
   /** true اگر متن مال یکی از گفتگوها بود و جواب داده شد. */
   handleText(jid: string, userId: string, text: string): Promise<boolean>;
   handleLocation(jid: string, userId: string, location: { latitude: number; longitude: number; live: boolean }): Promise<boolean>;
@@ -647,6 +648,21 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     return true;
   }
 
+  async refreshChannelMenu(userId: string): Promise<void> {
+    const ctx = { platform: MessengerPlatform.Whatsapp, externalUserId: userId, userId };
+    if (!(await this.channelsDialog.hasSession(ctx))) return;
+    const jid = await this.getJidForUsername(userId);
+    if (!jid) return;
+    const reply = await this.channelsDialog.refresh(ctx);
+    if (reply) await this.sendMessage(jid, this.channelsDialog.renderNumbered(reply));
+  }
+
+  async refreshCargoMenu(userId: string): Promise<void> {
+    if (!this.dialogHandler?.refreshCargoMenu) return;
+    const jid = await this.getJidForUsername(userId);
+    if (jid) await this.dialogHandler.refreshCargoMenu(jid, userId);
+  }
+
   // Sends a piece of text into the shared agent pipeline as a brand-new
   // command. Called both from the normal text flow (a fresh message with no
   // pending state) and from the voice-confirmation flow (once the user
@@ -766,6 +782,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 ` +
         `🌐 برای ورود به پنل وب، همین شماره را وارد کنید تا کد ورود پیامک شود؛ رمز عبوری لازم نیست.`,
     );
+    await this.dialogHandler?.handleText(jid, user.id, 'منو');
     return true;
   }
 
@@ -1591,6 +1608,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   async editNotification(key: proto.IMessageKey, text: string): Promise<void> {
     if (!this.sock) throw new Error('WhatsApp socket is not connected.');
     await this.sock.sendMessage(key.remoteJid!, { text, edit: key });
+  }
+
+  async deleteNotification(key: proto.IMessageKey): Promise<void> {
+    if (!this.sock) throw new Error('WhatsApp socket is not connected.');
+    await this.sock.sendMessage(key.remoteJid!, { delete: key });
   }
 
   // An empty emoji removes a previous reaction.

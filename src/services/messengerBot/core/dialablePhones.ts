@@ -6,6 +6,11 @@ const latin = (value: string) =>
     .replace(/[۰-۹]/g, (digit) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)))
     .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)));
 
+/** شماره‌های تماس متن، با همان قالب قابل لمسِ پیام‌های خروجی. */
+export function phonesInText(text: string): string[] {
+  return [...new Set(Array.from(text.matchAll(PHONE), (match) => dialablePhones(match[0])))];
+}
+
 /**
  * پیام‌رسان‌ها (تلگرام، بله، روبیکا، واتساپ) فقط شماره‌ی بین‌المللی را قابل لمس برای تماس می‌کنند؛
  * «09121234567» یا «021 8888 7777» در متن به «+989121234567» و «+982188887777» تبدیل می‌شود.

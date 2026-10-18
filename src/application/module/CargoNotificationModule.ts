@@ -1,6 +1,7 @@
 import { jwtVerifyOnlyOptions } from '../../auth/jwtKeys';
 import { HttpModule } from '@nestjs/axios';
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
+import { AgentModule } from '../services/agent/appModule/agent.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -85,6 +86,7 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
     MessengerBotModule,
     WhatsappModule,
     RedisModule,
+    forwardRef(() => AgentModule),
     UserModule,
     // مسیر، مسافت، سوخت و جایگاه‌های سوخت برای جزئیات بار راننده
     RoutingModule,

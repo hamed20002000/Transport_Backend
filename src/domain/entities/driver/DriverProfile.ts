@@ -86,9 +86,16 @@ export class DriverProfile {
   @Column({ type: 'varchar', length: 60, nullable: true })
   facePhoto?: string | null;
 
-  // داخلی، صادراتی یا وارداتی؛ بار اعلام‌شده فقط به راننده‌های همان نوع می‌رسد
+  // نوع اول برای سازگاری با نمایش‌ها و کلاینت‌های قدیمی؛ انتخاب‌ها در tripTypes هستند.
   @Column({ type: 'varchar', length: 10, default: CargoTripType.Domestic })
   tripType!: CargoTripType;
+
+  @Column({ type: 'varchar', array: true, default: () => "ARRAY['DOMESTIC']::varchar[]" })
+  tripTypes!: CargoTripType[];
+
+  // عضویت اختیاری راننده در حساب شرکت‌های منتشرکننده‌ی بار.
+  @Column({ type: 'uuid', array: true, default: () => "'{}'::uuid[]" })
+  companyUserIds!: string[];
 
   // بار اعلام‌شده در پیام‌رسان‌ها با صدا هم خوانده شود (راننده پشت فرمان)
   @Column({ type: 'boolean', default: true })

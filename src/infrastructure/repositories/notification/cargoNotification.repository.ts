@@ -21,7 +21,7 @@ export type CargoNotificationDelivery = Partial<
 
 export type NewCargoNotification = Pick<CargoNotification, 'userId' | 'sourceMessageId' | 'text' | 'payload'> &
   Partial<
-    Pick<CargoNotification, 'listingId' | 'telegramNextRetryAt' | 'baleNextRetryAt' | 'rubikaNextRetryAt' | 'whatsappNextRetryAt'>
+    Pick<CargoNotification, 'listingId' | 'telegramNextRetryAt' | 'baleNextRetryAt' | 'rubikaNextRetryAt' | 'whatsappNextRetryAt' | 'telegramStatus' | 'baleStatus' | 'rubikaStatus' | 'whatsappStatus'>
   >;
 
 @Injectable()
@@ -84,6 +84,16 @@ export class CargoNotificationRepository {
 
   async updateDelivery(id: string, changes: CargoNotificationDelivery): Promise<void> {
     await this.repository.update({ id }, changes as QueryDeepPartialEntity<CargoNotification>);
+  }
+
+  /** پیام‌های اعلان پیشنهاد که هنوز در چت شرکت باقی مانده‌اند. */
+  findSuggestionNotices(userId: string, platform: 'telegram' | 'bale' | 'rubika' | 'whatsapp'): Promise<CargoNotification[]> {
+    const messageColumn = platform === 'whatsapp' ? 'whatsappMessageKey' : `${platform}MessageId`;
+    return this.repository.createQueryBuilder('notification')
+      .where('notification.userId = :userId', { userId })
+      .andWhere('notification.listingId IS NULL')
+      .andWhere(`notification.${messageColumn} IS NOT NULL`)
+      .getMany();
   }
 
   /** اعلان‌هایی که حداقل یک کانالشان زمان تلاش مجددش رسیده است. */

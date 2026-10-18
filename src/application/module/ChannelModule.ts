@@ -1,4 +1,5 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
+import { AgentModule } from '../services/agent/appModule/agent.module';
 
 import { CompanyChannelsDialog } from '../../services/channel/companyChannelsDialog';
 import { CompanyChannelsService } from '../../services/channel/companyChannels.service';
@@ -13,7 +14,7 @@ import { CompanyChannelTools } from '../../services/channel/companyChannelTools'
  * (ذخیره در tarabari_backend). مشترک بین ربات تلگرام و واتساپ.
  */
 @Module({
-  imports: [RedisModule, SubscriptionModule, UserModule],
+  imports: [RedisModule, SubscriptionModule, UserModule, forwardRef(() => AgentModule)],
   providers: [TarabariChannelsClient, CompanyChannelsService, CompanyChannelsDialog, CompanyChannelTools],
   exports: [CompanyChannelsService, CompanyChannelsDialog],
 })

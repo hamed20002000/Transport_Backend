@@ -5,7 +5,7 @@ import { QueryFailedError } from 'typeorm';
 import { CargoDetectedEvent } from '../../domain/constants/cargoEvents';
 import { CargoListing } from '../../domain/entities/notification/CargoListing';
 import { CargoNotification } from '../../domain/entities/notification/CargoNotification';
-import { CargoListingStatus, CargoTripType } from '../../domain/enums/notification';
+import { CargoListingStatus, CargoTripType, NotificationDeliveryStatus } from '../../domain/enums/notification';
 import { CargoSearch, matchesCargoSearch, prepareCargoSearch } from './cargoSearch';
 import { CargoAudienceRepository } from '../../infrastructure/repositories/notification/cargoAudience.repository';
 import { CargoListingRepository } from '../../infrastructure/repositories/notification/cargoListing.repository';
@@ -19,6 +19,11 @@ import { buildCargoListingText, buildCargoTakenText, cargoTextWithCard, CargoLis
 import { whatsappCards } from '../messengerBot/core/botCard';
 import { CargoTripTypeService } from './cargoTripType';
 import { CompanyAnnounceService } from './companyAnnounce.service';
+import { NoCargoRecipientsException } from './cargoAnnouncementError';
+import { AgentGateway } from '../../application/services/agent/agent.gateway';
+import { BOT_LINK_REPOSITORY } from '../../domain/repositories/repository.tokens';
+import { IBotLinkRepository } from '../../domain/repositories/messengerBot/IBotLinkRepository';
+import { BOT_PLATFORMS } from '../messengerBot/core/botPlatform';
 import {
   CARGO_LISTING_CHANGED_SOCKET_EVENT,
   CARGO_NOTIFICATION_SOCKET_EVENT,
@@ -62,6 +67,8 @@ export class CargoListingService {
     private readonly policy: SubscriptionPolicyService,
     private readonly tripTypes: CargoTripTypeService,
     private readonly announceSettings: CompanyAnnounceService,
+    @Inject(forwardRef(() => AgentGateway)) private readonly agentGateway: AgentGateway,
+    @Inject(BOT_LINK_REPOSITORY) private readonly botLinks: IBotLinkRepository,
   ) {}
 
   /** نمونه‌ی پیشنهادی برای انتشار؛ شرکت می‌تواند قبل از ارسال ویرایشش کند. */
@@ -97,7 +104,9 @@ export class CargoListingService {
 
   async publish(userId: string, notificationId: string, fields: CargoListingFields) {
     const suggestion = await this.getSuggestion(userId, notificationId);
-    if (await this.listings.findBySourceAndPublisher(suggestion.sourceMessageId, userId)) {
+    const existing = await this.listings.findBySourceAndPublisher(suggestion.sourceMessageId, userId);
+    if (existing?.announcedAt === null && existing.status === CargoListingStatus.Open) return this.announceNow(userId, existing.id);
+    if (existing) {
       throw new ConflictException('You have already published this cargo.');
     }
     // رویدادهای قدیمی کد ندارند؛ آن‌ها مثل بار دستی کد می‌گیرند.
@@ -122,10 +131,12 @@ export class CargoListingService {
     const listing = await this.listings.findOneForPublisher(listingId, userId);
     if (!listing) throw new NotFoundException('Cargo listing not found.');
     if (listing.status !== CargoListingStatus.Open) throw new ConflictException('Only open cargo can be announced.');
+    const recipients = await this.announcementRecipients(userId, listing.tripType, listing);
     listing.announcedAt = new Date();
     const saved = await this.listings.save(listing);
-    const recipients = await this.sendToDrivers(saved);
-    return { ...this.toView(saved), recipients, pending: false, nextAnnounceAt: null };
+    await this.announceChange(saved);
+    const sent = await this.sendToDrivers(saved, recipients);
+    return { ...this.toView(saved), recipients: sent, pending: false, nextAnnounceAt: null };
   }
 
   /**
@@ -139,16 +150,25 @@ export class CargoListingService {
       const draft = await this.buildDraft(userId, suggestion.id);
       if (!draft.origin.trim() || !draft.destination.trim() || !draft.contactPhones.length) continue;
       try {
-        await this.publish(userId, suggestion.id, draft);
-        suggestions++;
+        const result = await this.publish(userId, suggestion.id, draft);
+        if (!result.pending) suggestions++;
       } catch (error) {
-        if (!(error instanceof ConflictException)) throw error;
+        if (!(error instanceof ConflictException) && !(error instanceof NoCargoRecipientsException)) throw error;
       }
     }
     let pending = 0;
     for (const listing of await this.listings.findPendingAnnounce(userId)) {
+      let recipients: string[];
+      try {
+        recipients = await this.announcementRecipients(userId, listing.tripType, listing);
+      } catch (error) {
+        if (error instanceof NoCargoRecipientsException) continue;
+        throw error;
+      }
       listing.announcedAt = new Date();
-      await this.sendToDrivers(await this.listings.save(listing));
+      const saved = await this.listings.save(listing);
+      await this.announceChange(saved);
+      await this.sendToDrivers(saved, recipients);
       pending++;
     }
     return { suggestions, pending };
@@ -164,6 +184,15 @@ export class CargoListingService {
     const contact = await this.audience.findPublisherContact(userId);
     // داخلی/صادراتی/وارداتی همیشه از مبدأ و مقصد؛ شرکت انتخابش نمی‌کند
     const tripType = await this.tripTypes.classify(fields.origin, fields.destination);
+    let driverIds: string[] = [];
+    if (announce) {
+      try {
+        driverIds = await this.announcementRecipients(userId, tripType, fields);
+      } catch (error) {
+        if (!(error instanceof NoCargoRecipientsException)) throw error;
+      }
+    }
+    const willAnnounce = announce && driverIds.length > 0;
     const listing = await this.saveListing(
       this.listings.create({
         ...fields,
@@ -174,26 +203,47 @@ export class CargoListingService {
         publisherUserId: userId,
         companyId: contact.company?.id ?? null,
         status: CargoListingStatus.Open,
-        announcedAt: announce ? new Date() : null,
+        announcedAt: willAnnounce ? new Date() : null,
       }),
     );
-    this.announceChange(listing);
-
-    if (!announce) {
+    if (!willAnnounce) {
+      if (!sourceNotificationId) {
+        await this.notifications.insertIgnoringDuplicates([{
+          userId,
+          sourceMessageId,
+          text: listing.text,
+          payload: { ...fields, tripType, rawText: listing.text, registeredByCompany: true },
+          telegramStatus: NotificationDeliveryStatus.Skipped,
+          baleStatus: NotificationDeliveryStatus.Skipped,
+          rubikaStatus: NotificationDeliveryStatus.Skipped,
+          whatsappStatus: NotificationDeliveryStatus.Skipped,
+        }]);
+      }
+      await this.announceChange(listing);
       const { nextRunAt } = await this.announceSettings.get(userId);
-      this.logger.log(`User ${userId} queued listing ${listing.id} for the next automatic announcement`);
-      return { ...this.toView(listing), recipients: 0, pending: true, nextAnnounceAt: nextRunAt };
+      return {
+        ...this.toView(listing), recipients: 0, pending: true,
+        pendingReason: announce ? 'noDrivers' as const : 'automatic' as const,
+        message: announce ? 'بار ثبت شد، اما به‌دلیل نبود راننده مناسب اعلام نشد؛ در بارهای پیشنهادی قابل مشاهده است.' : undefined,
+        nextAnnounceAt: nextRunAt,
+      };
     }
-    const recipients = await this.sendToDrivers(listing);
+    await this.announceChange(listing);
+    const recipients = await this.sendToDrivers(listing, driverIds);
     return { ...this.toView(listing), recipients, pending: false, nextAnnounceAt: null };
   }
 
   /** اعلان بار به راننده‌های همان نوع (داخلی/صادراتی/وارداتی) که فیلترشان جور است. */
-  private async sendToDrivers(listing: CargoListing): Promise<number> {
-    const drivers = (await this.audience.findDriverIds(await this.policy.isRequired(), listing.tripType)).filter(
-      (id) => id !== listing.publisherUserId,
+  private async announcementRecipients(userId: string, tripType: CargoTripType, fields: CargoListingFields): Promise<string[]> {
+    const drivers = (await this.audience.findDriverIds(await this.policy.isRequired(), tripType, userId)).filter(
+      (id) => id !== userId,
     );
-    const recipients = await this.filters.filterInterestedUsers(drivers, listing);
+    const recipients = await this.filters.filterInterestedUsers(drivers, fields);
+    if (!recipients.length) throw new NoCargoRecipientsException();
+    return recipients;
+  }
+
+  private async sendToDrivers(listing: CargoListing, recipients: string[]): Promise<number> {
 
     const safetyRetryAt = new Date(Date.now() + PUBLISH_SAFETY_RETRY_MS);
     await this.notifications.insertIgnoringDuplicates(
@@ -310,7 +360,7 @@ export class CargoListingService {
    * جدیدترین OPEN_SCAN_LIMIT بار در برنامه فیلتر می‌شوند.
    */
   /** tripType: فقط بارهای همین نوع (فهرست بار راننده، مثل اعلام بار فقط به راننده‌های همان نوع). */
-  async listOpen(options: { page: number; pageSize: number; userId?: string; tripType?: CargoTripType } & CargoSearch) {
+  async listOpen(options: { page: number; pageSize: number; userId?: string; tripType?: CargoTripType; tripTypes?: CargoTripType[] } & CargoSearch) {
     const skip = (options.page - 1) * options.pageSize;
     const filters = options.userId ? await this.filters.activeFor(options.userId) : [];
     // جستجوی مبدأ/مقصد/نوع بار/ماشین («شامل بودن» مثل فیلترها)؛ بار برگشتی هم از همین استفاده می‌کند
@@ -318,9 +368,9 @@ export class CargoListingService {
     let items: CargoListing[];
     let total: number;
     if (filters.length === 0 && !search) {
-      [items, total] = await this.listings.findOpenPage({ skip, take: options.pageSize, tripType: options.tripType });
+      [items, total] = await this.listings.findOpenPage({ skip, take: options.pageSize, tripType: options.tripType, ...(options.tripTypes && { tripTypes: options.tripTypes }) });
     } else {
-      const [recent] = await this.listings.findOpenPage({ skip: 0, take: OPEN_SCAN_LIMIT, tripType: options.tripType });
+      const [recent] = await this.listings.findOpenPage({ skip: 0, take: OPEN_SCAN_LIMIT, tripType: options.tripType, ...(options.tripTypes && { tripTypes: options.tripTypes }) });
       const matching = recent.filter(
         (listing) => this.filters.matchesAny(filters, listing) && (!search || matchesCargoSearch(listing, search)),
       );
@@ -332,17 +382,37 @@ export class CargoListingService {
   }
 
   /** لیست بارهای باز همه‌ی راننده‌ها (نه فقط گیرنده‌های اعلان) بروز شود. */
-  private announceChange(listing: CargoListing): void {
+  private async announceChange(listing: CargoListing): Promise<void> {
     this.gateway.broadcast(CARGO_LISTING_CHANGED_SOCKET_EVENT, {
       listingId: listing.id,
       status: listing.status,
       takenAt: listing.takenAt ?? null,
     });
+    await this.agentGateway.broadcastDomainChange(listing.publisherUserId, 'company_my_cargo', {});
+    // ارسال پیام‌رسان‌ها نباید اعلام تغییر به وب یا پاسخ ثبت بار را معطل کند.
+    void this.refreshPublisherMenus(listing.publisherUserId);
+  }
+
+  private async refreshPublisherMenus(userId: string): Promise<void> {
+    for (const platform of BOT_PLATFORMS) {
+      try {
+        if (!this.bots.hasPlatform(platform)) continue;
+        const link = await this.botLinks.findByUserId(userId, platform);
+        if (link?.chatId) await this.bots.refreshCargoMenu(link.chatId, link.externalUserId, userId);
+      } catch (error) {
+        this.logger.warn(`Cargo menu refresh via ${platform} failed: ${(error as Error).message}`);
+      }
+    }
+    try {
+      await this.whatsapp.refreshCargoMenu(userId);
+    } catch (error) {
+      this.logger.warn(`Cargo menu refresh via whatsapp failed: ${(error as Error).message}`);
+    }
   }
 
   private async propagateStatus(listing: CargoListing): Promise<void> {
     const taken = listing.status === CargoListingStatus.Taken;
-    this.announceChange(listing);
+    await this.announceChange(listing);
     const rows = await this.notifications.findByListing(listing.id);
 
     for (const row of rows) {

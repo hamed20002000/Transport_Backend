@@ -583,9 +583,6 @@ export class MessengerBotService implements OnModuleInit {
       } catch (error) {
         this.logger.warn(`Market prices message failed: ${this.getErrorMessage(error)}`);
       }
-      // منوی تازه زیر پیام قیمت (منوی قبلی بالای آن پاک می‌شود) تا جواب گزینه‌های بعدی
-      // زیر قیمت‌ها بیاید، نه بالای آن.
-      await this.openMainMenu(chatId, externalUserId);
       return;
     }
 
@@ -871,11 +868,13 @@ export class MessengerBotService implements OnModuleInit {
     // شناسه‌ی پیام روبیکا عدد نیست.
     messageId: number | string,
     text: string,
+    actions?: BotAction[],
   ): Promise<void> {
     try {
       await this.requireBot().editMessageText(text, {
         chat_id: chatId,
         message_id: messageId as number,
+        ...(actions ? { reply_markup: this.inlineActions(actions) } : {}),
       });
     } catch (error: unknown) {
       // متن از قبل همین بوده -- خطا نیست.
@@ -883,6 +882,15 @@ export class MessengerBotService implements OnModuleInit {
         return;
       }
 
+      throw error;
+    }
+  }
+
+  async deleteNotification(chatId: string, messageId: number | string): Promise<void> {
+    try {
+      await this.requireBot().deleteMessage(chatId, messageId as number);
+    } catch (error) {
+      if (this.getErrorMessage(error).includes('message to delete not found')) return;
       throw error;
     }
   }
@@ -1008,6 +1016,26 @@ export class MessengerBotService implements OnModuleInit {
       ? await this.channelsDialog.open(ctx)
       : await this.channelsDialog.handleAction(ctx, data);
     if (reply) await this.sendDialogReply(chatId, externalUserId, reply);
+  }
+
+  async refreshChannelMenu(chatId: string, externalUserId: string, userId: string): Promise<void> {
+    const menu = await this.keyboard.getMenuButtons(chatId);
+    if (!menu || !menu.buttons.every((button) => this.channelsDialog.ownsAction(button.data))) return;
+    const reply = await this.channelsDialog.refresh({ platform: MessengerPlatform.Bot, externalUserId, userId });
+    if (!reply) return;
+    this.keyboard.useCallbackMessage(chatId, menu.messageId);
+    await this.sendDialogReply(chatId, externalUserId, reply);
+  }
+
+  async refreshCargoMenu(chatId: string, externalUserId: string, userId: string): Promise<void> {
+    const menu = await this.keyboard.getMenuButtons(chatId);
+    if (!menu?.refreshAction?.match(/^cg:(mine|sg):/)) return;
+    const resolved = this.dialogs.resolve(menu.refreshAction);
+    if (!resolved) return;
+    const reply = await resolved.dialog.handleAction({ platform: MessengerPlatform.Bot, externalUserId, userId }, resolved.action);
+    if (!reply) return;
+    this.keyboard.useCallbackMessage(chatId, menu.messageId);
+    await this.sendDialogReply(chatId, externalUserId, reply);
   }
 
   /** true اگر پیام مربوط به بخش گروه‌ها و کانال‌ها بود و پاسخ داده شد. */
@@ -1180,7 +1208,7 @@ ${order.text}`, {
       reply_markup: reply.actions.length
         ? this.inlineActions(reply.actions)
         : { inline_keyboard: [[{ text: this.messages.get('menu.common.mainMenu'), callback_data: BotCallback.MainMenu }]] },
-    });
+    }, reply.refreshAction);
   }
 
   private inlineActions(actions: BotAction[]): TelegramBot.InlineKeyboardMarkup {
@@ -1293,12 +1321,15 @@ ${order.text}`, {
     text: string,
     options?:
       TelegramBot.SendMessageOptions,
+    refreshAction?: string,
   ): Promise<TelegramBot.Message | null> {
 
     try {
       return await this.keyboard.sendMessage(chatId,
         text,
         options,
+        false,
+        refreshAction,
       );
     } catch (error: unknown) {
       this.logger.error(

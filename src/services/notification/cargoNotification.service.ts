@@ -27,6 +27,7 @@ import { DriverProfileService } from '../driver/driverProfile.service';
 import { CargoSearch, matchesCargoSearch, prepareCargoSearch } from './cargoSearch';
 import { CARGO_NOTIFICATION_SOCKET_EVENT, NotificationsGateway } from './notifications.gateway';
 import { TripAction } from '../../domain/constants/bot/TripAction';
+import { RedisService } from '../redis/redis.service';
 
 const BOT_PLATFORM_LABEL_EN: Record<BotPlatform, string> = { telegram: 'Telegram', bale: 'Bale', rubika: 'Rubika' };
 
@@ -50,10 +51,9 @@ const DETAIL_BUTTON = '🗺 مسیر و جزئیات';
 const SUGGESTIONS_BUTTON = '📥 بارهای پیشنهادی';
 const SUGGESTIONS_UNREAD_ACTION = 'cg:sg:u:1';
 const WHATSAPP_SUGGESTIONS_HINT = 'برای دیدن جزئیات، «بارهای شرکت» را بفرستید.';
-// چند بار پشت‌سرهم (مثلاً از چند کانال) نباید چند اعلان یکسان بفرستد --
-// مزاحم کاربر است و در واتساپ پیام تکراری پشت‌سرهم الگوی اسپم و ریسک بن است.
-// در این فاصله فقط یک اعلان (با تعداد خوانده‌نشده‌ها) برای هر پیام‌رسان می‌رود.
-const SUGGESTION_NOTICE_COOLDOWN_MS = Number(process.env.CARGO_SUGGESTION_NOTICE_COOLDOWN_MS) || 5 * 60 * 1000;
+// تا یک دقیقه از آخرین بار، اعلان در جای خودش تازه می‌شود.
+const SUGGESTION_BURST_MS = 60 * 1000;
+const WHATSAPP_EDIT_WINDOW_MS = 14 * 60 * 1000;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -68,8 +68,8 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 export class CargoNotificationService {
   private readonly logger = new Logger(CargoNotificationService.name);
 
-  // زمان آخرین اعلان پیشنهاد بار برای هر «پیام‌رسان:کاربر».
-  private readonly lastSuggestionNoticeAt = new Map<string, number>();
+  // مثل صف منوها: حذف و ارسال اعلان‌های هم‌زمان یک شرکت پشت‌سرهم انجام می‌شود.
+  private readonly suggestionDeliveries = new Map<string, Promise<void>>();
 
   constructor(
     private readonly notifications: CargoNotificationRepository,
@@ -87,6 +87,7 @@ export class CargoNotificationService {
     private readonly voice: CargoVoiceService,
     private readonly profiles: DriverProfileService,
     private readonly audience: CargoAudienceRepository,
+    private readonly redis: RedisService,
   ) {}
 
   /**
@@ -157,7 +158,11 @@ export class CargoNotificationService {
 
   /** ارسال کانال‌هایی که هنوز Pending هستند. بار برداشته‌شده دیگر ارسال نمی‌شود. */
   async deliver(row: CargoNotification): Promise<void> {
-    const isOpen = row.listing?.status !== CargoListingStatus.Taken;
+    return this.withSuggestionQueue(row, () => this.deliverNow(row));
+  }
+
+  private async deliverNow(row: CargoNotification): Promise<void> {
+    const isOpen = await this.canDeliverListing(row);
     // هر پیام‌رسانی که کاربر وصل کرده جدا ارسال می‌شود؛ فیلتر بودن یکی جلوی بقیه را نمی‌گیرد.
     for (const platform of BOT_PLATFORMS) await this.deliverBot(platform, row, isOpen);
     await this.deliverWhatsapp(row, isOpen);
@@ -165,7 +170,11 @@ export class CargoNotificationService {
 
   /** تلاش مجدد کانال‌هایی که زمانشان رسیده (صدا زده شده از CargoDeliveryRetryWorker). */
   async retryDelivery(row: CargoNotification, now = new Date()): Promise<void> {
-    const isOpen = row.listing?.status !== CargoListingStatus.Taken;
+    return this.withSuggestionQueue(row, () => this.retryDeliveryNow(row, now));
+  }
+
+  private async retryDeliveryNow(row: CargoNotification, now: Date): Promise<void> {
+    const isOpen = await this.canDeliverListing(row);
     const due = (nextRetryAt?: Date | null) => !!nextRetryAt && nextRetryAt.getTime() <= now.getTime();
 
     for (const platform of BOT_PLATFORMS) {
@@ -185,16 +194,24 @@ export class CargoNotificationService {
     const link = isOpen && this.bots.hasPlatform(platform)
       ? await this.botLinks.findByUserId(row.userId, platform)
       : null;
-    if (!link?.chatId || (!row.listingId && this.inSuggestionNoticeCooldown(platform, row.userId))) {
+    if (!link?.chatId) {
       await update({ [columns.status]: NotificationDeliveryStatus.Skipped, [columns.nextRetryAt]: null });
       return;
     }
 
     const attempts = row[columns.attempts] + 1;
     try {
+      const previous = !row.listingId ? await this.recentSuggestionNotice(row.userId, platform, link.chatId) : null;
+      if (previous) {
+        await this.bots.editNotification(link.chatId, previous[columns.messageId]!, await this.suggestionNoticeText(row.userId), [
+          { id: SUGGESTIONS_UNREAD_ACTION, label: SUGGESTIONS_BUTTON, row: 0 },
+        ]);
+      } else if (!row.listingId) {
+        await this.deleteSuggestionNotices(row.userId, platform);
+      }
       // بار اعلام‌شده برای راننده: دکمه‌ی «درخواست این بار»؛ با «برداشته شد»
       // پیام ویرایش و دکمه برداشته می‌شود. پیشنهاد بار: فقط اعلان کوتاه.
-      const messageId = row.listingId
+      const messageId = previous ? previous[columns.messageId]! : row.listingId
         ? await this.bots.sendActionNotification(link.chatId, cargoTextWithCard(row.text), [
             { id: `${TripAction.Detail}${row.listingId}`, label: DETAIL_BUTTON, row: 0 },
             { id: `${TripAction.Request}${row.listingId}`, label: REQUEST_BUTTON, row: 0 },
@@ -202,7 +219,6 @@ export class CargoNotificationService {
         : await this.bots.sendActionNotification(link.chatId, await this.suggestionNoticeText(row.userId), [
             { id: SUGGESTIONS_UNREAD_ACTION, label: SUGGESTIONS_BUTTON, row: 0 },
           ]);
-      if (!row.listingId) this.markSuggestionNoticeSent(platform, row.userId);
       await update({
         [columns.status]: NotificationDeliveryStatus.Sent,
         [columns.chatId]: link.chatId,
@@ -211,6 +227,10 @@ export class CargoNotificationService {
         [columns.attempts]: attempts,
         [columns.nextRetryAt]: null,
       });
+      if (previous && previous.id !== row.id) {
+        await this.notifications.updateDelivery(previous.id, { [columns.messageId]: null });
+      }
+      if (!row.listingId) await this.markSuggestionActivity(row, platform);
     } catch (error) {
       const retryAt = isPermanentTelegramError(error) ? null : nextDeliveryRetryAt(attempts, row.createdAt);
       this.logFailure(BOT_PLATFORM_LABEL_EN[platform], row, attempts, retryAt, error);
@@ -225,11 +245,17 @@ export class CargoNotificationService {
     await this.sendListingVoice(row, (audio) => this.bots.sendVoiceNotification(chatId, audio));
   }
 
+  private async canDeliverListing(row: CargoNotification): Promise<boolean> {
+    if (row.listing?.status === CargoListingStatus.Taken) return false;
+    if (!row.listing) return true;
+    return this.profiles.canReceiveAnnouncement(row.userId, row.listing.publisherUserId, row.listing.tripType);
+  }
+
   private async deliverWhatsapp(row: CargoNotification, isOpen: boolean): Promise<void> {
     if (row.whatsappStatus !== NotificationDeliveryStatus.Pending) return;
 
     const jid = isOpen ? await this.whatsapp.getJidForUsername(row.userId) : null;
-    if (!jid || (!row.listingId && this.inSuggestionNoticeCooldown('whatsapp', row.userId))) {
+    if (!jid) {
       await this.notifications.updateDelivery(row.id, {
         whatsappStatus: NotificationDeliveryStatus.Skipped,
         whatsappNextRetryAt: null,
@@ -240,15 +266,24 @@ export class CargoNotificationService {
     const attempts = row.whatsappAttempts + 1;
     try {
       const text = row.listingId ? whatsappCards(cargoTextWithCard(row.text)) : await this.suggestionNoticeText(row.userId, WHATSAPP_SUGGESTIONS_HINT);
-      const key = await this.whatsapp.sendNotification(jid, text);
-      if (!row.listingId) this.markSuggestionNoticeSent('whatsapp', row.userId);
+      const previous = !row.listingId ? await this.recentSuggestionNotice(row.userId, 'whatsapp', jid) : null;
+      if (previous) {
+        await this.whatsapp.editNotification(previous.whatsappMessageKey!, text);
+      } else if (!row.listingId) {
+        await this.deleteSuggestionNotices(row.userId, 'whatsapp');
+      }
+      const key = previous ? previous.whatsappMessageKey! : await this.whatsapp.sendNotification(jid, text);
       await this.notifications.updateDelivery(row.id, {
         whatsappStatus: NotificationDeliveryStatus.Sent,
         whatsappMessageKey: key,
-        whatsappSentAt: new Date(),
+        whatsappSentAt: previous ? previous.whatsappSentAt : new Date(),
         whatsappAttempts: attempts,
         whatsappNextRetryAt: null,
       });
+      if (previous && previous.id !== row.id) {
+        await this.notifications.updateDelivery(previous.id, { whatsappMessageKey: null });
+      }
+      if (!row.listingId) await this.markSuggestionActivity(row, 'whatsapp');
       await this.sendListingVoice(row, (audio) => this.whatsapp.sendVoice(jid, audio));
     } catch (error) {
       // خطاهای واتساپ (قطع socket، timeout) معمولاً موقت‌اند.
@@ -278,19 +313,62 @@ export class CargoNotificationService {
     }
   }
 
-  /** در این فاصله برای همین کاربر و پیام‌رسان اعلان پیشنهاد بار رفته است؟ */
-  private inSuggestionNoticeCooldown(platform: BotPlatform | 'whatsapp', userId: string): boolean {
-    const lastAt = this.lastSuggestionNoticeAt.get(`${platform}:${userId}`);
-    return lastAt !== undefined && Date.now() - lastAt < SUGGESTION_NOTICE_COOLDOWN_MS;
+  private async withSuggestionQueue(row: CargoNotification, send: () => Promise<void>): Promise<void> {
+    if (row.listingId) return send();
+    const operation = (this.suggestionDeliveries.get(row.userId) ?? Promise.resolve()).then(send);
+    const settled = operation.catch(() => undefined);
+    this.suggestionDeliveries.set(row.userId, settled);
+    try {
+      await operation;
+    } finally {
+      if (this.suggestionDeliveries.get(row.userId) === settled) this.suggestionDeliveries.delete(row.userId);
+    }
   }
 
-  // فقط بعد از ارسال موفق ثبت می‌شود تا ارسال ناموفق و تلاش مجددش رد نشوند.
-  private markSuggestionNoticeSent(platform: BotPlatform | 'whatsapp', userId: string): void {
-    const now = Date.now();
-    for (const [key, at] of this.lastSuggestionNoticeAt) {
-      if (now - at >= SUGGESTION_NOTICE_COOLDOWN_MS) this.lastSuggestionNoticeAt.delete(key);
+  private async deleteSuggestionNotices(userId: string, platform: BotPlatform | 'whatsapp'): Promise<void> {
+    const previous = await this.notifications.findSuggestionNotices(userId, platform);
+    for (const notice of previous) {
+      if (platform === 'whatsapp') {
+        if (!notice.whatsappMessageKey) continue;
+        await this.whatsapp.deleteNotification(notice.whatsappMessageKey);
+        await this.notifications.updateDelivery(notice.id, { whatsappMessageKey: null });
+      } else {
+        const columns = BOT_DELIVERY_COLUMNS[platform];
+        const chatId = notice[columns.chatId];
+        const messageId = notice[columns.messageId];
+        if (!chatId || messageId == null) continue;
+        await this.bots.deleteNotification(chatId, messageId);
+        await this.notifications.updateDelivery(notice.id, { [columns.messageId]: null });
+      }
     }
-    this.lastSuggestionNoticeAt.set(`${platform}:${userId}`, now);
+  }
+
+  private async recentSuggestionNotice(userId: string, platform: BotPlatform | 'whatsapp', chatId: string): Promise<CargoNotification | null> {
+    const notices = await this.notifications.findSuggestionNotices(userId, platform);
+    // اعلان‌های قدیمیِ چندتایی با همان مسیر حذف و ارسال به یک اعلان تبدیل می‌شوند.
+    if (notices.length !== 1) return null;
+    const notice = notices[0];
+    const activity = await this.redis.getJson<{ notificationId: string; at: number }>(this.suggestionActivityKey(userId, platform));
+    if (!activity || activity.notificationId !== notice.id || Date.now() - activity.at >= SUGGESTION_BURST_MS) return null;
+    if (platform === 'whatsapp') {
+      if (notice.whatsappMessageKey?.remoteJid !== chatId || !notice.whatsappSentAt
+        || Date.now() - notice.whatsappSentAt.getTime() >= WHATSAPP_EDIT_WINDOW_MS) return null;
+    } else {
+      const columns = BOT_DELIVERY_COLUMNS[platform];
+      if (notice[columns.chatId] !== chatId || notice[columns.messageId] == null) return null;
+    }
+    return notice;
+  }
+
+  private suggestionActivityKey(userId: string, platform: BotPlatform | 'whatsapp'): string {
+    return RedisService.key('cargoSuggestionNoticeActivity', platform, userId);
+  }
+
+  private async markSuggestionActivity(row: CargoNotification, platform: BotPlatform | 'whatsapp'): Promise<void> {
+    await this.redis.setJson(this.suggestionActivityKey(row.userId, platform), {
+      notificationId: row.id,
+      at: Date.now(),
+    }, SUGGESTION_BURST_MS / 1000);
   }
 
   private async suggestionNoticeText(userId: string, openHint?: string): Promise<string> {
@@ -364,7 +442,7 @@ export class CargoNotificationService {
     });
     const matching = rows.filter((row) => {
       const cargo = (row.payload ?? {}) as CargoRouteFields;
-      return this.filters.matchesAny(filters, cargo) && (!search || matchesCargoSearch(cargo, search));
+      return (row.payload?.registeredByCompany === true || this.filters.matchesAny(filters, cargo)) && (!search || matchesCargoSearch(cargo, search));
     });
     return [matching.slice(skip, skip + options.pageSize), matching.length];
   }
@@ -396,7 +474,7 @@ export class CargoNotificationService {
           }
         : null,
       // فقط برای شرکت: نسخه‌ای که خودش از این بار منتشر کرده (اگر کرده باشد)
-      published: publishedListing ? { id: publishedListing.id, status: publishedListing.status } : null,
+      published: publishedListing ? { id: publishedListing.id, status: publishedListing.status, announcedAt: publishedListing.announcedAt ?? null } : null,
       isRead: row.isRead,
       readAt: row.readAt ?? null,
       createdAt: row.createdAt,

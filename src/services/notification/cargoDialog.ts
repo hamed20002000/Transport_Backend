@@ -2,6 +2,8 @@ import { BadRequestException, ConflictException, Inject, Injectable, Logger, OnM
 import { I18nService } from 'nestjs-i18n';
 
 import { PHONE_PATTERN, cargoLine, fa } from 'src/application/services/agent/tools/toolKit';
+import { phonesInText } from '../messengerBot/core/dialablePhones';
+import { NoCargoRecipientsException } from './cargoAnnouncementError';
 import { BotCallback } from 'src/domain/constants/bot/BotCallback';
 import { CargoAlertFilter } from 'src/domain/entities/notification/CargoAlertFilter';
 import { CargoListingStatus, CargoTripType } from 'src/domain/enums/notification';
@@ -236,6 +238,9 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     try {
       return await this.route(ctx, id);
     } catch (error) {
+      if (error instanceof NoCargoRecipientsException) {
+        return { text: error.message, actions: [{ id: Action.Create, label: this.t('actions.create') }, this.back()] };
+      }
       this.logger.error(`Cargo action ${id} failed for ${ctx.userId}: ${(error as Error).message}`);
       return { text: this.t('failed'), actions: [this.back()] };
     }
@@ -425,11 +430,12 @@ export class CargoDialog implements BotDialog, OnModuleInit {
       body = result.items
         .map((item, i) => {
           const index = fa((page - 1) * SUGGESTION_PAGE_SIZE + i + 1);
-          const cargo = (item.cargo ?? {}) as Parameters<typeof cargoLine>[0] & { code?: string | null };
+          const cargo = (item.cargo ?? {}) as Parameters<typeof cargoLine>[0] & { code?: string | null; rawText?: string; processedText?: string };
+          const phones = phonesInText(cargo.rawText || cargo.processedText || item.text || '');
           const marks = [
             item.isRead ? '' : this.t('suggestions.new'),
             item.published
-              ? this.t('suggestions.published', {
+              ? item.published.announcedAt === null && item.published.status === CargoListingStatus.Open ? 'ثبت‌شده، اعلام‌نشده' : this.t('suggestions.published', {
                   status: this.t(item.published.status === CargoListingStatus.Taken ? 'mine.taken' : 'mine.open'),
                 })
               : '',
@@ -437,10 +443,13 @@ export class CargoDialog implements BotDialog, OnModuleInit {
           const lines = [
             `${index}. ${cargoLine(cargo) || (item.text ?? '').slice(0, 80)}`,
             cargo?.code ? this.t('suggestions.code', { code: cargo.code }) : '',
+            phones.length ? `تماس: ${phones.join(' - ')}` : '',
             marks.join(' · '),
           ];
           if (!item.published) {
             announce.push({ id: `${Action.Announce}${item.id}`, label: this.t('actions.announce', { index }) });
+          } else if (item.published.announcedAt === null && item.published.status === CargoListingStatus.Open) {
+            announce.push({ id: `${Action.AnnounceNow}${item.published.id}:a:1`, label: this.t('actions.announce', { index }) });
           }
           return card(lines.filter(Boolean).join('\n'));
         })
@@ -464,6 +473,7 @@ export class CargoDialog implements BotDialog, OnModuleInit {
 
     return {
       text: [notice, this.t('suggestions.title'), this.t('suggestions.hint'), body].filter(Boolean).join('\n\n'),
+      refreshAction: `${Action.Suggestions}${filter}:${page}`,
       actions: rows.actions,
     };
   }
@@ -567,7 +577,7 @@ export class CargoDialog implements BotDialog, OnModuleInit {
       )
       .add({ id: Action.Create, label: this.t('actions.create') }, this.back());
 
-    return { text: [notice, this.t('mine.title'), body].filter(Boolean).join('\n\n'), actions: rows.actions };
+    return { text: [notice, this.t('mine.title'), body].filter(Boolean).join('\n\n'), actions: rows.actions, refreshAction: `${Action.MyCargo}${status}:${page}` };
   }
 
   private async changeStatus(ctx: BotContext, target: string, status: CargoListingStatus): Promise<BotReply> {
@@ -712,15 +722,15 @@ export class CargoDialog implements BotDialog, OnModuleInit {
       label: this.t('actions.filter', { index: fa(index + 1) }),
     }));
     const voice = driver ? await this.profiles.wantsCargoVoice(ctx.userId) : null;
-    const tripType = driver ? await this.profiles.tripTypeOf(ctx.userId) : null;
+    const tripTypes = driver ? await this.profiles.tripTypesOf(ctx.userId) : null;
     const rows = new Rows()
       .grid(open)
       .add({ id: Action.FilterNew, label: this.t('actions.newFilter') });
-    if (tripType) {
+    if (tripTypes) {
       rows.add(
         ...Object.values(CargoTripType).map((type) => ({
           id: `${Action.DriverTripType}${type}`,
-          label: this.selected(TRIP_TYPE_LABELS[type], type === tripType),
+          label: this.selected(TRIP_TYPE_LABELS[type], tripTypes.includes(type)),
         })),
       );
     }
@@ -738,7 +748,7 @@ export class CargoDialog implements BotDialog, OnModuleInit {
         this.t('filters.title'),
         this.t(driver ? 'filters.driverHint' : 'filters.hint'),
         body,
-        tripType ? this.t('filters.tripType', { type: TRIP_TYPE_LABELS[tripType] }) : null,
+        tripTypes ? this.t('filters.tripType', { type: tripTypes.map((type) => TRIP_TYPE_LABELS[type]).join('، ') }) : null,
         voice === null ? null : this.t(voice ? 'filters.cargoVoiceOn' : 'filters.cargoVoiceOff'),
       ]
         .filter(Boolean)
@@ -751,8 +761,11 @@ export class CargoDialog implements BotDialog, OnModuleInit {
   private async setDriverTripType(ctx: BotContext, value: string): Promise<BotReply> {
     const type = Object.values(CargoTripType).find((item) => item === value);
     if (!type || !(await this.isDriver(ctx))) return this.filtersView(ctx);
-    await this.profiles.setTripType(ctx.userId, type);
-    return this.filtersView(ctx, this.t('filters.tripTypeSaved', { type: TRIP_TYPE_LABELS[type] }));
+    const current = await this.profiles.tripTypesOf(ctx.userId);
+    const selected = current.includes(type) ? current.filter((item) => item !== type) : [...current, type];
+    if (!selected.length) return this.filtersView(ctx, 'حداقل یک نوع حمل را انتخاب کنید.');
+    await this.profiles.setTripTypes(ctx.userId, selected);
+    return this.filtersView(ctx, this.t('filters.tripTypeSaved', { type: selected.map((item) => TRIP_TYPE_LABELS[item]).join('، ') }));
   }
 
   /** فقط راننده بار اعلام‌شده را با صدا می‌گیرد؛ شرکت این دکمه را نمی‌بیند. */
@@ -1018,8 +1031,8 @@ export class CargoDialog implements BotDialog, OnModuleInit {
 
   /** بارهای باز نوع راننده با فیلترهای فعال خودش (همان‌هایی که اعلانشان برایش می‌رود). */
   private async openCargoView(ctx: BotContext, page: number): Promise<BotReply> {
-    const tripType = await this.profiles.tripTypeOf(ctx.userId);
-    const result = await this.listings.listOpen({ page, pageSize: FIND_PAGE_SIZE, userId: ctx.userId, tripType });
+    const tripTypes = await this.profiles.tripTypesOf(ctx.userId);
+    const result = await this.listings.listOpen({ page, pageSize: FIND_PAGE_SIZE, userId: ctx.userId, tripTypes });
     const pages = Math.max(1, Math.ceil(result.total / FIND_PAGE_SIZE));
     if (page > pages && result.total > 0) return this.openCargoView(ctx, pages);
 
@@ -1230,7 +1243,7 @@ export class CargoDialog implements BotDialog, OnModuleInit {
 
   private async publish(ctx: BotContext, session: CargoSession): Promise<BotReply> {
     const fields = await this.fields(ctx, session.draft);
-    let created: { code?: string | null; recipients: number; pending?: boolean; nextAnnounceAt?: Date | null; tripType?: CargoTripType };
+    let created: { code?: string | null; recipients: number; pending?: boolean; message?: string; nextAnnounceAt?: Date | null; tripType?: CargoTripType };
     if (session.notificationId) {
       try {
         created = await this.listings.publish(ctx.userId, session.notificationId, fields);
@@ -1245,7 +1258,7 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     await this.clearSession(ctx);
     return {
       text: created.pending
-        ? this.t('create.queued', { code: created.code ?? '', time: created.nextAnnounceAt ? persianTime(created.nextAnnounceAt) : '' })
+        ? created.message ?? this.t('create.queued', { code: created.code ?? '', time: created.nextAnnounceAt ? persianTime(created.nextAnnounceAt) : '' })
         : this.t(session.notificationId ? 'announce.done' : 'create.created', {
             code: created.code ?? '',
             recipients: fa(created.recipients),

@@ -72,9 +72,25 @@ export class ChannelMembershipNotifier {
 
     for (const userId of recipients) {
       this.gateway.sendToUser(userId, CHANNEL_STATUS_SOCKET_EVENT, { ...view, text });
+      await this.refreshOpenMenus(userId);
 
       if (!EXTERNAL_STATUSES.has(event.status) || (await this.gateway.isOnline(userId))) continue;
       await this.deliverOffline(userId, event, text);
+    }
+  }
+
+  private async refreshOpenMenus(userId: string): Promise<void> {
+    for (const platform of DELIVERY_ORDER) {
+      try {
+        if (platform === 'whatsapp') {
+          await this.whatsapp.refreshChannelMenu(userId);
+        } else if (this.bots.hasPlatform(platform)) {
+          const link = await this.botLinks.findByUserId(userId, platform);
+          if (link?.chatId) await this.bots.refreshChannelMenu(link.chatId, link.externalUserId, userId);
+        }
+      } catch (error) {
+        this.logger.warn(`Channel menu refresh via ${platform} failed: ${(error as Error).message}`);
+      }
     }
   }
 

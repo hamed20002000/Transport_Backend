@@ -29,7 +29,7 @@ import { BotAgentService } from '../services/botAgent.service';
 @Module({
   imports: [
     ToolRegisterModule,
-    MessengerBotModule,
+    forwardRef(() => MessengerBotModule),
     RedisModule,
       forwardRef(() => AuthModule), 
       forwardRef(() => WhatsappModule), 

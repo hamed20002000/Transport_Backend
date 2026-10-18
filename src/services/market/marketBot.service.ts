@@ -7,10 +7,12 @@ import { MultiBot } from '../messengerBot/core/multiBot';
 import { RedisService } from '../redis/redis.service';
 import { formatSnapshot, MARKET_CATALOG, MARKET_REFRESH_MINUTES, MarketPriceService, MarketSnapshot, MAX_MARKET_SYMBOLS, pickQuotes } from './marketPrice.service';
 import { MarketPreferenceService } from './marketPreference.service';
+import { BotCallback } from '../../domain/constants/bot/BotCallback';
 
 export const MarketAction = {
   // دکمه‌ی منوی راننده و شرکت (و بخش واتساپ)
   Show: 'mk:show',
+  Close: 'mk:close',
   // دکمه‌ی زیر همان پیام قیمت
   Refresh: 'mk:refresh',
   // انتخاب ارزها و طلای نوار قیمت
@@ -81,6 +83,7 @@ export class MarketBotService implements BotDialog, OnModuleInit, OnApplicationB
 
   async handleAction(ctx: BotContext, id: string): Promise<BotReply | null> {
     if (!this.ownsAction(id)) return null;
+    if (id === MarketAction.Close) return { text: '', actions: [], closed: 'exit' };
     if (id === MarketAction.Choose) return this.chooser(ctx);
     if (id.startsWith(MarketAction.Toggle)) {
       const symbol = id.slice(MarketAction.Toggle.length);
@@ -95,7 +98,7 @@ export class MarketBotService implements BotDialog, OnModuleInit, OnApplicationB
     }
     return {
       text: formatSnapshot(pickQuotes(await this.prices.current(), await this.preferences.symbolsOf(ctx.userId)), false),
-      actions: [{ id: MarketAction.Choose, label: '⚙️ انتخاب ارزها' }],
+      actions: [{ id: MarketAction.Choose, label: '⚙️ انتخاب ارزها' }, { id: MarketAction.Close, label: '↩️ بازگشت' }],
     };
   }
 
@@ -108,6 +111,7 @@ export class MarketBotService implements BotDialog, OnModuleInit, OnApplicationB
       row: Math.floor(index / 2),
     }));
     actions.push({ id: MarketAction.Show, label: '💰 دیدن قیمت‌ها', row: Math.ceil(MARKET_CATALOG.length / 2) });
+    actions.push({ id: MarketAction.Close, label: '↩️ بازگشت', row: Math.ceil(MARKET_CATALOG.length / 2) + 1 });
     const chosen = selected.map((symbol) => MARKET_CATALOG.find((item) => item.symbol === symbol)?.label).filter(Boolean);
     return {
       text: [
@@ -206,13 +210,13 @@ export class MarketBotService implements BotDialog, OnModuleInit, OnApplicationB
   }
 
   private markup(): TelegramBot.InlineKeyboardMarkup {
-    // دکمه‌ی دیگری (مثل منوی اصلی) ندارد: منوی بعدی نباید جای این پیام را بگیرد
     return {
       inline_keyboard: [
         [
           { text: '🔄 به‌روزرسانی', callback_data: MarketAction.Refresh },
           { text: '⚙️ انتخاب ارزها', callback_data: MarketAction.Choose },
         ],
+        [{ text: '↩️ بازگشت', callback_data: BotCallback.MainMenu }],
       ],
     };
   }

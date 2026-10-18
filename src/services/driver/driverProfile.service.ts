@@ -96,6 +96,10 @@ export class DriverProfileService {
 
   // فیلدی که نیامده دست نمی‌خورد؛ null پاکش می‌کند.
   async update(userId: string, dto: UpdateDriverProfileDto) {
+    if (dto.companyUserIds !== undefined) {
+      const valid = await this.availableCompanies(dto.companyUserIds);
+      if (valid.length !== dto.companyUserIds.length) throw new BadRequestException('یکی از شرکت‌های انتخاب‌شده فعال یا معتبر نیست.');
+    }
     const userChanges = Object.fromEntries(USER_FIELDS.filter((f) => dto[f] !== undefined).map((f) => [f, dto[f]]));
     // راننده شخص حقیقی است؛ displayName در پنل از روی profileType نام را انتخاب می‌کند.
     const user = Object.keys(userChanges).length
@@ -107,7 +111,14 @@ export class DriverProfileService {
       if (dto[field] !== undefined) Object.assign(driver, { [field]: dto[field] });
     }
     if (dto.cargoVoice !== undefined) driver.cargoVoice = dto.cargoVoice;
-    if (dto.tripType !== undefined) driver.tripType = dto.tripType;
+    if (dto.tripTypes !== undefined) {
+      driver.tripTypes = dto.tripTypes;
+      driver.tripType = dto.tripTypes[0];
+    } else if (dto.tripType !== undefined) {
+      driver.tripType = dto.tripType;
+      driver.tripTypes = [dto.tripType];
+    }
+    if (dto.companyUserIds !== undefined) driver.companyUserIds = dto.companyUserIds;
     return this.toView(user, await this.profiles.save(driver));
   }
 
@@ -205,8 +216,44 @@ export class DriverProfileService {
     return driver?.tripType ?? CargoTripType.Domestic;
   }
 
+  async tripTypesOf(userId: string): Promise<CargoTripType[]> {
+    const driver = await this.profiles.findOne({ where: { userId }, select: { userId: true, tripType: true, tripTypes: true } });
+    return driver?.tripTypes?.length ? driver.tripTypes : [driver?.tripType ?? CargoTripType.Domestic];
+  }
+
+  async canReceiveAnnouncement(userId: string, publisherUserId: string, tripType: CargoTripType): Promise<boolean> {
+    const driver = await this.profiles.findOne({ where: { userId } });
+    return !!driver?.companyUserIds?.includes(publisherUserId) && !!driver.tripTypes?.includes(tripType);
+  }
+
+  async availableCompanies(ids?: string[]): Promise<Array<{ userId: string; name: string }>> {
+    if (ids && !ids.length) return [];
+    return this.dataSource.query(
+      `SELECT DISTINCT u.id AS "userId",
+         COALESCE(NULLIF(u."companyName", ''), linked.name, NULLIF(concat_ws(' ', u."firstName", u."lastName"), ''), u.username) AS name
+       FROM "User" u
+       JOIN "UserRole" ur ON ur."userId" = u.id
+       JOIN "Role" r ON r.id = ur."roleId"
+       LEFT JOIN LATERAL (
+         SELECT c.name FROM "CompanyUser" cu JOIN "TransportCompany" c ON c.id = cu."transportCompanyId"
+         WHERE cu."userId" = u.id AND cu."recordStatus" = $1
+         ORDER BY cu."createdAt", cu.id LIMIT 1
+       ) linked ON true
+       WHERE u."recordStatus" = $1 AND r."recordStatus" = $1
+         AND r.name IN ('COMPANY', 'COMPANY_ADMIN')
+         ${ids ? 'AND u.id = ANY($2::uuid[])' : ''}
+       ORDER BY name, "userId"`,
+      ids ? [RecordStatus.Active, ids] : [RecordStatus.Active],
+    );
+  }
+
   async setTripType(userId: string, tripType: CargoTripType): Promise<void> {
-    await this.profiles.upsert({ userId, tripType }, ['userId']);
+    await this.profiles.upsert({ userId, tripType, tripTypes: [tripType] }, ['userId']);
+  }
+
+  async setTripTypes(userId: string, tripTypes: CargoTripType[]): Promise<void> {
+    if (!tripTypes.length) throw new BadRequestException('حداقل یک نوع حمل را انتخاب کنید.');
+    await this.profiles.upsert({ userId, tripTypes, tripType: tripTypes[0] }, ['userId']);
   }
 
   /**
@@ -220,7 +267,7 @@ export class DriverProfileService {
          JOIN "UserRole" ur ON ur."userId" = u.id
          JOIN "Role" r ON r.id = ur."roleId" AND r.name = 'DRIVER' AND r."recordStatus" = $1
          LEFT JOIN "DriverProfile" p ON p."userId" = u.id
-        WHERE u."recordStatus" = $1 AND COALESCE(p."tripType", '${CargoTripType.Domestic}') = $2
+        WHERE u."recordStatus" = $1 AND $2 = ANY(COALESCE(p."tripTypes", ARRAY[COALESCE(p."tripType", '${CargoTripType.Domestic}')]::varchar[]))
           AND ($3::text IS NULL
                OR replace(concat_ws('', u."firstName", u."lastName", u.username), ' ', '') ILIKE $3
                OR u.mobile ILIKE $3
@@ -264,6 +311,8 @@ export class DriverProfileService {
       ...Object.fromEntries(DRIVER_FIELDS.map((f) => [f, driver?.[f] ?? null])),
       cargoVoice: driver?.cargoVoice ?? true,
       tripType: driver?.tripType ?? CargoTripType.Domestic,
+      tripTypes: driver?.tripTypes?.length ? driver.tripTypes : [driver?.tripType ?? CargoTripType.Domestic],
+      companyUserIds: driver?.companyUserIds ?? [],
       // فقط وجود عکس (و نسخه برای کش مرورگر)؛ خود فایل از GET profile/photos/:kind با توکن
       photos: {
         face: driver?.facePhoto ?? null,

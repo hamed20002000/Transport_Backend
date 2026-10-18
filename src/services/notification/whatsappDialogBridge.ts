@@ -43,6 +43,7 @@ const SECTIONS: { roles: string[]; key: string; action: string }[] = [
 
 interface MenuState {
   actions: string[];
+  refreshAction?: string;
 }
 
 /**
@@ -65,6 +66,7 @@ export class WhatsappDialogBridge implements OnModuleInit {
 
   onModuleInit(): void {
     this.whatsapp.setDialogHandler({
+      refreshCargoMenu: (jid, userId) => this.refreshCargoMenu(jid, userId),
       handleText: (jid, userId, text) => this.handleText(jid, userId, text),
       handleLocation: (jid, userId, location) => this.handleLocation(jid, userId, location),
       handleDocument: (jid, userId, document) => this.handleDocument(jid, userId, document),
@@ -113,6 +115,12 @@ export class WhatsappDialogBridge implements OnModuleInit {
       return true;
     }
     return false;
+  }
+
+  async refreshCargoMenu(jid: string, userId: string): Promise<void> {
+    const menu = await this.getMenu(userId);
+    if (!menu?.refreshAction?.match(/^cg:(mine|sg):/)) return;
+    await this.run(jid, this.ctx(userId), menu.refreshAction);
   }
 
   async handleLocation(
@@ -216,7 +224,7 @@ export class WhatsappDialogBridge implements OnModuleInit {
     // واتساپ دکمه‌ی «ارسال موقعیت» ندارد؛ راهنمای منوی پیوست.
     const text = reply.locationButton ? `${reply.text}\n\n${this.t('whatsapp.locationHint')}` : reply.text;
     await this.whatsapp.sendMessage(jid, this.render(text, reply.actions));
-    if (this.options(reply.actions).length) await this.saveMenu(ctx.userId, reply.actions);
+    if (this.options(reply.actions).length) await this.saveMenu(ctx.userId, reply.actions, reply.refreshAction);
     else await this.clearMenu(ctx.userId);
   }
 
@@ -276,10 +284,10 @@ export class WhatsappDialogBridge implements OnModuleInit {
     return this.redis.getJson<MenuState>(RedisService.key('whatsappMenu', userId));
   }
 
-  private saveMenu(userId: string, actions: BotAction[]): Promise<void> {
+  private saveMenu(userId: string, actions: BotAction[], refreshAction?: string): Promise<void> {
     return this.redis.setJson(
       RedisService.key('whatsappMenu', userId),
-      { actions: this.options(actions).map((a) => a.id) },
+      { actions: this.options(actions).map((a) => a.id), refreshAction },
       MENU_TTL_SECONDS,
     );
   }

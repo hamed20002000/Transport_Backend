@@ -1,4 +1,5 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { forwardRef, Inject, Injectable } from '@nestjs/common';
+import { AgentGateway } from '../../application/services/agent/agent.gateway';
 
 import { IUserRepository } from 'src/domain/repositories/IUserRepopsitory';
 import { SUBSCRIPTION_REPOSITORY, USER_REPOSITORY } from 'src/domain/repositories/repository.tokens';
@@ -25,6 +26,8 @@ export class CompanyChannelsService {
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     @Inject(SUBSCRIPTION_REPOSITORY) private readonly subscriptions: ISubscriptionRepository,
     private readonly policy: SubscriptionPolicyService,
+    @Inject(forwardRef(() => AgentGateway))
+    private readonly agentGateway: AgentGateway,
   ) {}
 
   async checkAccess(userId: string): Promise<ChannelAccess> {
@@ -41,6 +44,7 @@ export class CompanyChannelsService {
 
   async add(userId: string, link: string, label?: string) {
     const result = await this.tarabari.register(userId, link.trim(), label?.trim() || undefined);
+    await this.agentGateway.broadcastDomainChange(userId, 'company_channels', {});
     return { created: result.created, channel: toUserChannel(result.channel), warning: result.warning ?? null };
   }
 

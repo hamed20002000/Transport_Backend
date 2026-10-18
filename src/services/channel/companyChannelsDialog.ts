@@ -75,6 +75,16 @@ export class CompanyChannelsDialog {
     return denied ?? this.myChannelsView(ctx);
   }
 
+  /** تازه‌سازی نمای باز، بدون قطع کردن دریافت لینک یا تأیید حذف. */
+  async refresh(ctx: BotContext): Promise<BotReply | null> {
+    const session = await this.getSession(ctx);
+    if (!session || session.awaitingLink || session.actions.some((id) => id.startsWith(Action.ConfirmRemove))) return null;
+    const details = session.actions.find((id) => id.startsWith(Action.Remove));
+    return details
+      ? this.handleAction(ctx, details.replace(Action.Remove, Action.Details))
+      : this.handleAction(ctx, Action.MyChannels);
+  }
+
   /** null یعنی این گزینه مال این بخش نیست. */
   async handleAction(ctx: BotContext, id: string): Promise<BotReply | null> {
     if (!this.ownsAction(id)) return null;

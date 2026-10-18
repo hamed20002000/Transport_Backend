@@ -35,6 +35,8 @@ export function actionRows(actions: BotAction[]): BotAction[][] {
  */
 export interface BotReply {
   text: string;
+  /** بازسازی فهرست باز پس از تغییر داده از وب یا پیام‌رسان دیگر. */
+  refreshAction?: string;
   actions: BotAction[];
   closed?: 'exit' | 'denied';
   /**

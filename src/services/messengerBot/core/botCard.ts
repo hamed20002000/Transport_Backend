@@ -28,6 +28,9 @@ export function telegramCards(text: string): { text: string; entities: TelegramB
     last = match.index + match[0].length;
   }
   plain += text.slice(last).replace(MARKERS, '');
+  for (const match of plain.matchAll(/(?<!\d)\+98\d{10}(?!\d)/g)) {
+    entities.push({ type: 'phone_number', offset: match.index, length: match[0].length });
+  }
   return { text: plain, entities };
 }
 

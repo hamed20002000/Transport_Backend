@@ -7,6 +7,7 @@ import { MultiBot } from './multiBot';
 import { MenuButton } from './menuTextMatch';
 
 interface ChatKeyboard {
+  refreshAction?: string;
   messageId?: number;
   /** دکمه‌های آخرین منو تا کاربر بتواند با تایپ/ویس هم انتخاب کند. */
   buttons?: MenuButton[];
@@ -53,10 +54,10 @@ export class BotKeyboardService {
 
   
   //#region --------------- دکمه های منو فعلی که جلوی کاربر است را برمیگرداند -------------------------------
-  async getMenuButtons(chatId: string): Promise<{ messageId: number; buttons: MenuButton[] } | null> {
+  async getMenuButtons(chatId: string): Promise<{ messageId: number; buttons: MenuButton[]; refreshAction?: string } | null> {
     const current = await this.redis.getJson<ChatKeyboard>(RedisService.key('telegramKeyboard', this.namespace, chatId));
     return current?.messageId !== undefined && current.buttons?.length
-      ? { messageId: current.messageId, buttons: current.buttons }
+      ? { messageId: current.messageId, buttons: current.buttons, refreshAction: current.refreshAction }
       : null;
   }
   //#endregion --------------------------------------------------------------------------------
@@ -67,6 +68,7 @@ export class BotKeyboardService {
     text: string,
     options?: TelegramBot.SendMessageOptions,
     isMainMenu = false,
+    refreshAction?: string,
   ): Promise<TelegramBot.Message> {
 
     
@@ -108,6 +110,7 @@ export class BotKeyboardService {
         delete current.mainMenuSignature;
       }
       current.messageId = message.message_id;
+      current.refreshAction = refreshAction;
       current.buttons = inlineButtons(options.reply_markup);
 
       await this.redis.setJson(key, current, this.ttlSeconds);

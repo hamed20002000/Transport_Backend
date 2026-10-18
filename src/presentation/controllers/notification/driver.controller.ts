@@ -244,6 +244,12 @@ export class DriverController {
     return this.listings.companyNames(50);
   }
 
+  @Get('profile/companies')
+  profileCompanies(@Req() request: AuthRequest) {
+    currentDriverId(request);
+    return this.profiles.availableCompanies();
+  }
+
   @Get('requests')
   async myRequests(
     @Req() request: AuthRequest,
