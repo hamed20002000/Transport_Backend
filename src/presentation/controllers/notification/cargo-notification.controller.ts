@@ -215,6 +215,29 @@ export class CargoListingController {
     return this.trips.searchDrivers(currentUserId(request), id, query.slice(0, 40));
   }
 
+  // سفرهای فعال شرکت (جدیدترین اول) با راننده و آخرین موقعیتش
+  @Get('trips')
+  companyTrips(
+    @Req() request: AuthRequest,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('pageSize', new DefaultValuePipe(20), ParseIntPipe) pageSize: number,
+  ) {
+    return this.trips.companyTripViews(companyUserId(request), Math.max(page, 1), Math.min(Math.max(pageSize, 1), 100));
+  }
+
+  // تعداد سفرهای فعالی که چند روز است تحویلشان ثبت نشده (بنر یادآوری پنل)
+  @Get('trips/overdue')
+  overdueTrips(@Req() request: AuthRequest) {
+    return this.trips.overdueTrips(companyUserId(request));
+  }
+
+  // شرکت تحویل بار را ثبت می‌کند؛ راننده خبردار می‌شود (409 notActive اگر سفر فعال نیست)
+  @Patch('trips/:id/deliver')
+  async deliverTrip(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string) {
+    const delivered = await this.trips.deliver(companyUserId(request), id);
+    return { requestId: delivered.id, status: delivered.status, deliveredAt: delivered.deliveredAt };
+  }
+
   // سپردن بار به راننده؛ بار بعد از تأیید راننده «برداشته شد» می‌شود
   @Post(':id/offer')
   offer(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string, @Body() dto: OfferCargoDto) {

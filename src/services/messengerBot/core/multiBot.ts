@@ -77,6 +77,14 @@ export class MultiBot extends EventEmitter {
     return prefixMessage(platform, message);
   }
 
+  /** پیامی برای کپی (BotReply.copyText): در تلگرام بلوک کد که با یک لمس کپی می‌شود، بقیه متن ساده. */
+  async sendCopyable(chatId: string | number, text: string) {
+    const { platform } = this.route(chatId);
+    const entities: TelegramBot.MessageEntity[] | undefined =
+      platform === 'telegram' ? [{ type: 'pre', offset: 0, length: text.length }] : undefined;
+    return this.sendMessage(chatId, text, entities ? { entities } : undefined);
+  }
+
   async sendLocation(chatId: string | number, latitude: number, longitude: number) {
     const { client, nativeId } = this.route(chatId);
     await client.sendLocation(nativeId, latitude, longitude);

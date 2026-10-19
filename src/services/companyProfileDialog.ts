@@ -39,6 +39,9 @@ export class CompanyProfileDialog implements BotDialog, OnModuleInit {
   private key(ctx: Pick<BotContext, 'platform' | 'externalUserId'>) {
     return RedisService.key('companyProfileDialog', ctx.platform, ctx.externalUserId);
   }
+  async clearSession(ctx: Pick<BotContext, 'platform' | 'externalUserId'>): Promise<void> {
+    await this.redis.delete(this.key(ctx));
+  }
   async hasSession(ctx: Pick<BotContext, 'platform' | 'externalUserId'>) {
     return (await this.redis.getJson(this.key(ctx))) !== null;
   }

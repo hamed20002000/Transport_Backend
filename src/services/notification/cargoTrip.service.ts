@@ -1,7 +1,7 @@
 import { ConflictException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { I18nService } from 'nestjs-i18n';
 
-import { cargoLine } from 'src/application/services/agent/tools/toolKit';
+import { cargoLine, fa } from 'src/application/services/agent/tools/toolKit';
 import { CargoRequest } from '../../domain/entities/notification/CargoRequest';
 import { DriverLocation } from '../../domain/entities/notification/DriverLocation';
 import { CargoListingStatus, CargoRequestStatus } from '../../domain/enums/notification';
@@ -25,6 +25,8 @@ import { DriverProfileService } from '../driver/driverProfile.service';
 import { NotificationsGateway } from './notifications.gateway';
 
 export const CARGO_REQUEST_CHANGED_SOCKET_EVENT = 'cargo-request-changed';
+// موقعیت تازه‌ی راننده‌ای که سفر فعال دارد، برای صفحه‌ی «سفرها»ی باز شرکت (Live Location هم)
+export const TRIP_LOCATION_SOCKET_EVENT = 'trip-location';
 
 // بار سپرده‌شده تا این مدت منتظر تأیید راننده می‌ماند
 export const OFFER_TTL_MINUTES = 30;
@@ -43,6 +45,9 @@ export interface PartyContact {
   name: string;
   phones: string[];
 }
+
+/** چند روز بعد از شروع سفر بی‌تحویل، یادآوری «تحویل داده شد؟» (TRIP_DELIVERY_REMINDER_DAYS، پیش‌فرض ۳). */
+export const deliveryReminderDays = () => Number(process.env.TRIP_DELIVERY_REMINDER_DAYS) || 3;
 
 /**
  * درخواست راننده برای بارهای اعلام‌شده، قبول/رد شرکت، سفر فعال و تحویل، و
@@ -174,8 +179,81 @@ export class CargoTripService {
     return request?.companyUserId === companyUserId ? request : null;
   }
 
+  /** سفرهای فعال شرکت، جدیدترین سفر اول. */
   companyTrips(companyUserId: string, page: number, pageSize: number) {
-    return this.requests.findPageForCompany(companyUserId, [CargoRequestStatus.Accepted], (page - 1) * pageSize, pageSize);
+    return this.requests.findPageForCompany(companyUserId, [CargoRequestStatus.Accepted], (page - 1) * pageSize, pageSize, 'started');
+  }
+
+  /** سفرهای فعال شرکت برای پنل وب: بار، راننده و آخرین موقعیتش. */
+  async companyTripViews(companyUserId: string, page: number, pageSize: number) {
+    const [items, total] = await this.companyTrips(companyUserId, page, pageSize);
+    const driverIds = [...new Set(items.map((item) => item.driverUserId))];
+    const [cards, locations] = await Promise.all([
+      this.profiles.cards(driverIds),
+      Promise.all(driverIds.map(async (id) => [id, await this.lastLocation(id)] as const)),
+    ]);
+    const cardOf = new Map(cards.map((card) => [card.userId, card]));
+    const locationOf = new Map(locations);
+    return {
+      total,
+      page,
+      pageSize,
+      items: items.map((item) => {
+        const location = locationOf.get(item.driverUserId);
+        return {
+          requestId: item.id,
+          startedAt: item.decidedAt ?? item.updatedAt,
+          deliveryRemindedAt: item.deliveryRemindedAt ?? null,
+          cargo: item.listing
+            ? {
+                id: item.listing.id,
+                code: item.listing.code ?? null,
+                origin: item.listing.origin,
+                destination: item.listing.destination,
+                cargoType: item.listing.cargoType ?? null,
+                weight: item.listing.weight ?? null,
+                vehicleType: item.listing.vehicleType ?? null,
+                price: item.listing.price ?? null,
+              }
+            : null,
+          driver: cardOf.get(item.driverUserId) ?? null,
+          location: location
+            ? { latitude: location.latitude, longitude: location.longitude, receivedAt: location.receivedAt, liveUntil: location.liveUntil ?? null }
+            : null,
+        };
+      }),
+    };
+  }
+
+  /** سفرهای فعال شرکت که بیش از days روز است تحویلشان ثبت نشده (بنر یادآوری پنل وب). */
+  async overdueTrips(companyUserId: string, days = deliveryReminderDays()): Promise<{ count: number; days: number }> {
+    const count = await this.requests.countTripsStartedBefore(companyUserId, new Date(Date.now() - days * 24 * 60 * 60 * 1000));
+    return { count, days };
+  }
+
+  /**
+   * «تحویل داده شد؟»: سفری که days روز از شروعش (یا از یادآوری قبلی) گذشته و تحویلش ثبت نشده؛
+   * به شرکت با دکمه‌ی ثبت تحویل خبر داده می‌شود و هر days روز تکرار می‌شود.
+   */
+  async remindDeliveries(days: number, now = new Date()): Promise<number> {
+    const due = await this.requests.findTripsDueDeliveryReminder(new Date(now.getTime() - days * 24 * 60 * 60 * 1000));
+    for (const request of due) {
+      request.deliveryRemindedAt = now;
+      await this.requests.save(request);
+      const driver = await this.contact(request.driverUserId);
+      const text = this.t('notify.deliveryReminder', { driver: this.describe(driver), cargo: this.cargoTitle(request), days: fa(days) });
+      // پنل وب باز: همان یادآوری به شکل اعلان (بنر سفرهای بی‌تحویل هم با همین رویداد به‌روز می‌شود)
+      this.changed(request, { type: 'deliveryReminder', text });
+      await this.notify(
+        request.companyUserId,
+        text,
+        [
+          { id: `${TripAction.Deliver}${request.id}`, label: this.t('actions.markDelivered'), row: 0 },
+          { id: `${TripAction.CompanyTrips}1`, label: this.t('actions.companyTrips'), row: 1 },
+        ],
+      );
+    }
+    return due.length;
   }
 
   /**
@@ -203,6 +281,8 @@ export class CargoTripService {
     } else {
       await this.notify(request.driverUserId, this.t('notify.rejected', { cargo }));
     }
+    // پنل‌های باز (درخواست‌های راننده، بارها و سفرهای شرکت) بی‌رفرش به‌روز شوند
+    this.changed(request);
     return request;
   }
 
@@ -213,6 +293,7 @@ export class CargoTripService {
       other.status = CargoRequestStatus.Rejected;
       other.decidedAt = new Date();
       await this.requests.save(other);
+      this.changed(other);
       await this.notify(other.driverUserId, this.t('notify.rejectedTaken', { cargo: this.cargoTitle(other) }));
     }
   }
@@ -351,7 +432,7 @@ export class CargoTripService {
   }
 
   /** پنل‌های باز شرکت و راننده بدون رفرش به‌روز شوند. */
-  private changed(request: CargoRequest, notice?: { type: 'newRequest'; text: string }): void {
+  private changed(request: CargoRequest, notice?: { type: 'newRequest' | 'deliveryReminder'; text: string }): void {
     const event = { requestId: request.id, listingId: request.listingId, status: request.status, ...notice };
     this.gateway.sendToUser(request.companyUserId, CARGO_REQUEST_CHANGED_SOCKET_EVENT, event);
     this.gateway.sendToUser(request.driverUserId, CARGO_REQUEST_CHANGED_SOCKET_EVENT, event);
@@ -379,6 +460,8 @@ export class CargoTripService {
         by: this.describe(by),
       }),
     );
+    // پنل‌های باز (سفرها و شمارنده‌ی سفرهای بی‌تحویل) به‌روز شوند
+    this.changed(request);
     return request;
   }
 
@@ -428,6 +511,14 @@ export class CargoTripService {
         : null;
     await this.locations.upsert({ userId: driverUserId, latitude: point.latitude, longitude: point.longitude, liveUntil, receivedAt });
     await this.logLocation(driverUserId, point, !!liveUntil, receivedAt);
+    const trips = await this.activeTrips(driverUserId);
+    // صفحه‌ی «سفرها»ی وب شرکت همان لحظه به‌روز شود، حتی برای به‌روزرسانی‌های بی‌صدای Live Location
+    for (const trip of trips) {
+      this.gateway.sendToUser(trip.companyUserId, TRIP_LOCATION_SOCKET_EVENT, {
+        requestId: trip.id,
+        location: { latitude: point.latitude, longitude: point.longitude, receivedAt, liveUntil },
+      });
+    }
     if (point.edited) return { sent: 0, receivedAt };
 
     // شرکت‌هایی که موقعیت خواسته‌اند و شرکت‌هایی که با این راننده سفر فعال دارند
@@ -439,7 +530,7 @@ export class CargoTripService {
       const request = await this.requests.findById(requestId);
       if (request && request.driverUserId === driverUserId) requests.push(request);
     }
-    requests.push(...(await this.activeTrips(driverUserId)));
+    requests.push(...trips);
 
     const driver = await this.contact(driverUserId);
     const notified = new Set<string>();

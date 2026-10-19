@@ -32,9 +32,9 @@ export class CargoAlertFilterService {
   constructor(private readonly filters: CargoAlertFilterRepository) {}
 
   /**
-   * از بین کاربرها، آن‌هایی که این بار را می‌خواهند. کاربری که هیچ فیلتر فعالی
-   * ندارد همه‌ی بارها را می‌گیرد؛ در غیر این صورت کافی است یکی از فیلترهایش
-   * match شود. برای شرکت‌ها و راننده‌ها یکسان است.
+   * از بین کاربرها، آن‌هایی که این بار را می‌خواهند. هر کاربر حداکثر یک فیلتر فعال
+   * دارد: بی‌فیلتر همه‌ی بارها، وگرنه فقط بارهای جور با همان فیلتر. برای شرکت‌ها و
+   * راننده‌ها یکسان است.
    */
   async filterInterestedUsers(userIds: string[], cargo: CargoRouteFields): Promise<string[]> {
     const filters = await this.filters.findActiveByUserIds(userIds);
@@ -95,7 +95,8 @@ export class CargoAlertFilterService {
   create(userId: string, input: CargoAlertFilterInput): Promise<CargoAlertFilter> {
     const cleaned = this.clean(input);
     this.checkPriceRange(cleaned);
-    return this.filters.save(this.filters.create({ ...cleaned, userId }));
+    // فیلتر تازه (پیش‌فرض فعال) جای فیلتر فعال قبلی را می‌گیرد
+    return this.filters.saveExclusive(this.filters.create({ ...cleaned, userId }));
   }
 
   private checkPriceRange({ minPrice, maxPrice }: Pick<CargoAlertFilterInput, 'minPrice' | 'maxPrice'>) {
@@ -108,7 +109,7 @@ export class CargoAlertFilterService {
     const filter = await this.getOwned(userId, id);
     const next = Object.assign(filter, this.clean(input));
     this.checkPriceRange(next);
-    return this.filters.save(next);
+    return this.filters.saveExclusive(next);
   }
 
   async remove(userId: string, id: string): Promise<void> {

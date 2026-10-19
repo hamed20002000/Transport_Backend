@@ -15,6 +15,11 @@ export function card(text: string): string {
   return body ? `${OPEN}${body}${CLOSE}` : '';
 }
 
+/** متن کارت دارد؟ (مثلاً سؤال نظرسنجی واتساپ قالب‌بندی نمی‌پذیرد) */
+export function hasCards(text: string): boolean {
+  return text.includes(OPEN);
+}
+
 /** تلگرام: کادر نقل‌قول (blockquote) با entities، تا متن نیازی به escape شدن HTML نداشته باشد. */
 export function telegramCards(text: string): { text: string; entities: TelegramBot.MessageEntity[] } {
   const entities: TelegramBot.MessageEntity[] = [];
@@ -37,6 +42,34 @@ export function telegramCards(text: string): { text: string; entities: TelegramB
 /** واتساپ: هر خط کارت با «> » نقل‌قول می‌شود (کادر با نوار کناری). */
 export function whatsappCards(text: string): string {
   return text.replace(CARD, (_, body: string) => body.split('\n').map((line) => `> ${line}`).join('\n'));
+}
+
+const faDigits = (value: number) => String(value).replace(/\d/g, (digit) => '۰۱۲۳۴۵۶۷۸۹'[Number(digit)]);
+
+/**
+ * گزینه‌های شماره‌دار واتساپ (که دکمه ندارد): «۱- نمایش منو». هر کاری که کاربر می‌تواند
+ * بکند یک گزینه است؛ به‌جای «برای … بنویسید» فقط شماره‌ی گزینه فرستاده می‌شود.
+ */
+export function whatsappOptions(labels: string[], start = 1): string {
+  return labels.map((label, index) => `${faDigits(start + index)}- ${label}`).join('\n');
+}
+
+// دو گزینه‌ی یک ردیف تا این طول (هر دو با هم) در یک خط می‌آیند؛ بلندتر روی گوشی به هم می‌ریزد
+const ROW_LINE_LIMIT = 38;
+
+/**
+ * مثل whatsappOptions، ولی گزینه‌هایی که در ربات‌ها یک ردیف‌اند (BotAction.row / Rows.grid) در
+ * یک خط کنار هم: «۱- 📣 اعلام ۱    ۲- 📣 اعلام ۲». شماره‌ها پشت‌سرهم می‌مانند.
+ */
+export function whatsappOptionRows(rows: string[][], start = 1): string {
+  const lines: string[] = [];
+  let number = start;
+  for (const row of rows) {
+    const items = row.map((label) => `${faDigits(number++)}- ${label}`);
+    if (items.length > 1 && items.join('').length <= ROW_LINE_LIMIT) lines.push(items.join('    '));
+    else lines.push(...items);
+  }
+  return lines.join('\n');
 }
 
 /** بله و روبیکا کادر نقل‌قول ربات ندارند: نوار عمودی کنار هر خط کارت. */

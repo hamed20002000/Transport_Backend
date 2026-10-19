@@ -2,6 +2,7 @@ import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { WhatsappService } from '../services/whatsapp.service';
 import { WhatsappPollService } from '../services/whatsappPoll.service';
+import { WhatsappMenuMessages } from '../services/whatsappMenuMessages';
 import { WhatsappAuthCredential } from 'src/domain/entities/agent/WhatsappAuthCredential';
 import { WhatsappAuthKey } from 'src/domain/entities/agent/WhatsappAuthKey';
 import { WhatsappUserMapping } from 'src/domain/entities/agent/WhatsappUserMapping';
@@ -24,7 +25,7 @@ import { RedisModule } from 'src/application/module/RedisModule';
     RedisModule,
     forwardRef(() => ChannelModule),
   ],
-  providers: [WhatsappService, WhatsappPollService],
+  providers: [WhatsappService, WhatsappPollService, WhatsappMenuMessages],
   exports: [WhatsappService],
 })
 export class WhatsappModule {}

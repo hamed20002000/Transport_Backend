@@ -30,8 +30,10 @@ import { SpeechToTextService } from './Speechtotext.service';
 import { TranscriptCorrectorService } from './transcriptCorrector.service';
 import { VOICE_IDENTIFIER_NOTICE } from './voiceIdentifiers';
 import { VoiceCodeResolverService } from './voiceCodeResolver.service';
-import { parseChoice, parseYesNo } from './replyChoice';
+import { parseChoice, parseYesNo, voiceMenuPrompt } from './replyChoice';
 import { WhatsappPollService } from './whatsappPoll.service';
+import { WhatsappMenuMessages } from './whatsappMenuMessages';
+import { whatsappOptions } from 'src/services/messengerBot/core/botCard';
 import { PendingConfirmationService } from './PendingConfirmationService';
 import { MessengerPlatform } from 'src/domain/enums/messenger';
 import { CompanyChannelsDialog } from 'src/services/channel/companyChannelsDialog';
@@ -54,15 +56,26 @@ const ONBOARDING_ACCOUNT_TYPES = [
   { type: AccountType.Driver, label: 'راننده' },
   { type: AccountType.Company, label: 'شرکت حمل‌ونقل' },
 ] as const;
+const ACCOUNT_TYPE_WELCOME = 'به سامانه خوش آمدید! برای این شماره هنوز حسابی ساخته نشده است.';
 const ACCOUNT_TYPE_PROMPT =
-  'به سامانه خوش آمدید! برای این شماره هنوز حسابی ساخته نشده است.\nنوع حسابتان را با فرستادن شماره‌اش انتخاب کنید:\n' +
-  ONBOARDING_ACCOUNT_TYPES.map((item, index) => `${index + 1}. ${item.label}`).join('\n');
+  `${ACCOUNT_TYPE_WELCOME}\n\nنوع حسابتان چیست؟\n` +
+  whatsappOptions(ONBOARDING_ACCOUNT_TYPES.map((item) => item.label)) +
+  '\n\n👈 شماره‌ی گزینه را بفرستید.';
+// تأیید دستور صوتی
+const CONFIRM_OPTIONS = whatsappOptions(['✅ بله، انجام بده', '❌ نه، لغو کن']);
+// سؤال نظرسنجی‌ها (منوی گفتگوها و نوع حساب)؛ فرستادن شماره‌ی گزینه هم کار می‌کند
+const MENU_POLL_QUESTION = '👇 یکی را انتخاب کنید';
 const UNKNOWN_PHONE_MESSAGE =
   'شماره‌ی موبایل این حساب واتساپ قابل تشخیص نیست یا شماره‌ی ایران نیست.\n' +
   'حساب‌ها با شماره‌ی موبایل ایران ساخته می‌شوند؛ لطفاً از واتساپی که با شماره‌ی ایران فعال شده پیام بدهید.';
 const NEW_CHAT_WORDS = ['گفتگوی جدید', 'گفتگو جدید', 'yeni sohbet'];
 const NEXT_PAGE_WORDS = ['بعدی', 'ادامه', 'devam'];
 const PREVIOUS_PAGE_WORDS = ['قبلی', 'برگشت', 'geri'];
+
+/** «/start» یا «۰»: همه‌چیز از نو و منوی اصلی (واتساپ دکمه ندارد؛ یک رقم راحت‌ترین است). */
+const isHomeCommand = (text: string) => /^\/start(?:@\S+)?(?:\s|$)/i.test(text.trim()) || /^[0۰٠]$/.test(text.trim());
+// همان در ویس: «صفر»، «منو»، «منوی اصلی»
+const HOME_VOICE = /^(?:صفر|منو|منوی اصلی|منو اصلی)$/;
 
 /** «۱» و «١» را هم مثل «1» می‌خواند تا جواب عددی کاربر فارسی‌زبان رد نشود. */
 const toLatinDigits = (value: string) =>
@@ -77,6 +90,12 @@ const toLatinDigits = (value: string) =>
  */
 export interface WhatsappDialogHandler {
   refreshCargoMenu?(jid: string, userId: string): Promise<void>;
+  /** گزینه‌های منوی باز کاربر؛ null اگر منویی باز نیست. */
+  menuLabels?(userId: string): Promise<string[] | null>;
+  /** «/start»: منوی باز و نشست همه‌ی گفتگوها پاک می‌شود. */
+  reset?(userId: string): Promise<void>;
+  /** جواب صوتی به منوی باز (شماره یا اسم گزینه)؛ false اگر گزینه‌ای شناخته نشد. */
+  handleVoiceChoice?(jid: string, userId: string, text: string): Promise<boolean>;
   /** true اگر متن مال یکی از گفتگوها بود و جواب داده شد. */
   handleText(jid: string, userId: string, text: string): Promise<boolean>;
   handleLocation(jid: string, userId: string, location: { latitude: number; longitude: number; live: boolean }): Promise<boolean>;
@@ -126,6 +145,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   // اینکه لیست بلند برای همیشه روی صفحه بمونه و نوار پیشرفت/نتیجه‌ی
   // نهایی رو به بالا هل بده (جایی که کاربر باید اسکرول کنه تا ببینتش).
   private selectionMessageKeys = new Map<string, proto.IMessageKey>();
+  // آخرین پیام هر کاربر؛ واکنش ⏳ رویش یعنی «در حال انجام» (بدون پیام اضافه در چت)
+  private lastIncoming = new Map<string, proto.IMessageKey>();
 
   private static readonly SELECTION_PAGE_SIZE = 10;
 
@@ -138,6 +159,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private pendingCodeChoices = new Map<string, string[]>();
   // نظرسنجیِ سؤال فعلی هر jid -- رأی به نظرسنجی قدیمی‌تر کاری انجام نمی‌ده.
   private pendingPolls = new Map<string, string>();
+  // نظرسنجیِ آخرین منوی گفتگوها (دکمه‌های واتساپ)؛ هر منوی تازه قبلی را بی‌اثر می‌کند.
+  private menuPolls = new Map<string, string>();
+  // نظرسنجی انتخاب نوع حساب برای شماره‌ای که هنوز حساب ندارد.
+  private onboardingPolls = new Map<string, string>();
 
   constructor(
     @InjectRepository(WhatsappAuthCredential)
@@ -153,6 +178,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     private readonly corrector: TranscriptCorrectorService,
     private readonly voiceCodes: VoiceCodeResolverService,
     private readonly polls: WhatsappPollService,
+    private readonly menuMessages: WhatsappMenuMessages,
     private readonly pendingConfirmationService: PendingConfirmationService,
     private readonly channelsDialog: CompanyChannelsDialog,
     private readonly redis: RedisService,
@@ -397,6 +423,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
         // No jid at all means we have no way to reply -- nothing to do here.
         if (!jid) continue;
+        // ⏳ «در حال انجام» روی همین پیام کاربر می‌نشیند، نه پیام جدا (showProgress)
+        this.lastIncoming.set(jid, msg.key);
 
         // We couldn't resolve a phone-based alternative for this @lid jid --
         // log it so we can spot how often this actually happens in practice,
@@ -508,8 +536,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     }
 
     const { userid, username } = mapping;
-    if (/^\/start(?:@\S+)?(?:\s|$)/i.test(text.trim()) && this.dialogHandler) {
-      await this.clearMenuMessages(userid);
+    // «۰» (ساده‌ترین چیز برای تایپ در واتساپ) همان /start است: منوی اصلی از نو
+    if (isHomeCommand(text) && this.dialogHandler) {
+      await this.resetConversation(jid, userid);
       await this.dialogHandler.handleText(jid, userid, '/start');
       return;
     }
@@ -629,6 +658,25 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   async sendImage(jid: string, image: Buffer, caption?: string): Promise<void> {
     if (!this.sock) throw new Error('WhatsApp socket is not connected.');
     await this.sock.sendMessage(jid, { image, caption });
+  }
+
+  /** عکس با متن و گزینه‌های منو در کپشن (یک پیام به‌جای دو تا)؛ مثل sendMenuMessage ثبت می‌شود. */
+  async sendMenuImage(jid: string, userId: string, image: Buffer, caption: string): Promise<void> {
+    if (!this.sock) throw new Error('WhatsApp socket is not connected.');
+    this.forgetMenuPoll(jid);
+    const message = await this.sock.sendMessage(jid, { image, caption });
+    if (message?.key) await this.menuMessages.track(userId, message.key);
+  }
+
+  /** «در حال انجام…»: واکنش ⏳ روی آخرین پیام کاربر، تا پیام اضافه‌ای در چت نماند. */
+  async showProgress(jid: string): Promise<void> {
+    const key = this.lastIncoming.get(jid);
+    if (key) await this.reactToNotification(key, '⏳').catch(() => undefined);
+  }
+
+  async clearProgress(jid: string): Promise<void> {
+    const key = this.lastIncoming.get(jid);
+    if (key) await this.reactToNotification(key, '').catch(() => undefined);
   }
 
   /** پیام صوتی (ogg/opus، به شکل voice note). */
@@ -769,9 +817,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         ONBOARDING_ACCOUNT_TYPES.find((item) => text.includes(item.label.split(' ')[0]))?.type ??
         null;
       if (!accountType) {
-        await this.sendMessage(jid, ACCOUNT_TYPE_PROMPT);
+        await this.sendAccountTypePrompt(jid);
         return false;
       }
+      this.polls.forget(this.onboardingPolls.get(jid));
+      this.onboardingPolls.delete(jid);
       try {
         user = user ? await this.accounts.assignRole(user.id, accountType) : await this.accounts.create(phone, accountType);
       } catch (error) {
@@ -787,7 +837,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       jid,
       `✅ حساب شماره ${phone} به این واتساپ وصل شد. از این به بعد درخواست‌هایتان را همین‌جا بفرستید.
 ` +
-        `🌐 برای ورود به پنل وب، همین شماره را وارد کنید تا کد ورود پیامک شود؛ رمز عبوری لازم نیست.`,
+        `🌐 برای ورود به پنل وب، همین شماره را وارد کنید تا کد ورود پیامک شود؛ رمز عبوری لازم نیست.\n` +
+        `🔄 هر وقت گیر کردید یا خواستید به منوی اصلی برگردید، فقط ۰ (صفر) را بفرستید.`,
     );
     await this.dialogHandler?.handleText(jid, user.id, 'منو');
     return true;
@@ -896,7 +947,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       // Immediate feedback -- voice processing (download + ffmpeg +
       // transcription) can take a few seconds, so the user gets some
       // indication something is happening rather than silence.
-      await this.sendMessage(jid, '🎤 در حال پردازش پیام صوتی...');
+      // پیام «در حال پردازش» نه؛ ⏳ روی خود ویس (تعداد پیام‌ها کم بماند)
+      await this.showProgress(jid);
 
       // Two separate directories, mirroring MessengerBotService's approach --
       // keeps the raw downloaded file and the ffmpeg-converted output from
@@ -938,7 +990,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       );
       await execAsync(`ffmpeg -y -i "${oggPath}" -ar 16000 -ac 1 -c:a pcm_s16le "${wavPath}"`);
 
-      const heard = await this.speechToTextService.transcribeFile(wavPath);
+      // منوی شماره‌دار باز است: whisper با «گزینه یک، گزینه دو…» و اسم گزینه‌ها راهنمایی
+      // می‌شود تا جواب کوتاه («دو») درست شنیده شود.
+      const menuLabels = await this.dialogHandler?.menuLabels?.(mapping.userid) ?? null;
+      const heard = await this.speechToTextService.transcribeFile(
+        wavPath,
+        menuLabels ? { promptPrefix: voiceMenuPrompt(menuLabels) } : {},
+      );
       // Misheard words («کار تهران…» → «بار تهران…»): the user confirms and runs the corrected text.
       const text = heard ? await this.corrector.correct(heard) : heard;
 
@@ -964,6 +1022,23 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
+      // «صفر» یا «منو» در ویس همان «۰» است
+      if (this.dialogHandler && HOME_VOICE.test(text.replace(/[.،!؟?]/g, '').trim())) {
+        await this.resetConversation(jid, mapping.userid);
+        await this.dialogHandler.handleText(jid, mapping.userid, '/start');
+        return;
+      }
+
+      // جواب صوتی به منوی باز گفتگوها: «دو»، «گزینه دو» یا اسم گزینه همان گزینه را اجرا می‌کند
+      if (menuLabels && !this.pendingTranscriptions.has(jid) && !this.pendingCodeChoices.has(jid)) {
+        if (await this.dialogHandler?.handleVoiceChoice?.(jid, mapping.userid, text)) return;
+        // جواب کوتاهی که گزینه‌ای نشد (مثلاً «خوتینه») دستور تازه نیست؛ دوباره بپرسیم
+        if (text.split(/\s+/).length <= 3) {
+          await this.sendMessage(jid, `🎤 «${text}»\n\nمتوجه نشدم کدام گزینه را گفتید. لطفاً شماره‌ی گزینه را بفرستید یا دوباره بگویید، مثلاً «گزینه دو».`);
+          return;
+        }
+      }
+
       this.pendingTranscriptions.delete(jid);
       this.pendingCodeChoices.delete(jid);
       this.polls.forget(this.pendingPolls.get(jid));
@@ -987,20 +1062,17 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
           this.pendingPolls.set(jid, pollId);
           return;
         }
-        const lines = codes.options.map((option, i) => `${toPersianDigits(i + 1)}) ${option.label}`);
-        await this.sendMessage(
+        await this.sendMenuMessage(
           jid,
-          `🎤 متوجه شدم:\n«${text}»\n\nکد بار دقیق شنیده نشد. منظورتان کدام بار است؟\n\n${lines.join('\n')}\n${toPersianDigits(codes.options.length + 1)}) لغو\n\n(شماره را بنویسید یا بگویید، مثلاً «اولی»)`,
+          mapping.userid,
+          `🎤 متوجه شدم:\n«${text}»\n\nکد بار دقیق شنیده نشد. منظورتان کدام بار است؟\n\n${whatsappOptions([...codes.options.map((option) => option.label), '❌ لغو'])}`,
         );
         return;
       }
       if (codes.kind === 'resolved') {
         this.pendingTranscriptions.set(jid, codes.text);
         if (await this.sendConfirmPoll(jid, `🎤 «${codes.text}»\n📦 بار ${codes.label}\nانجام بدهم؟`)) return;
-        await this.sendMessage(
-          jid,
-          `🎤 متوجه شدم:\n«${codes.text}»\n\n📦 بار ${codes.label}\n\n۱) بله، انجام بده\n۲) نه، لغو کن\n\n(می‌توانید «بله» یا «نه» را بنویسید یا بگویید)`,
-        );
+        await this.sendMenuMessage(jid, mapping.userid, `🎤 متوجه شدم:\n«${codes.text}»\n\n📦 بار ${codes.label}\n\n${CONFIRM_OPTIONS}`);
         return;
       }
       this.pendingTranscriptions.set(jid, text);
@@ -1008,10 +1080,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
       // Numbered choice (rather than free-text "evet"/"hayır") to reduce the
       // chance of typos being misread as either answer.
-      await this.sendMessage(
-        jid,
-        `🎤 متوجه شدم:\n«${text}»\n\n۱) بله، انجام بده\n۲) نه، لغو کن\n\n(می‌توانید «بله» یا «نه» را بنویسید یا بگویید)`,
-      );
+      await this.sendMenuMessage(jid, mapping.userid, `🎤 متوجه شدم:\n«${text}»\n\n${CONFIRM_OPTIONS}`);
     } catch (error) {
       // Catches failures from ANY step above -- download, file I/O, ffmpeg
       // conversion, or transcription. A single catch is enough here since
@@ -1020,6 +1089,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       // try again.
       this.logger.error(`Ses işleme hatası: ${jid}`, error as Error);
       await this.sendMessage(jid, 'در پردازش پیام صوتی خطایی رخ داد.');
+    } finally {
+      await this.clearProgress(jid);
     }
   }
 
@@ -1107,6 +1178,21 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   // Handles a text reply from a jid that currently has an entry in
   // pendingTranscriptions -- i.e. the user previously sent a voice note and
   // is now expected to confirm or reject the transcribed text.
+  /** نوع حساب با نظرسنجی (یک لمس)؛ اگر نشد همان متن شماره‌دار. */
+  private async sendAccountTypePrompt(jid: string): Promise<void> {
+    const labels = ONBOARDING_ACCOUNT_TYPES.map((item) => item.label);
+    if (this.sock && this.polls.canSend(labels)) {
+      // خوشامد در خود سؤال نظرسنجی: یک پیام به‌جای دو تا
+      const pollId = await this.polls.send(this.sock, jid, `${ACCOUNT_TYPE_WELCOME}\n\nنوع حسابتان را انتخاب کنید 👇`, labels);
+      if (pollId) {
+        this.polls.forget(this.onboardingPolls.get(jid));
+        this.onboardingPolls.set(jid, pollId);
+        return;
+      }
+    }
+    await this.sendMessage(jid, ACCOUNT_TYPE_PROMPT);
+  }
+
   /** سؤال «انجام بدهم؟» به‌شکل نظرسنجی؛ false یعنی نظرسنجی نرفت و باید متن شماره‌دار فرستاده بشه. */
   private async sendConfirmPoll(jid: string, question: string): Promise<boolean> {
     if (!this.sock) return false;
@@ -1122,11 +1208,26 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    */
   private async handlePollVote(msg: WAMessage): Promise<void> {
     const vote = await this.polls.readVote(msg);
-    if (vote.kind !== 'vote' || this.pendingPolls.get(vote.jid) !== vote.pollId) return;
+    if (vote.kind !== 'vote') return;
+    const answer = String(vote.index + 1);
+
+    // انتخاب نوع حساب: مثل فرستادن «۱»/«۲»
+    if (this.onboardingPolls.get(vote.jid) === vote.pollId) {
+      this.onboardingPolls.delete(vote.jid);
+      if (!(await this.resolveUserFromJid(vote.jid))) await this.handleOnboardingMessage(vote.jid, answer);
+      return;
+    }
+    // دکمه‌ی منوی گفتگوها: مثل فرستادن شماره‌ی گزینه
+    if (this.menuPolls.get(vote.jid) === vote.pollId) {
+      this.menuPolls.delete(vote.jid);
+      const mapping = await this.resolveUserFromJid(vote.jid);
+      if (mapping && this.dialogHandler) await this.dialogHandler.handleText(vote.jid, mapping.userid, answer);
+      return;
+    }
+    if (this.pendingPolls.get(vote.jid) !== vote.pollId) return;
 
     const mapping = await this.resolveUserFromJid(vote.jid);
     if (!mapping) return;
-    const answer = String(vote.index + 1);
 
     if (this.pendingCodeChoices.has(vote.jid)) {
       await this.handleCodeChoiceReply(vote.jid, answer, mapping.userid, mapping.username);
@@ -1381,27 +1482,19 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     // page. This matters because the user can type a number referring to
     // any option regardless of which page is currently displayed (see
     // handleSelectionReply, which indexes into the full `options` array).
-    const lines = pageOptions.map((option, i) => {
-      const label = option.title && option.title.trim() ? option.title : `گزینه ${start + i + 1}`;
-      return `${start + i + 1}) ${label}`;
-    });
+    const lines = whatsappOptions(
+      pageOptions.map((option, i) => (option.title && option.title.trim() ? option.title : `گزینه ${start + i + 1}`)),
+      start + 1,
+    );
 
-    // Whether there are more options beyond this page, and whether we're
-    // past the first page -- determines which navigation hints to show.
-    const hasNext = end < options.length;
-    const hasPrev = page > 0;
-
-    const navHints: string[] = [];
-    if (hasNext) {
-      // Tell the user exactly how many more options are waiting on the next
-      // page (capped at pageSize, in case fewer than a full page remain).
-      navHints.push(`برای دیدن ${Math.min(pageSize, options.length - end)} گزینه بعدی «بعدی» بنویسید`);
-    }
-    if (hasPrev) {
-      navHints.push(`برای برگشتن به صفحه قبل «قبلی» بنویسید`);
-    }
-    // Cancel is always available regardless of page.
-    navHints.push(`برای لغو «لغو» بنویسید`);
+    // صفحه‌ی بعد، صفحه‌ی قبل و لغو هم گزینه‌ی شماره‌دارند (بعد از گزینه‌های همین صفحه)،
+    // نه «بنویسید بعدی/قبلی/لغو».
+    const nav = this.selectionNav(pending);
+    const navLabels: string[] = [];
+    if (nav.next) navLabels.push(`⬅️ ${toPersianDigits(Math.min(pageSize, options.length - end))} گزینه‌ی بعدی`);
+    if (nav.prev) navLabels.push('➡️ صفحه‌ی قبل');
+    navLabels.push('❌ لغو');
+    const navHints = [whatsappOptions(navLabels, nav.next ?? nav.prev ?? nav.cancel), '👈 شماره‌ی گزینه را بفرستید.'];
 
     // Assemble the final message from up to three parts, separated by blank
     // lines:
@@ -1414,8 +1507,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     // the message part, so we don't end up with an awkward blank section.
     const text = [
       page === 0 ? message : null,
-      lines.join('\n'),
-      navHints.join('\n'),
+      lines,
+      navHints.join('\n\n'),
     ]
       .filter(Boolean)
       .join('\n\n');
@@ -1439,6 +1532,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const sent = await this.sock?.sendMessage(jid, { text });
     if (sent?.key) {
       this.selectionMessageKeys.set(userId, sent.key);
+      await this.menuMessages.track(userId, sent.key);
     }
   }
 
@@ -1446,6 +1540,15 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   // Handles a text reply from a jid that currently has an entry in
   // pendingSelections -- i.e. a numbered/paginated list of options was just
   // shown and we're waiting for the user to navigate, cancel, or pick one.
+  /** شماره‌ی گزینه‌های پیمایش صفحه‌ی فعلی: بعد از آخرین گزینه‌ی همین صفحه، به ترتیب بعدی، قبلی، لغو. */
+  private selectionNav(pending: { options: unknown[]; page: number }): { next?: number; prev?: number; cancel: number } {
+    const end = Math.min((pending.page + 1) * WhatsappService.SELECTION_PAGE_SIZE, pending.options.length);
+    let number = end + 1;
+    const next = end < pending.options.length ? number++ : undefined;
+    const prev = pending.page > 0 ? number++ : undefined;
+    return { next, prev, cancel: number };
+  }
+
   private async handleSelectionReply(userId: string, text: string): Promise<void> {
     const pending = this.pendingSelections.get(userId);
     if (!pending) return;
@@ -1453,11 +1556,15 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const { jid } = pending;
     const normalized = text.trim().toLowerCase();
     const pageSize = WhatsappService.SELECTION_PAGE_SIZE;
+    // شماره‌ی گزینه‌های پیمایش صفحه‌ی فعلی (بعدی/قبلی/لغو) پیش از شماره‌ی گزینه‌ها
+    const nav = this.selectionNav(pending);
+    const choice = this.parseUserSelectionReply(text);
+    const command = choice === null ? null : choice === nav.cancel ? 'cancel' : choice === nav.next ? 'next' : choice === nav.prev ? 'prev' : null;
 
     // Cancel takes priority over everything else below -- if the user wants
     // out, don't bother checking if "iptal" might also coincidentally look
     // like a page-navigation keyword or a number.
-    if (this.isCancelReply(text)) {
+    if (command === 'cancel' || this.isCancelReply(text)) {
       this.pendingSelections.delete(userId);
       await this.finalizeSelectionMessage(userId, jid, '❌ عملیات لغو شد.');
       // Resumes the underlying generator (in FunctionCallService) with
@@ -1470,7 +1577,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
     // Pagination: move forward one page, unless we're already on the last
     // page (nextStart would be past the end of the options array).
-    if (NEXT_PAGE_WORDS.includes(normalized)) {
+    if (command === 'next' || NEXT_PAGE_WORDS.includes(normalized)) {
       const nextStart = (pending.page + 1) * pageSize;
       if (nextStart >= pending.options.length) {
         await this.sendMessage(jid, 'گزینه دیگری وجود ندارد.');
@@ -1485,7 +1592,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Pagination: move back one page, unless already on the first page.
-    if (PREVIOUS_PAGE_WORDS.includes(normalized)) {
+    if (command === 'prev' || PREVIOUS_PAGE_WORDS.includes(normalized)) {
       if (pending.page === 0) {
         await this.sendMessage(jid, 'در صفحه اول هستید.');
         return;
@@ -1504,7 +1611,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       // than guessing or falling through to treating it as a new command.
       await this.sendMessage(
         jid,
-        `لطفاً شماره یکی از گزینه‌های لیست را بفرستید، یا «بعدی» / «قبلی» / «لغو» بنویسید.`,
+        'لطفاً شماره‌ی یکی از گزینه‌های بالا را بفرستید.',
       );
       return;
     }
@@ -1590,26 +1697,70 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
   async sendMenuMessage(jid: string, userId: string, text: string): Promise<void> {
     if (!this.sock) throw new Error('WhatsApp socket is not connected.');
+    // پیام تازه‌ی گفتگو: دکمه‌های منوی قبلی دیگر کاری نمی‌کنند
+    this.forgetMenuPoll(jid);
     const message = await this.sendTextWithTimeout(jid, text);
-    if (!message?.key) return;
-    const key = RedisService.key('whatsappMenuMessages', userId);
-    const menus = await this.redis.getJson<proto.IMessageKey[]>(key) ?? [];
-    await this.redis.setJson(key, [...menus, message.key], 30 * 24 * 60 * 60);
+    if (message?.key) await this.menuMessages.track(userId, message.key);
   }
 
-  private async clearMenuMessages(userId: string): Promise<void> {
-    const key = RedisService.key('whatsappMenuMessages', userId);
-    const menus = await this.redis.getJson<proto.IMessageKey[]>(key) ?? [];
-    const failed: proto.IMessageKey[] = [];
-    for (const menu of menus) {
-      try { await this.deleteNotification(menu); } catch { failed.push(menu); }
+  /** گزینه‌های این منو به شکل دکمه (نظرسنجی) نشان داده می‌شوند؟ */
+  canSendMenuPoll(options: string[]): boolean {
+    return !!this.sock && this.polls.canSend(options);
+  }
+
+  /** متن منو کامل در سؤال نظرسنجی جا می‌شود (منو یک پیام شود)؟ */
+  fitsMenuPollQuestion(text: string): boolean {
+    return this.polls.fitsQuestion(text);
+  }
+
+  /**
+   * گزینه‌های منو به شکل نظرسنجی؛ question: متن کوتاه منو (یک پیام) یا بی‌سؤال بعد از
+   * متن بلند منو با sendMenuMessage. رأی مثل فرستادن شماره‌ی گزینه اجرا می‌شود.
+   * false اگر نرفت (آن‌وقت گزینه‌های شماره‌دار فرستاده شوند).
+   */
+  async sendMenuPoll(jid: string, userId: string, options: string[], question = MENU_POLL_QUESTION): Promise<boolean> {
+    if (!this.sock) return false;
+    const pollId = await this.polls.send(this.sock, jid, question, options);
+    if (!pollId) return false;
+    this.forgetMenuPoll(jid);
+    this.menuPolls.set(jid, pollId);
+    await this.menuMessages.track(userId, { remoteJid: jid, fromMe: true, id: pollId });
+    return true;
+  }
+
+  private forgetMenuPoll(jid: string): void {
+    this.polls.forget(this.menuPolls.get(jid));
+    this.menuPolls.delete(jid);
+  }
+
+
+  /**
+   * «/start»: همه‌ی منوهای قبلی کاربر از چت پاک می‌شوند و هر کار نیمه‌کاره (فرم و صفحه‌ی
+   * گفتگوها، لیست انتخاب و تأیید دستیار، سؤال ویس، نظرسنجی) کنار گذاشته می‌شود تا کاربر
+   * فقط منوی تازه را ببیند و جواب بعدی‌اش به سؤال قدیمی نخورد.
+   */
+  private async resetConversation(jid: string, userId: string): Promise<void> {
+    await this.menuMessages.clear(userId, (key) => this.deleteNotification(key));
+    await this.dialogHandler?.reset?.(userId);
+    await this.channelsDialog.clearSession({ platform: MessengerPlatform.Whatsapp, externalUserId: userId });
+    this.forgetPendingQuestions(jid, userId);
+  }
+
+  /** سؤال‌های در حافظه‌ی همین سرویس که منتظر جواب این کاربرند. */
+  private forgetPendingQuestions(jid: string, userId: string): void {
+    this.pendingTranscriptions.delete(jid);
+    this.pendingCodeChoices.delete(jid);
+    for (const polls of [this.pendingPolls, this.menuPolls, this.onboardingPolls]) {
+      this.polls.forget(polls.get(jid));
+      polls.delete(jid);
     }
-    if (failed.length) await this.redis.setJson(key, failed, 30 * 24 * 60 * 60);
-    else await this.redis.delete(key);
-    for (const kind of ['companyChannelsDialog', 'companyProfileDialog', 'cargoDialog', 'tripDialog'] as const) {
-      await this.redis.delete(RedisService.key(kind, MessengerPlatform.Whatsapp, userId));
+    this.selectionMessageKeys.delete(userId);
+    this.pendingSelections.delete(userId);
+    this.pendingConfirmationService.clear(userId);
+    // عملیات دستیار که منتظر انتخاب/تأیید است لغو می‌شود (نه اینکه تا ابد بماند)
+    if (this.functionCallService.hasPendingGenerator(userId)) {
+      void this.functionCallService.handleGeneratorResponse(userId, null, true, 'whatsapp');
     }
-    await this.redis.delete(RedisService.key('whatsappMenu', userId));
   }
 
   // For system notifications (e.g. new cargo alerts). Unlike sendMessage,

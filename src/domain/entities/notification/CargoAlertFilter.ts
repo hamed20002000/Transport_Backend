@@ -17,13 +17,15 @@ const bigintNumber = {
 };
 
 /**
- * فیلتر اعلان بار یک کاربر. هر کاربر می‌تواند چند ردیف داشته باشد (مثلاً
- * «تهران به مشهد» و «هر باری از اصفهان») -- کافی است یکی match شود.
+ * فیلتر اعلان بار یک کاربر. هر کاربر می‌تواند چند فیلتر ذخیره کند (مثلاً «تهران به
+ * مشهد» و «هر باری از اصفهان») ولی در هر لحظه فقط یکی فعال است و همان اعمال می‌شود؛
+ * فعال کردن یکی بقیه را خاموش می‌کند (CargoAlertFilterRepository.saveExclusive).
  *
- * هر فیلد یک لیست است: خالی یعنی «همه». کاربری که هیچ فیلتر فعالی ندارد
+ * هر فیلد یک لیست است: خالی یعنی «همه». کاربری که فیلتر فعالی ندارد
  * همه‌ی بارهای گروه‌هایی که ثبت کرده را دریافت می‌کند.
  */
 @Entity('CargoAlertFilter')
+@Index('UQ_CargoAlertFilter_oneActivePerUser', ['userId'], { unique: true, where: '"isActive" = true' })
 export class CargoAlertFilter {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

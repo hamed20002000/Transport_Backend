@@ -2,10 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { I18nService } from 'nestjs-i18n';
 
 import { MessengerPlatform } from 'src/domain/enums/messenger';
-import { BotAction, BotContext, BotReply } from '../messengerBot/core/botDialog';
+import { actionRows, BotAction, BotContext, BotReply } from '../messengerBot/core/botDialog';
 import { RedisService } from '../redis/redis.service';
 import { CompanyChannelsService, UserChannel } from './companyChannels.service';
 import { ChannelPlatform, ChannelServiceError } from './tarabariChannels.client';
+import { whatsappOptionRows } from '../messengerBot/core/botCard';
 
 interface DialogSession {
   awaitingLink: boolean;
@@ -178,8 +179,8 @@ export class CompanyChannelsDialog {
   /** متن کامل برای پیام‌رسان‌های بدون دکمه: گزینه‌ها شماره‌دار زیر متن. */
   renderNumbered(reply: BotReply): string {
     if (!reply.actions.length) return reply.text;
-    const lines = reply.actions.map((action, index) => `${index + 1}. ${action.label}`);
-    return `${reply.text}\n\n${lines.join('\n')}\n\n${this.t('numberHint')}`;
+    const rows = actionRows(reply.actions).map((row) => row.map((action) => action.label));
+    return `${reply.text}\n\n${whatsappOptionRows(rows)}\n\n${this.t('numberHint')}`;
   }
 
   // ------------------------------------------------------------------
@@ -337,7 +338,7 @@ ${this.t('count', { count: channels.length })}`;
     return this.redis.setJson(this.sessionKey(ctx), session, SESSION_TTL_SECONDS);
   }
 
-  private async clearSession(ctx: Pick<BotContext, 'platform' | 'externalUserId'>): Promise<void> {
+  async clearSession(ctx: Pick<BotContext, 'platform' | 'externalUserId'>): Promise<void> {
     await this.redis.delete(this.sessionKey(ctx));
   }
 }

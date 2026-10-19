@@ -6,7 +6,7 @@ import { phonesInText } from '../messengerBot/core/dialablePhones';
 import { NoCargoRecipientsException } from './cargoAnnouncementError';
 import { BotCallback } from 'src/domain/constants/bot/BotCallback';
 import { CargoAlertFilter } from 'src/domain/entities/notification/CargoAlertFilter';
-import { CargoListingStatus, CargoTripType } from 'src/domain/enums/notification';
+import { CargoListingStatus, CargoRequestStatus, CargoTripType } from 'src/domain/enums/notification';
 import { persianTime } from 'src/domain/helper/persianDate';
 import { TRIP_TYPE_LABELS } from './cargoTripType';
 import { parsePriceToman } from 'src/domain/helper/price';
@@ -23,6 +23,7 @@ import { CargoNotificationService } from './cargoNotification.service';
 import { TripAction } from 'src/domain/constants/bot/TripAction';
 import { buildCargoListingText, CargoListingFields } from './cargoNotificationText';
 import { card } from '../messengerBot/core/botCard';
+import { filterTemplateText, parseFilterTemplate } from './cargoFilterTemplate';
 import { CargoExcelService, ExcelCargoRow, MAX_EXCEL_BYTES, MAX_EXCEL_ROWS } from './cargoExcel.service';
 
 const PREFIX = 'cg:';
@@ -44,6 +45,8 @@ const Action = {
   Skip: `${PREFIX}skip`,
   Confirm: `${PREFIX}ok`,
   Edit: `${PREFIX}edit`,
+  // ثبت/ویرایش بار: همین حالا پیش‌نمایش؛ مرحله‌های باقی‌مانده بدون تغییر (یا خالی) می‌مانند
+  ApplySteps: `${PREFIX}apply`,
   Restart: `${PREFIX}redo`,
   Cancel: `${PREFIX}cancel`,
   Close: `${PREFIX}close`,
@@ -57,6 +60,10 @@ const Action = {
   FilterClear: `${PREFIX}fc`,
   FilterPick: `${PREFIX}fp:`, // + index در options جلسه (نام شرکت ممکن است از ۶۴ بایت callback بیشتر باشد)
   FilterPickDone: `${PREFIX}fok`,
+  // فیلتر جدید همین حالا ساخته شود؛ مرحله‌های باقی‌مانده «همه» می‌مانند
+  FilterApply: `${PREFIX}fa`,
+  // «📝 فیلتر با قالب»: همه‌ی شرط‌ها در یک پیام
+  FilterTemplate: `${PREFIX}ftp`,
   FilterCancel: `${PREFIX}fx`,
   // راننده: روشن/خاموش کردن خواندن صوتی بارهای اعلام‌شده
   CargoVoice: `${PREFIX}fs`,
@@ -160,10 +167,16 @@ interface ExcelSession {
 // در پیام ربات فقط چند بار/ایراد اول؛ بقیه با تعداد
 const EXCEL_SHOWN = 10;
 
-type Session = CargoSession | FilterSession | AssignSession | ExcelSession;
+/** «فیلتر با قالب»: منتظر قالب پرشده (همه‌ی شرط‌ها در یک پیام). */
+interface FilterTemplateSession {
+  kind: 'filterTemplate';
+  driver: boolean;
+}
+
+type Session = CargoSession | FilterSession | AssignSession | ExcelSession | FilterTemplateSession;
 
 const isCargoSession = (session: Session | null): session is CargoSession =>
-  !!session && session.kind !== 'filter' && session.kind !== 'assign' && session.kind !== 'excel';
+  !!session && session.kind !== 'filter' && session.kind !== 'assign' && session.kind !== 'excel' && session.kind !== 'filterTemplate';
 
 /** ردیف‌بندی دکمه‌ها: هر add یک ردیف و grid چند ردیف دوتایی. */
 class Rows {
@@ -260,8 +273,19 @@ export class CargoDialog implements BotDialog, OnModuleInit {
       if (CANCEL_WORDS.includes(value.toLowerCase())) return this.assignList(ctx, { ...session, searching: false });
       return this.assignSearch(ctx, session, value);
     }
+    if (session.kind === 'filterTemplate') {
+      if (CANCEL_WORDS.includes(value.toLowerCase())) {
+        await this.clearSession(ctx);
+        return this.filtersView(ctx, this.t('filters.cancelled'));
+      }
+      return this.filterFromTemplate(ctx, session.driver, value);
+    }
     if (session.kind === 'filter') {
       if (CANCEL_WORDS.includes(value.toLowerCase())) return this.cancelFilterEdit(ctx, session);
+      // وسط فیلتر جدید، قالب پرشده (دست‌کم دو خط قالب) هم پذیرفته می‌شود
+      if (!session.filterId && parseFilterTemplate(value, !!session.driver, 2).kind !== 'none') {
+        return this.filterFromTemplate(ctx, !!session.driver, value);
+      }
       return this.filterText(ctx, session, value);
     }
 
@@ -363,6 +387,7 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     if (id === Action.Cancel) return this.cancelCreate(ctx, session);
     if (!session) return this.suggestionsView(ctx, 'a', 1);
     if (id === Action.Skip && session.step && this.canSkip(session)) return this.nextStep(ctx, session);
+    if (id === Action.ApplySteps && session.step && this.canApply(session)) return this.applySteps(ctx, session);
     if (id === Action.Edit && !session.step) return this.startEdit(ctx, session);
     if (id === Action.Confirm && !session.step) return this.publish(ctx, session);
     return session.step ? this.askStep(session) : this.preview(ctx, session);
@@ -373,6 +398,7 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     if (id === Action.CargoVoice) return this.toggleCargoVoice(ctx);
     if (id.startsWith(Action.DriverTripType)) return this.setDriverTripType(ctx, id.slice(Action.DriverTripType.length));
     if (id === Action.FilterNew) return this.startNewFilter(ctx);
+    if (id === Action.FilterTemplate) return this.startFilterTemplate(ctx);
     if (id.startsWith(Action.FilterView)) return this.filterView(ctx, id.slice(Action.FilterView.length));
     if (id.startsWith(Action.FilterToggle)) return this.toggleFilter(ctx, id.slice(Action.FilterToggle.length));
     if (id.startsWith(Action.FilterDelete)) return this.confirmDeleteFilter(ctx, id.slice(Action.FilterDelete.length));
@@ -383,6 +409,10 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     }
 
     const session = await this.getSession(ctx);
+    if (session?.kind === 'filterTemplate' && id === Action.FilterCancel) {
+      await this.clearSession(ctx);
+      return this.filtersView(ctx, this.t('filters.cancelled'));
+    }
     if (session?.kind !== 'filter') {
       if (id === Action.FilterClear || id === Action.FilterCancel) return this.filtersView(ctx);
       return null;
@@ -390,6 +420,7 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     if (id === Action.FilterCancel) return this.cancelFilterEdit(ctx, session);
     if (id === Action.FilterClear) return this.applyFilterValue(ctx, session, null);
     if (id === Action.FilterPickDone) return this.applyFilterValue(ctx, session, session.picked?.length ? session.picked : null);
+    if (id === Action.FilterApply) return this.createFilterNow(ctx, session);
     if (id.startsWith(Action.FilterPick)) return this.togglePick(ctx, session, Number(id.slice(Action.FilterPick.length)));
     return null;
   }
@@ -551,16 +582,19 @@ export class CargoDialog implements BotDialog, OnModuleInit {
           ),
         )
         .join('\n\n');
+      // باری که سفرش در جریان است (یا سپرده‌شده) «باز کردن» ندارد
+      const assignments = await this.trips.assignments(result.items.map((item) => item.id));
+      const inTrip = (id: string) => [CargoRequestStatus.Accepted, CargoRequestStatus.Offered].includes(assignments.get(id)?.status as CargoRequestStatus);
       for (const item of result.items) {
         const target = `${item.id}:${status}:${page}`;
         if (item.status === CargoListingStatus.Open && item.announcedAt === null) {
           toggles.push({ id: `${Action.AnnounceNow}${target}`, label: this.t('actions.announceNow', { code: item.code }) });
         }
-        toggles.push(
-          item.status === CargoListingStatus.Taken
-            ? { id: `${Action.Reopen}${target}`, label: this.t('actions.reopen', { code: item.code }) }
-            : { id: `${Action.MarkTaken}${target}`, label: this.t('actions.markTaken', { code: item.code }) },
-        );
+        if (item.status !== CargoListingStatus.Taken) {
+          toggles.push({ id: `${Action.MarkTaken}${target}`, label: this.t('actions.markTaken', { code: item.code }) });
+        } else if (!inTrip(item.id)) {
+          toggles.push({ id: `${Action.Reopen}${target}`, label: this.t('actions.reopen', { code: item.code }) });
+        }
       }
       if (pages > 1) body += `\n\n${this.t('mine.page', { page: fa(page), pages: fa(pages) })}`;
     }
@@ -593,8 +627,8 @@ export class CargoDialog implements BotDialog, OnModuleInit {
         code: listing.code,
       });
       return this.myCargoView(ctx, mine, page, notice);
-    } catch {
-      return this.myCargoView(ctx, mine, page, this.t('mine.notFound'));
+    } catch (error) {
+      return this.myCargoView(ctx, mine, page, this.t(error instanceof ConflictException ? 'mine.activeTrip' : 'mine.notFound'));
     }
   }
 
@@ -725,7 +759,8 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     const tripTypes = driver ? await this.profiles.tripTypesOf(ctx.userId) : null;
     const rows = new Rows()
       .grid(open)
-      .add({ id: Action.FilterNew, label: this.t('actions.newFilter') });
+      .add({ id: Action.FilterNew, label: this.t('actions.newFilter') })
+      .add({ id: Action.FilterTemplate, label: this.t('actions.filterTemplate') });
     if (tripTypes) {
       rows.add(
         ...Object.values(CargoTripType).map((type) => ({
@@ -808,8 +843,10 @@ export class CargoDialog implements BotDialog, OnModuleInit {
   private async toggleFilter(ctx: BotContext, filterId: string): Promise<BotReply> {
     const filter = await this.findFilter(ctx, filterId);
     if (!filter) return this.filtersView(ctx, this.t('filters.notFound'));
-    await this.filters.update(ctx.userId, filter.id, { isActive: !filter.isActive });
-    return this.filterView(ctx, filter.id, this.t(filter.isActive ? 'filters.deactivated' : 'filters.activated'));
+    // پیام از وضعیت پیش از تغییر، نه از شیئی که ذخیره ممکن است عوضش کرده باشد
+    const activate = !filter.isActive;
+    await this.filters.update(ctx.userId, filter.id, { isActive: activate });
+    return this.filterView(ctx, filter.id, this.t(activate ? 'filters.activated' : 'filters.deactivated'));
   }
 
   private async confirmDeleteFilter(ctx: BotContext, filterId: string): Promise<BotReply> {
@@ -853,7 +890,6 @@ export class CargoDialog implements BotDialog, OnModuleInit {
   }
 
   private askFilter(session: FilterSession, problem?: string, current?: string): BotReply {
-    const kind = this.fieldKind(session.field);
     const text = [
       problem,
       session.filterId ? '' : this.t('filters.newTitle'),
@@ -875,8 +911,15 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     } else if (session.field === 'companies') {
       text.push(this.t('filters.typeCompanies'));
     }
+    // فیلتر جدید با دست‌کم یک شرط: لازم نیست همه‌ی مرحله‌ها دیده شوند
+    if (!session.filterId && this.hasFilterValue(session)) rows.add({ id: Action.FilterApply, label: this.t('actions.applyFilter') });
+    // اول فیلتر جدید: به‌جای مرحله‌به‌مرحله، همه یک‌جا با قالب
+    if (!session.filterId && session.field === this.newFilterSteps(!!session.driver)[0] && !Object.keys(session.draft).length) {
+      rows.add({ id: Action.FilterTemplate, label: this.t('actions.filterTemplate') });
+    }
     rows.add(
-      { id: Action.FilterClear, label: this.t(session.filterId ? `filters.clear.${kind}` : `filters.skip.${kind}`) },
+      // برچسب با اسم همان مرحله («⏭ رد شدن (همه‌ی مبدأها)») تا بی‌دکمه (واتساپ) هم معلوم باشد
+      { id: Action.FilterClear, label: this.t(session.filterId ? `filters.clear.${session.field}` : `filters.skip.${session.field}`) },
       { id: Action.FilterCancel, label: this.t('actions.cancel') },
     );
     return { text: text.filter(Boolean).join('\n\n'), actions: rows.actions };
@@ -961,14 +1004,80 @@ export class CargoDialog implements BotDialog, OnModuleInit {
       await this.saveSession(ctx, session);
       return this.askFilter(session);
     }
+    return this.saveNewFilter(ctx, session);
+  }
+
+  /**
+   * «✅ اعمال فیلتر» وسط ساخت فیلتر جدید: همان مقدارهای واردشده (و شرکت‌هایی که در همین
+   * مرحله انتخاب شده‌اند) ذخیره می‌شوند و بقیه‌ی مرحله‌ها «همه» می‌مانند.
+   */
+  private async createFilterNow(ctx: BotContext, session: FilterSession): Promise<BotReply> {
+    if (session.filterId) return this.askFilter(session);
+    if (session.field === 'companies' && session.picked?.length) session.draft.companies = session.picked;
+    if (!this.hasFilterValue(session)) return this.askFilter(session);
+    return this.saveNewFilter(ctx, session);
+  }
+
+  /** «📝 فیلتر با قالب»: قالب برای کپی؛ کاربر پرش می‌کند و یک‌جا می‌فرستد. */
+  private async startFilterTemplate(ctx: BotContext, problem?: string): Promise<BotReply> {
+    const driver = await this.isDriver(ctx);
+    await this.saveSession(ctx, { kind: 'filterTemplate', driver });
+    return {
+      text: [problem, this.t('filters.template.intro'), this.t('filters.template.example')].filter(Boolean).join('\n\n'),
+      actions: [{ id: Action.FilterCancel, label: this.t('actions.cancel') }],
+      // خود قالب پیام جداست تا فقط همان کپی شود
+      copyText: filterTemplateText(driver),
+    };
+  }
+
+  /** قالب پرشده: فیلتر یک‌جا ساخته (و فعال) می‌شود؛ ایراد داشت، همان قالب با توضیح ایراد. */
+  private async filterFromTemplate(ctx: BotContext, driver: boolean, text: string): Promise<BotReply> {
+    const parsed = parseFilterTemplate(text, driver);
+    if (parsed.kind === 'none') return this.startFilterTemplate(ctx, this.t('filters.template.notRecognised'));
+    if (parsed.kind === 'invalid') return this.startFilterTemplate(ctx, parsed.problems.map((problem) => `⚠️ ${problem}`).join('\n'));
+    const label = parsed.input.label || this.suggestedLabel(parsed.input);
     try {
-      const created = await this.filters.create(ctx.userId, { ...session.draft, isActive: true });
+      const created = await this.filters.create(ctx.userId, { ...parsed.input, ...(label ? { label } : {}), isActive: true });
+      await this.clearSession(ctx);
+      return this.filterView(ctx, created.id, this.t('filters.created'));
+    } catch (error) {
+      if (!(error instanceof BadRequestException)) throw error;
+      return this.startFilterTemplate(ctx, `⚠️ ${this.t('filters.badRange')}`);
+    }
+  }
+
+  /** عنوان پیشنهادی از مقدارهای فیلتر: «تبریز به مشهد»، «از تبریز»، «کاشی»؛ null اگر چیزی نیست. */
+  private suggestedLabel(draft: CargoAlertFilterInput): string | null {
+    const list = (values?: string[] | null) => (values?.length ? values.slice(0, 2).join('، ') + (values.length > 2 ? '…' : '') : '');
+    const { origins, destinations, cargoTypes, vehicleTypes, companies } = draft;
+    const [from, to] = [list(origins), list(destinations)];
+    const title =
+      from && to ? this.t('filters.labelRoute', { from, to })
+        : from ? this.t('filters.labelFrom', { from })
+          : to ? this.t('filters.labelTo', { to })
+            : list(cargoTypes) || list(vehicleTypes) || list(companies);
+    return title ? title.slice(0, MAX_FILTER_LABEL_LENGTH) : null;
+  }
+
+  private async saveNewFilter(ctx: BotContext, session: FilterSession): Promise<BotReply> {
+    // عنوان (مرحله‌ی اول) رد شده: از مقدارها ساخته می‌شود تا فیلتر در فهرست بی‌اسم نماند
+    const label = session.draft.label?.trim() || this.suggestedLabel(session.draft);
+    try {
+      const created = await this.filters.create(ctx.userId, { ...session.draft, ...(label ? { label } : {}), isActive: true });
       await this.clearSession(ctx);
       return this.filterView(ctx, created.id, this.t('filters.created'));
     } catch (error) {
       if (!(error instanceof BadRequestException)) throw error;
       return this.askFilter(session, this.t('filters.badRange'));
     }
+  }
+
+  /** فیلتر جدید دست‌کم یک شرط دارد (عنوان شرط نیست؛ فیلتر بی‌شرط همه‌ی بارها را نشان می‌دهد و معنا ندارد). */
+  private hasFilterValue(session: FilterSession): boolean {
+    const picked = session.field === 'companies' && session.picked?.length ? { companies: session.picked } : {};
+    return Object.entries({ ...session.draft, ...picked }).some(
+      ([field, value]) => field !== 'label' && (Array.isArray(value) ? value.length > 0 : value != null && value !== ''),
+    );
   }
 
   private async cancelFilterEdit(ctx: BotContext, session: FilterSession): Promise<BotReply> {
@@ -1007,9 +1116,9 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     return FILTER_FIELDS.filter((field) => driver || field !== 'companies');
   }
 
-  /** فیلتر جدید: همین فیلدها به ترتیب؛ عنوان بعداً از صفحه‌ی فیلتر. */
+  /** فیلتر جدید: عنوان اول (اختیاری؛ رد شود از مقدارها ساخته می‌شود)، بعد شرط‌ها به ترتیب. */
   private newFilterSteps(driver: boolean): FilterField[] {
-    return this.filterFields(driver).filter((field) => field !== 'label');
+    return ['label', ...this.filterFields(driver).filter((field) => field !== 'label')];
   }
 
   private async isDriver(ctx: BotContext): Promise<boolean> {
@@ -1197,6 +1306,22 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     return step === 'phone' ? (session.draft.contactPhones ?? []).join('، ') : (session.draft[step] ?? '');
   }
 
+  /** «✅ اعمال» وقتی مبدأ و مقصد هست (ویرایش: همیشه)؛ مثل «اعمال فیلتر». */
+  private canApply(session: CargoSession): boolean {
+    return !session.fillMissing && !!session.draft.origin && !!session.draft.destination;
+  }
+
+  /**
+   * مرحله‌های باقی‌مانده دیده نمی‌شوند: ویرایش با همان مقدارهای فعلی، بار تازه با خانه‌های خالی.
+   * شماره‌ی تماس اگر نه در بار هست نه در پروفایل، هنوز پرسیده می‌شود.
+   */
+  private async applySteps(ctx: BotContext, session: CargoSession): Promise<BotReply> {
+    const phoneMissing = !session.draft.contactPhones?.length && !(await this.defaultPhones(ctx)).length;
+    session.step = phoneMissing ? 'phone' : null;
+    await this.saveSession(ctx, session);
+    return session.step ? this.askStep(session) : this.preview(ctx, session);
+  }
+
   private canSkip(session: CargoSession): boolean {
     const step = session.step!;
     return !REQUIRED.includes(step) || (!!session.editing && !!this.currentValue(session, step));
@@ -1206,6 +1331,10 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     const step = session.step!;
     const current = session.editing ? this.currentValue(session, step) : '';
     const rows = new Rows();
+    // بدون دیدن همه‌ی مرحله‌ها (مرحله‌ی آخر، شماره، خودش پیش‌نمایش است)
+    if (step !== 'phone' && this.canApply(session)) {
+      rows.add({ id: Action.ApplySteps, label: this.t(session.editing ? 'actions.applyEdit' : 'actions.applyCreate') });
+    }
     if (this.canSkip(session)) {
       rows.add({ id: Action.Skip, label: this.t(current ? 'actions.keep' : 'actions.skip') });
     }
@@ -1376,7 +1505,7 @@ export class CargoDialog implements BotDialog, OnModuleInit {
    */
 
   //#region -------------------------------  پاک کردن نشست دیالوگ ---------------------------------
-  private async clearSession(ctx: Pick<BotContext, 'platform' | 'externalUserId'>): Promise<void> {
+  async clearSession(ctx: Pick<BotContext, 'platform' | 'externalUserId'>): Promise<void> {
     await this.redis.delete(this.sessionKey(ctx));
   }
   //#endregion -------------------------------------------------------------------------------------

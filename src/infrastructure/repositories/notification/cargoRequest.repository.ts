@@ -52,19 +52,52 @@ export class CargoRequestRepository {
   }
 
   /** درخواست‌ها/سفرهای بارهای یک شرکت، قدیمی‌ترین اول (اول آمده، اول جواب). */
+  /** order: requested = قدیمی‌ترین درخواست اول (صف بررسی)، started = جدیدترین سفر اول. */
   findPageForCompany(
     companyUserId: string,
     statuses: CargoRequestStatus[],
     skip: number,
     take: number,
+    order: 'requested' | 'started' = 'requested',
   ): Promise<[CargoRequest[], number]> {
     return this.repository.findAndCount({
       where: { companyUserId, status: In(statuses) },
       relations: WITH_PARTIES,
-      order: { createdAt: 'ASC' },
+      order: order === 'started' ? { decidedAt: 'DESC', createdAt: 'DESC' } : { createdAt: 'ASC' },
       skip,
       take,
     });
+  }
+
+  /** بار سفر فعال دارد (یا به راننده‌ای سپرده شده که هنوز در مهلت تأیید است)؟ چنین باری دوباره باز نمی‌شود. */
+  async hasActiveTrip(listingId: string, now = new Date()): Promise<boolean> {
+    const count = await this.repository.count({
+      where: [
+        { listingId, status: CargoRequestStatus.Accepted },
+        { listingId, status: CargoRequestStatus.Offered, offerExpiresAt: MoreThanOrEqual(now) },
+      ],
+    });
+    return count > 0;
+  }
+
+  /** سفرهای فعال شرکت که پیش از before شروع شده‌اند و تحویلشان ثبت نشده. */
+  countTripsStartedBefore(companyUserId: string, before: Date): Promise<number> {
+    return this.repository
+      .createQueryBuilder('request')
+      .where('request.companyUserId = :companyUserId AND request.status = :status', { companyUserId, status: CargoRequestStatus.Accepted })
+      .andWhere('COALESCE(request.decidedAt, request.updatedAt) < :before', { before })
+      .getCount();
+  }
+
+  /** سفرهای فعالی که از شروع (یا آخرین یادآوری) تا before تحویلشان ثبت نشده. */
+  findTripsDueDeliveryReminder(before: Date): Promise<CargoRequest[]> {
+    return this.repository
+      .createQueryBuilder('request')
+      .leftJoinAndSelect('request.listing', 'listing')
+      .leftJoinAndSelect('request.driver', 'driver')
+      .where('request.status = :status', { status: CargoRequestStatus.Accepted })
+      .andWhere('COALESCE(request.deliveryRemindedAt, request.decidedAt, request.updatedAt) < :before', { before })
+      .getMany();
   }
 
   /** راننده‌ای که شرکت این بار را به او سپرده و هنوز در مهلت تأیید است. */

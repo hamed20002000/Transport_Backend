@@ -10,6 +10,7 @@ import { CargoSearch, matchesCargoSearch, prepareCargoSearch } from './cargoSear
 import { CargoAudienceRepository } from '../../infrastructure/repositories/notification/cargoAudience.repository';
 import { CargoListingRepository } from '../../infrastructure/repositories/notification/cargoListing.repository';
 import { CargoNotificationRepository } from '../../infrastructure/repositories/notification/cargoNotification.repository';
+import { CargoRequestRepository } from '../../infrastructure/repositories/notification/cargoRequest.repository';
 import { WhatsappService } from '../../application/services/agent/services/whatsapp.service';
 import { MessengerBotService } from '../messengerBot/core/messengerBot.service';
 import { CargoAlertFilterService } from './cargoAlertFilter.service';
@@ -69,6 +70,7 @@ export class CargoListingService {
     private readonly announceSettings: CompanyAnnounceService,
     @Inject(forwardRef(() => AgentGateway)) private readonly agentGateway: AgentGateway,
     @Inject(BOT_LINK_REPOSITORY) private readonly botLinks: IBotLinkRepository,
+    private readonly requests: CargoRequestRepository,
   ) {}
 
   /** نمونه‌ی پیشنهادی برای انتشار؛ شرکت می‌تواند قبل از ارسال ویرایشش کند. */
@@ -304,6 +306,11 @@ export class CargoListingService {
   async setStatus(userId: string, listingId: string, status: CargoListingStatus) {
     const listing = await this.listings.findOneForPublisher(listingId, userId);
     if (!listing) throw new NotFoundException('Cargo listing not found.');
+    // باری که سفرش در جریان است (یا به راننده‌ای سپرده شده) دوباره باز نمی‌شود؛ وگرنه دو سفر برای یک بار
+    if (status === CargoListingStatus.Open && (await this.requests.hasActiveTrip(listing.id))) {
+      // کد مثل بقیه‌ی خطاهای سفر (taken، reserved…) تا وب و ربات پیام خودشان را نشان دهند
+      throw new ConflictException('activeTrip');
+    }
 
     if (!(await this.listings.changeStatus(listing.id, status))) {
       return this.toView(listing);

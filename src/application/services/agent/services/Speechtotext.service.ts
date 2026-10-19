@@ -28,6 +28,8 @@ export interface WhisperOptions {
   language: string;
   /** برای مقایسهٔ اثر VAD روی همان نمونه‌ها */
   vad: boolean;
+  /** متنی که جلوی prompt می‌آید (مثلاً گزینه‌های منوی باز)؛ واژه‌های حوزه سر جایشان می‌مانند */
+  promptPrefix?: string;
 }
 
 /**
@@ -95,7 +97,8 @@ export class SpeechToTextService {
   }
 
   async transcribeFile(audioFilePath: string, overrides: Partial<WhisperOptions> = {}): Promise<string> {
-    const options = { ...this.defaults, ...overrides };
+    const merged = { ...this.defaults, ...overrides };
+    const options = { ...merged, prompt: [merged.promptPrefix, merged.prompt].filter(Boolean).join(' ') };
     if (overrides.vad === true && !this.vadModel) {
       throw new Error('VAD model is missing. Download Silero or set WHISPER_VAD_MODEL.');
     }

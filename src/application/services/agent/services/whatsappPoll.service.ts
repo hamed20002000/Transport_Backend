@@ -8,6 +8,9 @@ const MAX_POLLS = 500;
 // محدودیت واتساپ برای متن سؤال و گزینه‌ها
 const MAX_QUESTION_LENGTH = 250;
 const MAX_OPTION_LENGTH = 100;
+// واتساپ نظرسنجی با کمتر از ۲ یا بیشتر از ۱۲ گزینه نمی‌سازد
+const MIN_OPTIONS = 2;
+const MAX_OPTIONS = 12;
 
 interface StoredPoll {
   jid: string;
@@ -33,23 +36,35 @@ export type PollVote =
  *
  * Baileys 7 رأی‌ها رو خودش رمزگشایی نمی‌کنه (کدش کامنت شده) -- کلید هر
  * نظرسنجی (messageSecret) اینجا نگه داشته می‌شه و رأی با decryptPollVote باز می‌شه.
- * فقط در جواب ویس خود کاربر فرستاده می‌شه، نه بی‌مقدمه.
+ * فقط در جواب پیام خود کاربر فرستاده می‌شه (ویس، منوی گفتگوها، انتخاب نوع حساب)، نه بی‌مقدمه
+ * (اعلان‌ها همون متن شماره‌دار می‌مونن).
  */
 @Injectable()
 export class WhatsappPollService {
   private readonly logger = new Logger(WhatsappPollService.name);
   private readonly polls = new Map<string, StoredPoll>();
 
+  /** پیش‌فرض خاموش (گزینه‌ها متن شماره‌دارند)؛ فقط با WHATSAPP_POLLS=on روشن می‌شود. */
   get enabled(): boolean {
-    return process.env.WHATSAPP_POLLS !== 'off';
+    return process.env.WHATSAPP_POLLS === 'on';
+  }
+
+  /** این گزینه‌ها نظرسنجی می‌شوند؟ (روشن، ۲ تا ۱۲ گزینه، بدون تکرار بعد از کوتاه شدن) */
+  canSend(options: string[]): boolean {
+    if (!this.enabled || options.length < MIN_OPTIONS || options.length > MAX_OPTIONS) return false;
+    return new Set(options.map((option) => truncate(option, MAX_OPTION_LENGTH))).size === options.length;
+  }
+
+  /** متن کامل در سؤال نظرسنجی جا می‌شود (بدون کوتاه شدن)؟ */
+  fitsQuestion(text: string): boolean {
+    return text.length <= MAX_QUESTION_LENGTH;
   }
 
   /** نظرسنجی تک‌انتخابی می‌فرسته و شناسه‌اش رو برمی‌گردونه؛ اگه نشد null (فراخواننده متن شماره‌دار بفرسته). */
   async send(sock: WASocket, jid: string, question: string, options: string[]): Promise<string | null> {
-    if (!this.enabled) return null;
-    const values = options.map((option) => truncate(option, MAX_OPTION_LENGTH));
     // واتساپ گزینه‌ی تکراری قبول نمی‌کنه و رأی با هش متن گزینه شناخته می‌شه.
-    if (new Set(values).size !== values.length) return null;
+    if (!this.canSend(options)) return null;
+    const values = options.map((option) => truncate(option, MAX_OPTION_LENGTH));
 
     try {
       const { jidNormalizedUser } = await import('@whiskeysockets/baileys');

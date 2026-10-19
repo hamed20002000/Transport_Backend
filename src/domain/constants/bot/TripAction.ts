@@ -10,6 +10,8 @@ export const TripAction = {
   ShareLocation: 'tr:loc',
   CompanyRequests: 'tr:cr:', // + page
   CompanyTrips: 'tr:ct:', // + page
+  // ثبت تحویل بار (راننده یا شرکت)
+  Deliver: 'tr:dv:', // + requestId
   Location: 'tr:lr:', // + requestId
   // جزئیات بار برای راننده: مسیرها، سوخت، جایگاه‌ها، بار برگشتی
   Detail: 'tr:cd:', // + listingId

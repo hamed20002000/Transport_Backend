@@ -35,7 +35,7 @@ const Action = {
   ...TripAction,
   Cancel: `${PREFIX}cx:`, // + requestId
   DriverRequests: `${PREFIX}dr:`, // + page
-  Deliver: `${PREFIX}dv:`, // + requestId
+  Deliver: TripAction.Deliver, // + requestId
   ReturnLoads: `${PREFIX}rt`,
   ReturnPage: `${PREFIX}rp:`, // + page
   ReturnCity: `${PREFIX}rc`,
@@ -1085,7 +1085,7 @@ export class TripDialog implements BotDialog, OnModuleInit {
     return this.redis.setJson(this.sessionKey(ctx), session, SESSION_TTL_SECONDS);
   }
 
-  private async clearSession(ctx: Pick<BotContext, 'platform' | 'externalUserId'>): Promise<void> {
+  async clearSession(ctx: Pick<BotContext, 'platform' | 'externalUserId'>): Promise<void> {
     await this.redis.delete(this.sessionKey(ctx));
   }
 

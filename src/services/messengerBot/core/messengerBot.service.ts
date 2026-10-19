@@ -173,7 +173,10 @@ export class MessengerBotService implements OnModuleInit {
     ) {
       if (command === '/start') {
         await this.keyboard.clearMenus(chatId);
-        await this.botSessionService.clearDialogSessions(externalUserId);
+        const dialogCtx = { platform: MessengerPlatform.Bot, externalUserId };
+        await this.dialogs.clearSessions(dialogCtx);
+        // گروه‌ها/کانال‌ها در منوی ربات جدا (نه از registry) باز می‌شود
+        await this.channelsDialog.clearSession(dialogCtx);
       }
       await this.openMainMenu(chatId, externalUserId);
 
@@ -1214,6 +1217,15 @@ ${order.text}`, {
         ? this.inlineActions(reply.actions)
         : { inline_keyboard: [[{ text: this.messages.get('menu.common.mainMenu'), callback_data: BotCallback.MainMenu }]] },
     }, reply.refreshAction);
+    if (reply.copyText) {
+      // پیام جدا زیر متن تا فقط همین کپی شود؛ منوی بعدی پیام تازه است، نه ویرایش همین
+      this.keyboard.clearCallbackMessage(chatId);
+      try {
+        await this.multiBot.sendCopyable(chatId, reply.copyText);
+      } catch (error) {
+        this.logger.warn(`Bot copyable message failed: ${this.getErrorMessage(error)}`);
+      }
+    }
   }
 
   private inlineActions(actions: BotAction[]): TelegramBot.InlineKeyboardMarkup {

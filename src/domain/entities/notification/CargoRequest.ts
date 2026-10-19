@@ -61,6 +61,10 @@ export class CargoRequest {
   @Column({ type: 'timestamp', nullable: true })
   deliveredAt?: Date | null;
 
+  // آخرین یادآوری «تحویل داده شد؟» به شرکت برای سفری که تحویلش ثبت نشده
+  @Column({ type: 'timestamp', nullable: true })
+  deliveryRemindedAt?: Date | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 

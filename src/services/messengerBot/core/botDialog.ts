@@ -50,6 +50,11 @@ export interface BotReply {
   voice?: { audio: Buffer; caption?: string };
   /** فایل قبل از متن (مثل فایل نمونه‌ی اکسل ثبت چند بار). */
   document?: { file: Buffer; fileName: string; caption?: string };
+  /**
+   * متنی که کاربر باید کپی کند (مثل قالب فیلتر): پیام جدا بعد از متن، تا فقط همان کپی شود؛
+   * در تلگرام بلوک کد (با یک لمس کپی می‌شود).
+   */
+  copyText?: string;
 }
 
 /** فایلی که کاربر فرستاده؛ download فقط وقتی گفتگو واقعاً فایل را بخواهد صدا زده می‌شود. */
@@ -103,6 +108,8 @@ export interface BotDialog {
   handleLocation?(ctx: BotContext, location: BotLocation): Promise<BotReply | null>;
   /** فایلی که کاربر فرستاده (مثل اکسل بارها)؛ null یعنی این گفتگو منتظر فایل نیست. */
   handleDocument?(ctx: BotContext, document: BotDocument): Promise<BotReply | null>;
+  /** «/start»: هر مرحله‌ی نیمه‌کاره‌ی این گفتگو (فرم، انتخاب، صفحه) کنار گذاشته می‌شود. */
+  clearSession?(ctx: Pick<BotContext, 'platform' | 'externalUserId'>): Promise<void>;
 }
 
 /**
@@ -127,6 +134,11 @@ export class BotDialogRegistry {
   //#endregion ------------------------------------------------------------------------
 
   /** گفتگو و action ای که این callback (دکمه‌ی منو یا action خود گفتگو) اجرا می‌کند. */
+  /** «/start»: همه‌ی گفتگوها از اول (هر گفتگو نشست خودش را پاک می‌کند). */
+  async clearSessions(ctx: Pick<BotContext, 'platform' | 'externalUserId'>): Promise<void> {
+    for (const dialog of this.dialogs) await dialog.clearSession?.(ctx);
+  }
+
   resolve(callback: string): { dialog: BotDialog; action: string } | null {
     for (const dialog of this.dialogs) {
       if (dialog.ownsAction(callback)) return { dialog, action: callback };

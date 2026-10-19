@@ -34,6 +34,7 @@ import { DriverController } from '../../presentation/controllers/notification/dr
 import { CargoAlertFilterService } from '../../services/notification/cargoAlertFilter.service';
 import { CargoDeliveryRetryWorker } from '../../services/notification/cargoDeliveryRetryWorker.service';
 import { CargoOfferExpiryWorker } from '../../services/notification/cargoOfferExpiryWorker.service';
+import { CargoDeliveryReminderWorker } from '../../services/notification/cargoDeliveryReminderWorker.service';
 import { CargoEventConsumer } from '../../services/notification/cargoEventConsumer.service';
 import { CargoListingService } from '../../services/notification/cargoListing.service';
 import { CargoNotificationService } from '../../services/notification/cargoNotification.service';
@@ -116,6 +117,7 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
     CargoDeliveryRetryWorker,
     // بار سپرده‌شده‌ای که راننده تا پایان مهلت تأیید نکرد
     CargoOfferExpiryWorker,
+    CargoDeliveryReminderWorker,
     ChannelMembershipNotifier,
     ChannelMembershipConsumer,
     // ابزارهای agent برای بارها و فیلترهای شرکت

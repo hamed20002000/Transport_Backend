@@ -8,8 +8,9 @@ import { MessengerPlatform } from 'src/domain/enums/messenger';
 import { normalizePersianText } from 'src/domain/helper/persianText';
 import { IUserRepository } from 'src/domain/repositories/IUserRepopsitory';
 import { USER_REPOSITORY } from 'src/domain/repositories/repository.tokens';
-import { BotAction, BotContext, BotDialogRegistry, BotDocument, BotReply } from '../messengerBot/core/botDialog';
-import { whatsappCards } from '../messengerBot/core/botCard';
+import { actionRows, BotAction, BotContext, BotDialogRegistry, BotDocument, BotReply } from '../messengerBot/core/botDialog';
+import { hasCards, whatsappCards, whatsappOptionRows, whatsappOptions } from '../messengerBot/core/botCard';
+import { matchOptionLabel, parseChoice } from 'src/application/services/agent/services/replyChoice';
 import { MarketAction } from '../market/marketBot.service';
 import { RedisService } from '../redis/redis.service';
 
@@ -19,6 +20,20 @@ const MENU_TTL_SECONDS = 60 * 60;
 const LIVE_SILENT_SECONDS = 60 * 60;
 const MENU_WORDS = ['منو', 'منوی اصلی', 'فهرست', 'menu', '/start', 'start'];
 const CANCEL_WORDS = ['لغو', 'انصراف', 'خروج', 'cancel'];
+// متن تا این طول زیر عکس (کپشن) می‌رود تا عکس و متن یک پیام باشند، نه دو تا
+const CAPTION_LIMIT = 1000;
+
+/** نحوه‌ی فرستادن یک پیام گفتگو در واتساپ. */
+interface MenuOptions {
+  /** گفتگو منتظر متن هم هست: راهنما «بنویسید، یا شماره بفرستید» */
+  waitingForText?: boolean;
+  /** خط «۰- 🏠 منوی اصلی» (همه‌جا جز خود منوی اصلی) */
+  home?: boolean;
+  /** متن زیر راهنما (مثل راهنمای «۰» در منوی اصلی) */
+  footer?: string;
+  /** عکس پیام (مثل نقشه‌ی مسیر)؛ اگر متن جا شود، کپشن همان عکس می‌شود */
+  photo?: { image: Buffer; caption?: string };
+}
 
 const COMPANY_ROLES = ['COMPANY', 'COMPANY_ADMIN'];
 const DRIVER_ROLES = ['DRIVER'];
@@ -44,13 +59,15 @@ const SECTIONS: { roles: string[]; key: string; action: string }[] = [
 
 interface MenuState {
   actions: string[];
+  /** متن گزینه‌ها به همان ترتیب؛ برای جواب صوتی («سفر فعال») و prompt تشخیص گفتار */
+  labels?: string[];
   refreshAction?: string;
 }
 
 /**
- * گفتگوهای ربات (BotDialogRegistry) در واتساپ: گزینه‌ها لیست شماره‌دار زیر متن‌اند
- * و کاربر با فرستادن شماره انتخاب می‌کند. «منو» بخش‌های نقش کاربر را نشان
- * می‌دهد؛ اسم هر بخش (مثلاً «سفر فعال») هم مستقیم بازش می‌کند.
+ * گفتگوهای ربات (BotDialogRegistry) در واتساپ: گزینه‌ها لیست شماره‌دار («۱- …») زیر متن‌اند
+ * و کاربر با فرستادن شماره انتخاب می‌کند؛ هر کاری (حتی «🏠 نمایش منو») یک گزینه است تا
+ * کاربر لازم نباشد دستوری بنویسد. نوشتن «منو» یا اسم یک بخش (مثلاً «سفر فعال») هم کار می‌کند.
  */
 @Injectable()
 export class WhatsappDialogBridge implements OnModuleInit {
@@ -68,6 +85,9 @@ export class WhatsappDialogBridge implements OnModuleInit {
   onModuleInit(): void {
     this.whatsapp.setDialogHandler({
       refreshCargoMenu: (jid, userId) => this.refreshCargoMenu(jid, userId),
+      menuLabels: (userId) => this.menuLabels(userId),
+      reset: (userId) => this.reset(userId),
+      handleVoiceChoice: (jid, userId, text) => this.handleVoiceChoice(jid, userId, text),
       handleText: (jid, userId, text) => this.handleText(jid, userId, text),
       handleLocation: (jid, userId, location) => this.handleLocation(jid, userId, location),
       handleDocument: (jid, userId, document) => this.handleDocument(jid, userId, document),
@@ -112,10 +132,35 @@ export class WhatsappDialogBridge implements OnModuleInit {
 
     if (menu && CANCEL_WORDS.includes(value.toLowerCase())) {
       await this.clearMenu(userId);
-      await this.whatsapp.sendMessage(jid, this.t('whatsapp.closed'));
+      await this.sendMenu(jid, userId, this.t('whatsapp.closed'), [], { home: true });
       return true;
     }
     return false;
+  }
+
+  /** «/start»: منوی شماره‌دار باز و نشست همه‌ی گفتگوها (فرم، صفحه، انتخاب) پاک می‌شود. */
+  async reset(userId: string): Promise<void> {
+    await this.clearMenu(userId);
+    await this.registry.clearSessions(this.ctx(userId));
+  }
+
+  /** گزینه‌های منوی باز (برای prompt تشخیص گفتار)؛ null اگر منویی باز نیست. */
+  async menuLabels(userId: string): Promise<string[] | null> {
+    const menu = await this.getMenu(userId);
+    return menu?.labels?.length ? menu.labels : null;
+  }
+
+  /**
+   * جواب صوتی به منوی باز: شماره («دو»، «دومی»، «گزینه دو») یا اسم گزینه («سفر فعال»).
+   * false اگر گزینه‌ای شناخته نشد.
+   */
+  async handleVoiceChoice(jid: string, userId: string, text: string): Promise<boolean> {
+    const menu = await this.getMenu(userId);
+    if (!menu?.actions.length) return false;
+    const index = parseChoice(text) ?? (menu.labels ? matchOptionLabel(text, menu.labels) : null);
+    if (index === null || index < 1 || index > menu.actions.length) return false;
+    await this.run(jid, this.ctx(userId), menu.actions[index - 1]);
+    return true;
   }
 
   async refreshCargoMenu(jid: string, userId: string): Promise<void> {
@@ -158,7 +203,7 @@ export class WhatsappDialogBridge implements OnModuleInit {
   async notify(userId: string, text: string, actions: BotAction[] = []): Promise<boolean> {
     const jid = await this.whatsapp.getJidForUsername(userId);
     if (!jid) return false;
-    await this.whatsapp.sendNotification(jid, this.render(text, actions));
+    await this.whatsapp.sendNotification(jid, this.render(text, actions, { home: this.options(actions).length > 0 }));
     if (this.options(actions).length) await this.saveMenu(userId, actions);
     return true;
   }
@@ -193,22 +238,19 @@ export class WhatsappDialogBridge implements OnModuleInit {
       await this.sendMainMenu(jid, ctx);
       return;
     }
-    const reply = await resolved.dialog.handleAction(
-      { ...ctx, progress: (text) => this.whatsapp.sendMessage(jid, text) },
-      resolved.action,
-    );
-    if (reply) await this.send(jid, ctx, reply);
+    // «در حال محاسبه…» پیام جدا نمی‌شود: ⏳ روی پیام خود کاربر (تعداد پیام‌ها کم بماند)
+    try {
+      const reply = await resolved.dialog.handleAction({ ...ctx, progress: () => this.whatsapp.showProgress(jid) }, resolved.action);
+      if (reply) await this.send(jid, ctx, reply);
+    } finally {
+      await this.whatsapp.clearProgress(jid);
+    }
   }
 
   private async send(jid: string, ctx: BotContext, reply: BotReply): Promise<void> {
     if (reply.closed === 'exit') {
       await this.sendMainMenu(jid, ctx);
       return;
-    }
-    if (reply.photo) {
-      await this.whatsapp.sendImage(jid, reply.photo.image, reply.photo.caption).catch((error: Error) =>
-        this.logger.warn(`WhatsApp image failed: ${error.message}`),
-      );
     }
     if (reply.document) {
       const { file, fileName, caption } = reply.document;
@@ -224,9 +266,18 @@ export class WhatsappDialogBridge implements OnModuleInit {
     }
     // واتساپ دکمه‌ی «ارسال موقعیت» ندارد؛ راهنمای منوی پیوست.
     const text = reply.locationButton ? `${reply.text}\n\n${this.t('whatsapp.locationHint')}` : reply.text;
-    await this.whatsapp.sendMenuMessage(jid, ctx.userId, this.render(text, reply.actions));
+    // هر پیام گفتگو «۰- 🏠 منوی اصلی» دارد؛ ۰ با شماره‌ی گزینه‌ها و جواب فرم قاطی نمی‌شود
+    const waitingForText = await this.waitingForText(ctx);
+    await this.sendMenu(jid, ctx.userId, text, reply.actions, { waitingForText, home: true, photo: reply.photo });
+    // متن برای کپی (مثل قالب فیلتر) پیام جدا تا با نگه داشتن انگشت فقط همان کپی شود
+    if (reply.copyText) await this.whatsapp.sendMenuMessage(jid, ctx.userId, reply.copyText);
     if (this.options(reply.actions).length) await this.saveMenu(ctx.userId, reply.actions, reply.refreshAction);
     else await this.clearMenu(ctx.userId);
+  }
+
+  private async waitingForText(ctx: BotContext): Promise<boolean> {
+    for (const dialog of this.registry.all()) if (await dialog.hasSession(ctx)) return true;
+    return false;
   }
 
   private async sendMainMenu(jid: string, ctx: BotContext): Promise<void> {
@@ -237,8 +288,42 @@ export class WhatsappDialogBridge implements OnModuleInit {
       return;
     }
     const actions = sections.map((item) => ({ id: item.action, label: this.sectionLabel(item.key) }));
-    await this.whatsapp.sendMenuMessage(jid, ctx.userId, this.render(this.t('whatsapp.menuTitle'), actions));
+    // پایین منوی اصلی: «/start» برای شروع دوباره، تا کاربر هیچ‌وقت گیر نکند
+    await this.sendMenu(jid, ctx.userId, this.t('whatsapp.menuTitle'), actions, { footer: this.t('whatsapp.startHint') });
     await this.saveMenu(ctx.userId, actions);
+  }
+
+  /**
+   * متن و گزینه‌ها: گزینه‌ها به شکل نظرسنجی (دکمه‌ی یک‌لمسی)؛ اگر نشد (بیش از ۱۲ گزینه،
+   * گزینه‌ی تکراری، خطا) همان فهرست شماره‌دار. شماره فرستادن در هر دو حالت کار می‌کند.
+   * متن کوتاه بدون کارت و لینک خودش سؤال نظرسنجی می‌شود تا منو یک پیام باشد (پیام کمتر،
+   * خطر بن کمتر)؛ متن بلند جدا و بعد نظرسنجی.
+   */
+  private async sendMenu(jid: string, userId: string, text: string, actions: BotAction[], options: MenuOptions = {}): Promise<void> {
+    const labels = this.options(actions).map((action) => action.label);
+    if (!labels.length || !this.whatsapp.canSendMenuPoll(labels)) {
+      const rendered = this.render(text, actions, options);
+      const message = options.footer ? `${rendered}\n\n${options.footer}` : rendered;
+      if (!options.photo) return this.whatsapp.sendMenuMessage(jid, userId, message);
+      // عکس و متن یک پیام (کپشن)؛ متن بلند جدا بعد از عکس
+      if (message.length <= CAPTION_LIMIT) return this.whatsapp.sendMenuImage(jid, userId, options.photo.image, message);
+      await this.sendPhoto(jid, options.photo);
+      return this.whatsapp.sendMenuMessage(jid, userId, message);
+    }
+    if (options.photo) await this.sendPhoto(jid, options.photo);
+    const body = this.render(text, actions, { withOptions: false });
+    const single = !!body.trim() && !hasCards(text) && !actions.some((action) => action.url) && this.whatsapp.fitsMenuPollQuestion(body);
+    if (single && (await this.whatsapp.sendMenuPoll(jid, userId, labels, body))) return;
+    if (body.trim()) await this.whatsapp.sendMenuMessage(jid, userId, body);
+    if (!(await this.whatsapp.sendMenuPoll(jid, userId, labels))) {
+      await this.whatsapp.sendMenuMessage(jid, userId, this.numbered(actions, options));
+    }
+  }
+
+  private async sendPhoto(jid: string, photo: { image: Buffer; caption?: string }): Promise<void> {
+    await this.whatsapp.sendImage(jid, photo.image, photo.caption).catch((error: Error) =>
+      this.logger.warn(`WhatsApp image failed: ${error.message}`),
+    );
   }
 
   /** گزینه‌های شماره‌دار؛ دکمه‌های لینک شماره نمی‌گیرند و خط «عنوان: لینک» می‌شوند. */
@@ -246,13 +331,27 @@ export class WhatsappDialogBridge implements OnModuleInit {
     return actions.filter((action) => !action.url);
   }
 
-  private render(text: string, actions: BotAction[]): string {
+  /** withOptions=false: گزینه‌ها جدا (نظرسنجی) می‌روند. */
+  private render(text: string, actions: BotAction[], options: MenuOptions & { withOptions?: boolean } = {}): string {
     const links = actions.filter((action) => action.url).map((action) => `${action.label}: ${action.url}`);
-    const options = this.options(actions).map((action, index) => `${index + 1}. ${action.label}`);
     const parts = [whatsappCards(text)];
     if (links.length) parts.push(links.join('\n'));
-    if (options.length) parts.push(options.join('\n'), this.t('whatsapp.numberHint'));
+    if (options.withOptions !== false) {
+      const numbered = this.numbered(actions, options);
+      if (numbered) parts.push(numbered);
+    }
     return parts.join('\n\n');
+  }
+
+  /** گزینه‌های شماره‌دار، خط «۰- 🏠 منوی اصلی» و راهنما؛ خالی اگر هیچ‌کدام نیست. */
+  private numbered(actions: BotAction[], options: MenuOptions = {}): string {
+    const lines: string[] = [];
+    // همان چیدمان ردیفی ربات‌ها: گزینه‌های یک ردیف در یک خط
+    const rows = actionRows(this.options(actions)).map((row) => row.map((action) => action.label));
+    if (rows.length) lines.push(whatsappOptionRows(rows));
+    if (options.home) lines.push(whatsappOptions([this.t('whatsapp.showMenu')], 0));
+    if (!lines.length) return '';
+    return [lines.join('\n'), this.t(options.waitingForText ? 'whatsapp.textOrNumberHint' : 'whatsapp.numberHint')].join('\n\n');
   }
 
   private async sections(ctx: BotContext) {
@@ -288,7 +387,7 @@ export class WhatsappDialogBridge implements OnModuleInit {
   private saveMenu(userId: string, actions: BotAction[], refreshAction?: string): Promise<void> {
     return this.redis.setJson(
       RedisService.key('whatsappMenu', userId),
-      { actions: this.options(actions).map((a) => a.id), refreshAction },
+      { actions: this.options(actions).map((a) => a.id), labels: this.options(actions).map((a) => a.label), refreshAction },
       MENU_TTL_SECONDS,
     );
   }
