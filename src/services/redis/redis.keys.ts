@@ -28,7 +28,11 @@ export const KEY_PREFIXES = {
   routingRoutes: 'routing:routes:v3',
   routingDistance: 'routing:distance:v2',
   routingTraffic: 'routing:traffic:v1',
-  fuelStationChunk: 'routing:fuel-chunk:v1',
+  // v2: با بنزین؛ همه‌ی تکه‌ها یک بار دوباره دریافت می‌شوند. v1 تا منقضی شدنش برای coverage خوانده می‌شود.
+  fuelStationChunk: 'routing:fuel-chunk:v2',
+  fuelStationChunkV1: 'routing:fuel-chunk:v1',
+  // نوع‌های سوختی که راننده در ربات برای جایگاه‌ها انتخاب کرده
+  driverFuelKinds: 'driver:fuel-kinds:v1',
   rubikaPollOffset: 'rubika:poll-offset:v1',
   subscriptionPolicy: 'settings:subscription-policy:v1',
   // v2: همه‌ی قلم‌های قابل انتخاب (MARKET_CATALOG)؛ نسخه‌ی v1 فقط ۶ قلم ثابت را داشت
@@ -68,6 +72,8 @@ export type RedisKeyParts = {
   routingDistance: [points: string];
   routingTraffic: [points: string];
   fuelStationChunk: [chunk: string];
+  fuelStationChunkV1: [chunk: string];
+  driverFuelKinds: [userId: string];
   rubikaPollOffset: [tokenHash: string];
   subscriptionPolicy: [];
   marketPrices: [];

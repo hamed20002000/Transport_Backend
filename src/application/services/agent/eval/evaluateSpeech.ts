@@ -3,19 +3,20 @@
  *
  *   npm run agent:eval-stt
  *   npm run agent:eval-stt -- --models ggml-medium.bin,ggml-large-v3-q5_0.bin --prompt both
+ *   npm run agent:eval-stt -- --samples uploads/stt-dataset/test   (any folder of audio + same-name .txt)
  *
  * نمونه‌ها: هر فایل صوتی در eval/stt-samples (ogg، webm، wav، m4a، mp3) با یک فایل
  * هم‌نام .txt که متن درستِ گفته‌شده در آن است. معیار CER است (درصد حروف اشتباه)؛
  * فاصله، نیم‌فاصله، علائم و فرق عدد فارسی/لاتین حساب نمی‌شود.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { basename, extname, join } from 'node:path';
+import { basename, extname, join, resolve } from 'node:path';
 
 import { config } from 'dotenv';
 
 import { SpeechToTextService } from '../services/Speechtotext.service';
 
-const SAMPLES_DIR = join(process.cwd(), 'src/application/services/agent/eval/stt-samples');
+const DEFAULT_SAMPLES_DIR = join(process.cwd(), 'src/application/services/agent/eval/stt-samples');
 const AUDIO = new Set(['.ogg', '.oga', '.webm', '.wav', '.m4a', '.mp3']);
 
 const norm = (text: string): string =>
@@ -47,6 +48,7 @@ function arg(name: string): string | undefined {
 
 async function main(): Promise<void> {
   config();
+  const SAMPLES_DIR = resolve(arg('samples') ?? DEFAULT_SAMPLES_DIR);
   const samples = existsSync(SAMPLES_DIR)
     ? readdirSync(SAMPLES_DIR)
         .filter((file) => AUDIO.has(extname(file).toLowerCase()))

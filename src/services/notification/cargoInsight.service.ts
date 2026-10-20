@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import { CargoListing } from '../../domain/entities/notification/CargoListing';
 import { estimateFuelLiters, FuelProfile, fuelProfileFor } from '../routing/fuelProfile';
-import { RouteFuelStation, FuelStationService } from '../routing/fuelStation.service';
+import { FuelKind, RouteFuelStation, FuelStationService, sellsFuel } from '../routing/fuelStation.service';
 import { decodePolyline, GeoPoint } from '../routing/geo';
 import { placeCandidates, RoutingService } from '../routing/routing.service';
 import { CargoListingService } from './cargoListing.service';
@@ -119,9 +119,11 @@ export class CargoInsightService {
   }
 
   /** جایگاه‌های سوخت کنار یک مسیر و طولانی‌ترین فاصله‌ی بی‌جایگاه. */
-  async fuelAlong(route: CargoRouteOption): Promise<RouteFuelSummary> {
+  // kinds: فقط جایگاه‌های این سوخت‌ها (فاصله‌ی بی‌جایگاه هم بر همان اساس)؛ بدون آن همه‌ی جایگاه‌ها
+  async fuelAlong(route: CargoRouteOption, kinds?: readonly FuelKind[]): Promise<RouteFuelSummary> {
     const coverage = await this.fuelStations.coverage(route.points);
-    const stations = coverage === 'none' ? [] : await this.fuelStations.alongRoute(route.points);
+    const along = coverage === 'none' ? [] : await this.fuelStations.alongRoute(route.points);
+    const stations = kinds ? along.filter((station) => sellsFuel(station, kinds)) : along;
     const marks = [0, ...stations.map((s) => s.atKm), route.distanceKm];
     let longestGap: RouteFuelSummary['longestGap'] = null;
     if (coverage === 'complete') {

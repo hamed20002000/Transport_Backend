@@ -105,6 +105,70 @@ export function spokenNumbers(text: string): { span: string; readings: string[] 
   return results.map((r) => ({ ...r, span: r.span.replace(/\s+و$/, '') }));
 }
 
+// حرف‌هایی که whisper در گفتار فارسی جابه‌جا می‌شنود (واک‌دار/بی‌واک، هم‌آوا): «دو» ← «تو»، «چهار» ← «تهار»
+const SOUND_ALIKE = ['تدطچج', 'سصثزذضظ', 'کگقغ', 'پب', 'هح'];
+// بعد از عدد مقدار: وزن، پول، تعداد خودرو؛ «روز» و «ساعت» نه، چون «تو روز» یعنی «در روز»
+const QUANTITY_AFTER = /^(تن|تُن|تون|کیلو|کیلوگرم|تومان|تومن|ریال|دستگاه)$/;
+const PUNCTUATION = /^([.،,؟!:؛«»"]*)(.*?)([.،,؟!:؛«»"]*)$/u;
+
+const numberValue = (word: string): number | undefined =>
+  /^\d+$/.test(word) ? Number(word) : word in UNITS ? UNITS[word] : MULTIPLIERS[word];
+
+/** کلمه‌ی عددی‌ای که با عوض شدن یک حرف هم‌آوا به این کلمه تبدیل شده؛ فقط اگر یکی باشد. */
+function soundAlikeNumber(word: string): string | undefined {
+  const found = new Set<string>();
+  [...word].forEach((letter, i) => {
+    const group = SOUND_ALIKE.find((g) => g.includes(letter));
+    for (const other of group ?? '') {
+      const candidate = word.slice(0, i) + other + word.slice(i + 1);
+      if (other !== letter && candidate in UNITS) found.add(candidate);
+    }
+  });
+  return found.size === 1 ? [...found][0] : undefined;
+}
+
+/**
+ * آیا عدد value در این جای جمله با کلمه‌های کنارش یک عدد درست فارسی می‌سازد:
+ * پیش از هزار/میلیون/صد («دو هزار»)، پیش از واحد مقدار («دو تن»)، بعد از عدد بزرگ‌تری که جایش خالی است
+ * با «و» («صد و دو») یا بدون «و» ولی پیش از عدد دیگر یا آخر جمله («سی چهار، یازده»)، یا وسط رقم‌های
+ * تک‌تک یک کد («یک دو سه»).
+ */
+function fitsNumber(words: string[], i: number, value: number): boolean {
+  const next = words[i + 1];
+  const joined = words[i - 1] === 'و';
+  const previous = joined ? words[i - 2] : words[i - 1];
+  const before = previous === undefined ? undefined : numberValue(previous);
+  const after = next === undefined ? undefined : numberValue(next);
+
+  if (next && (next in MULTIPLIERS || (next === 'صد' && value < 10))) return true;
+  if (next && QUANTITY_AFTER.test(next)) return true;
+  // «سی» + «چهار»: عدد قبلی بزرگ‌تر است و رقم‌های پایینش خالی؛ از بیست به بالا («ده و دو» عدد نیست، دوازده است)
+  const opensFor = before !== undefined && before >= 20 && before > value && before % 10 ** String(value).length === 0;
+  if (opensFor && (joined || next === undefined || after !== undefined)) return true;
+  return before !== undefined && after !== undefined && before < 10 && after < 10 && value < 10 && !joined;
+}
+
+/**
+ * عددهایی که whisper با یک حرف هم‌آوای اشتباه نوشته («تو هزار»، «صد و تو»، «سی و تهار») را درست می‌کند.
+ * فقط وقتی کلمه با کلمه‌های کنارش عدد درستی بسازد، تا «تو» در «بار تو تبریز» یا «تو ده روز» دست نخورد.
+ */
+export function fixMisheardNumbers(text: string): string {
+  const parts = text.split(/(\s+)/);
+  const words = parts.map((part) => toLatinDigits(PUNCTUATION.exec(part)?.[2] ?? part));
+  const wordIndex = parts.map((_, i) => i).filter((i) => !/^\s*$/.test(parts[i]));
+  const sequence = wordIndex.map((i) => words[i]);
+  sequence.forEach((word, k) => {
+    if (numberValue(word) !== undefined) return;
+    const number = soundAlikeNumber(word);
+    if (!number || !fitsNumber(sequence, k, UNITS[number])) return;
+    const part = wordIndex[k];
+    const [, lead, , trail] = PUNCTUATION.exec(parts[part]) ?? [];
+    parts[part] = `${lead ?? ''}${number}${trail ?? ''}`;
+    sequence[k] = number;
+  });
+  return parts.join('');
+}
+
 /**
  * فاصله‌ی رقمی با تحمل صفر: whisper صفرها رو زیاد جا می‌ندازه یا اضافه می‌کنه
  * («100009» ← «1009»)، پس حذف/درج صفر نصف هزینه داره.

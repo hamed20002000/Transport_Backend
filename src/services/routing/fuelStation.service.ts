@@ -19,6 +19,8 @@ const IRAN = { south: 25, west: 44, north: 40, east: 63.5 };
 const CHUNK_ROWS = 3;
 const CHUNK_COLS = 4;
 const REFRESH_SECONDS = 30 * 86_400;
+// تگ‌های بنزین در OSM (هر اکتانی)
+const PETROL_TAGS = ['fuel:octane_91', 'fuel:octane_92', 'fuel:octane_95', 'fuel:octane_98', 'fuel:octane_100', 'fuel:e5', 'fuel:e10', 'fuel:gasoline', 'fuel:petrol'];
 // تکه‌هایی که نشد (Overpass شلوغ/کند) بعد از این مدت دوباره امتحان می‌شوند.
 const RETRY_MS = 60 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 120_000;
@@ -42,8 +44,48 @@ export interface RouteFuelStation {
   lng: number;
   diesel: boolean | null;
   cng: boolean | null;
+  petrol: boolean | null;
   // کیلومتر از مبدأ روی همین مسیر
   atKm: number;
+}
+
+export const FUEL_KINDS = ['diesel', 'petrol', 'cng'] as const;
+export type FuelKind = (typeof FUEL_KINDS)[number];
+
+/**
+ * جایگاه یکی از سوخت‌های خواسته‌شده را دارد. CNG فقط وقتی ثبت شده باشد. گازوئیل و بنزین وقتی
+ * ثبت شده باشند، یا وقتی هیچ سوختی برای جایگاه ثبت نشده (بیشتر جایگاه‌ها هر دو را دارند و در OSM
+ * کم ثبت شده). جایگاهی که سوخت دیگری برایش ثبت شده ولی این یکی نه، احتمالاً ندارد.
+ */
+export function sellsFuel(station: Pick<RouteFuelStation, 'diesel' | 'cng' | 'petrol'>, kinds: readonly FuelKind[]): boolean {
+  const otherSold = (kind: FuelKind) => FUEL_KINDS.some((other) => other !== kind && station[other] === true);
+  return kinds.some((kind) => station[kind] === true || (kind !== 'cng' && station[kind] == null && !otherSold(kind)));
+}
+
+// نوع سوختی که از اسم جایگاه پیداست («پمپ بنزین…»، «جایگاه CNG…»، «گازوییل»)؛ «گاز» تنها یعنی CNG، نه «گازوئیل»
+const NAME_HINTS: Record<FuelKind, RegExp> = {
+  diesel: /گازوئیل|گازوییل|گاز\s?وئیل|دیزل|diesel/i,
+  petrol: /بنزین|petrol|benzin|gasoline/i,
+  cng: /cng|سی[\s\u200c]?ان[\s\u200c]?جی|گاز(?![وئ\s]*(?:ئیل|ییل|وئیل))/i,
+};
+
+/**
+ * سوخت‌های جایگاه: آنچه در OSM ثبت شده، و جایی که ثبت نشده آنچه از اسمش پیداست
+ * (بیشتر جایگاه‌های ایران هیچ تگ سوختی ندارند ولی اسمشان «پمپ بنزین» یا «جایگاه CNG» است).
+ */
+export function withNameHints<T extends Pick<RouteFuelStation, 'name' | FuelKind>>(station: T): T {
+  const hinted = { ...station };
+  for (const kind of FUEL_KINDS) {
+    if (hinted[kind] == null && station.name && NAME_HINTS[kind].test(station.name)) hinted[kind] = true;
+  }
+  return hinted;
+}
+
+/** بنزین: یکی از اکتان‌ها «yes»؛ فقط «no» یعنی ندارد؛ هیچ تگی یعنی نامعلوم. */
+function petrolOf(tags: Record<string, string>): boolean | null {
+  const values = PETROL_TAGS.map((tag) => tags[tag]).filter(Boolean);
+  if (values.includes('yes')) return true;
+  return values.length && values.every((value) => value === 'no') ? false : null;
 }
 
 interface OverpassElement {
@@ -171,6 +213,7 @@ export class FuelStationService implements OnApplicationBootstrap, OnModuleDestr
       longitude: lng,
       diesel: yesNo(tags['fuel:diesel']),
       cng: yesNo(tags['fuel:cng']),
+      petrol: petrolOf(tags),
       updatedAt: new Date(),
     };
   }
@@ -192,7 +235,12 @@ export class FuelStationService implements OnApplicationBootstrap, OnModuleDestr
     let done = 0;
     try {
       for (const region of regions) {
-        if (await this.redis.exists(RedisService.key('fuelStationChunk', region))) done++;
+        // تکه‌ای که فقط با نسخه‌ی قبلی (بدون بنزین) دریافت شده هم جایگاه‌هایش را دارد
+        if (
+          (await this.redis.exists(RedisService.key('fuelStationChunk', region))) ||
+          (await this.redis.exists(RedisService.key('fuelStationChunkV1', region)))
+        )
+          done++;
       }
     } catch (error) {
       // بدون Redis معلوم نیست کدام منطقه دریافت شده؛ جایگاه‌های موجود نشان داده
@@ -203,22 +251,25 @@ export class FuelStationService implements OnApplicationBootstrap, OnModuleDestr
     return done === 0 ? 'none' : done === regions.size ? 'complete' : 'partial';
   }
 
-  /** نزدیک‌ترین جایگاه‌ها به یک نقطه (فاصله‌ی مستقیم)، نزدیک‌ترین اول. */
-  async near(point: GeoPoint, radiusKm: number, limit: number): Promise<(RouteFuelStation & { distanceKm: number })[]> {
+  /** نزدیک‌ترین جایگاه‌ها به یک نقطه (فاصله‌ی مستقیم)، نزدیک‌ترین اول؛ kinds: فقط جایگاه‌های این سوخت‌ها. */
+  async near(point: GeoPoint, radiusKm: number, limit: number, kinds?: readonly FuelKind[]): Promise<(RouteFuelStation & { distanceKm: number })[]> {
     const box = bboxOf([point], radiusKm / 100);
     return (await this.all())
       .filter((station) => inBBox({ lat: station.latitude, lng: station.longitude }, box))
-      .map((station) => ({
-        id: station.id,
-        name: station.name ?? null,
-        lat: station.latitude,
-        lng: station.longitude,
-        diesel: station.diesel ?? null,
-        cng: station.cng ?? null,
-        atKm: 0,
-        distanceKm: haversineKm(point, { lat: station.latitude, lng: station.longitude }),
-      }))
-      .filter((station) => station.distanceKm <= radiusKm)
+      .map((station) =>
+        withNameHints({
+          id: station.id,
+          name: station.name ?? null,
+          lat: station.latitude,
+          lng: station.longitude,
+          diesel: station.diesel ?? null,
+          cng: station.cng ?? null,
+          petrol: station.petrol ?? null,
+          atKm: 0,
+          distanceKm: haversineKm(point, { lat: station.latitude, lng: station.longitude }),
+        }),
+      )
+      .filter((station) => station.distanceKm <= radiusKm && (!kinds || sellsFuel(station, kinds)))
       .sort((a, b) => a.distanceKm - b.distanceKm)
       // یک جایگاه که دو بار در نقشه ثبت شده (نقطه و محدوده): آنکه نام دارد بماند
       .reduce<(RouteFuelStation & { distanceKm: number })[]>((unique, station) => {
@@ -244,15 +295,18 @@ export class FuelStationService implements OnApplicationBootstrap, OnModuleDestr
       const point = { lat: station.latitude, lng: station.longitude };
       const { distanceKm, atKm } = projectOnRoute(point, sampled.points, sampled.km);
       if (distanceKm > MAX_OFF_ROUTE_KM) continue;
-      found.push({
-        id: station.id,
-        name: station.name ?? null,
-        lat: station.latitude,
-        lng: station.longitude,
-        diesel: station.diesel ?? null,
-        cng: station.cng ?? null,
-        atKm,
-      });
+      found.push(
+        withNameHints({
+          id: station.id,
+          name: station.name ?? null,
+          lat: station.latitude,
+          lng: station.longitude,
+          diesel: station.diesel ?? null,
+          cng: station.cng ?? null,
+          petrol: station.petrol ?? null,
+          atKm,
+        }),
+      );
     }
     found.sort((a, b) => a.atKm - b.atKm);
     const unique: RouteFuelStation[] = [];

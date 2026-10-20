@@ -5,6 +5,8 @@ import { copyFile, mkdir, unlink, writeFile } from 'node:fs/promises';
 import { cpus } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
+import { fixMisheardNumbers } from './spokenCodes';
+import { fixMisheardPlaces } from './spokenPlaces';
 
 const execFileAsync = promisify(execFile);
 
@@ -114,7 +116,10 @@ export class SpeechToTextService {
 
       const { stdout } = await execFileAsync(this.whisperBinaryPath, args, { maxBuffer: 1024 * 1024 * 10 });
       this.logger.debug(`whisper (${options.model}) raw: "${stdout.trim()}"`);
-      const text = applyCorrections(cleanTranscript(stdout, options.prompt, options.language), this.corrections);
+      // fixed list of known mishearings, then number words and city names misheard by sound-alike letters
+      // («تو هزار» ← «دو هزار»، «به علشتر» ← «به الشتر»)
+      const corrected = applyCorrections(cleanTranscript(stdout, options.prompt, options.language), this.corrections);
+      const text = fixMisheardPlaces(fixMisheardNumbers(corrected));
       if (this.sampleDir) await this.keepSample(wavPath, stdout.trim(), text);
       return text;
     } finally {

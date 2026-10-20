@@ -27,6 +27,9 @@ export class FuelStation {
   @Column({ type: 'boolean', nullable: true })
   cng?: boolean | null;
 
+  @Column({ type: 'boolean', nullable: true })
+  petrol?: boolean | null;
+
   @UpdateDateColumn()
   updatedAt!: Date;
 }

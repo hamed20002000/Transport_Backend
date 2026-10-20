@@ -11,6 +11,12 @@ interface SpokenStation {
   name: string | null;
   diesel: boolean | null;
   cng: boolean | null;
+  petrol?: boolean | null;
+}
+
+// فقط سوخت‌هایی که برای جایگاه ثبت شده گفته می‌شود
+function spokenKinds(t: TripTranslate, station: SpokenStation): string {
+  return [station.diesel ? t('near.voice.diesel') : '', station.petrol ? t('near.voice.petrol') : '', station.cng ? t('near.voice.cng') : ''].join('');
 }
 
 /**
@@ -22,7 +28,7 @@ function item(t: TripTranslate, station: SpokenStation, index: number, km: numbe
     index: integerToPersianWords(index + 1),
     name: station.name ? spellNumbersInText(station.name) : t('near.voice.unnamed'),
     km: decimalToPersianWords(km < 10 ? km : Math.round(km)),
-    kinds: [station.diesel ? t('near.voice.diesel') : '', station.cng ? t('near.voice.cng') : ''].join(''),
+    kinds: spokenKinds(t, station),
   });
 }
 
@@ -41,7 +47,7 @@ export function routeStationsSpeech(t: TripTranslate, stations: (SpokenStation &
         index: integerToPersianWords(i + 1),
         name: station.name ? spellNumbersInText(station.name) : t('near.voice.unnamed'),
         km: integerToPersianWords(Math.round(station.atKm)),
-        kinds: [station.diesel ? t('near.voice.diesel') : '', station.cng ? t('near.voice.cng') : ''].join(''),
+        kinds: spokenKinds(t, station),
       }),
     ),
   ].join(' ');

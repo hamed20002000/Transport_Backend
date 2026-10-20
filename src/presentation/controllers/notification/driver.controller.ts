@@ -45,6 +45,7 @@ import { BorderStatusService } from 'src/services/border/borderStatus.service';
 import { CargoListingService } from 'src/services/notification/cargoListing.service';
 import { CargoVoiceService } from 'src/services/notification/cargoVoice.service';
 import { CargoTripService } from 'src/services/notification/cargoTrip.service';
+import { FUEL_KINDS, FuelKind } from 'src/services/routing/fuelStation.service';
 import { GeoPoint } from 'src/services/routing/geo';
 import { RoutingService } from 'src/services/routing/routing.service';
 import { routeStationsSpeech } from 'src/services/speech/stationSpeech';
@@ -61,6 +62,12 @@ function currentDriverId(request: AuthRequest): string {
   if (!user?.userId) throw new UnauthorizedException();
   if (!user.roles?.includes('DRIVER')) throw new ForbiddenException('onlyDriver');
   return user.userId;
+}
+
+// «diesel,cng» → نوع‌های شناخته‌شده؛ خالی یا ناشناخته یعنی گازوئیل (رانندگان کامیون)
+function fuelKinds(value?: string): FuelKind[] {
+  const kinds = FUEL_KINDS.filter((kind) => value?.split(',').map((part) => part.trim()).includes(kind));
+  return kinds.length ? kinds : ['diesel'];
 }
 
 const pageOf = (page: number, pageSize: number) => ({
@@ -167,17 +174,18 @@ export class DriverController {
     };
   }
 
-  // جایگاه‌های سوخت کنار یکی از مسیرهای بار
+  // جایگاه‌های سوخت کنار یکی از مسیرهای بار؛ fuel: نوع‌هایی که راننده می‌خواهد (diesel,cng)، پیش‌فرض گازوئیل
   @Get('loads/:id/fuel')
   async loadFuel(
     @Req() request: AuthRequest,
     @Param('id', ParseUUIDPipe) id: string,
     @Query('route', new DefaultValuePipe(0), ParseIntPipe) routeIndex: number,
+    @Query('fuel') fuel?: string,
   ) {
     const insight = await this.insight.build(id, currentDriverId(request));
     const route = insight?.routes[routeIndex];
     if (!route) throw new NotFoundException('Route not found.');
-    return this.insight.fuelAlong(route);
+    return this.insight.fuelAlong(route, fuelKinds(fuel));
   }
 
   // وضعیت مرزهایی که یکی از مسیرهای بار از آن‌ها می‌گذرد (بار صادراتی، وارداتی، ترانزیت)
@@ -199,13 +207,14 @@ export class DriverController {
     @Req() request: AuthRequest,
     @Param('id', ParseUUIDPipe) id: string,
     @Query('route', new DefaultValuePipe(0), ParseIntPipe) routeIndex: number,
+    @Query('fuel') fuel?: string,
   ) {
     if (!this.speech.available) throw new ServiceUnavailableException('Text to speech is not available.');
     const insight = await this.insight.build(id, currentDriverId(request));
     const route = insight?.routes[routeIndex];
     if (!route) throw new NotFoundException('Route not found.');
-    // همان جایگاه‌هایی که فهرست وب نشان می‌دهد: گازوئیلی یا با نوع سوخت نامعلوم
-    const stations = (await this.insight.fuelAlong(route)).stations.filter((station) => station.diesel !== false);
+    // همان جایگاه‌هایی که فهرست وب با همان نوع‌های سوخت نشان می‌دهد
+    const { stations } = await this.insight.fuelAlong(route, fuelKinds(fuel));
     const text = routeStationsSpeech((key, args) => this.i18n.translate(`trip.${key}`, { lang: 'fa', args }) as string, stations);
     return new StreamableFile(await this.speech.synthesize(text, 'mp3'), { type: 'audio/mpeg', disposition: 'inline' });
   }

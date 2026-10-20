@@ -25,7 +25,7 @@ import { nearStationsSpeech } from '../speech/stationSpeech';
 import { persianDateTime } from 'src/domain/helper/persianDate';
 import { CargoListingStatus } from 'src/domain/enums/notification';
 import { GeoPoint, pointAtFraction } from '../routing/geo';
-import { FuelStationService, RouteFuelStation } from '../routing/fuelStation.service';
+import { FUEL_KINDS, FuelKind, FuelStationService, RouteFuelStation } from '../routing/fuelStation.service';
 import { MapMarker, MapMarkerKind, StaticMapService } from '../routing/staticMap.service';
 import { CargoTripService } from './cargoTrip.service';
 import { TripAction } from 'src/domain/constants/bot/TripAction';
@@ -43,6 +43,9 @@ const Action = {
   RouteDetail: `${PREFIX}rd:`, // + listingId:index
   CargoReturns: `${PREFIX}rb:`, // + listingId:page
   NearStations: `${PREFIX}ns`,
+  // روشن/خاموش کردن یک نوع سوخت برای جایگاه‌ها، و همان صفحه دوباره
+  RouteFuel: `${PREFIX}rf:`, // + listingId:index:kind
+  NearFuel: `${PREFIX}nf:`, // + kind
   Close: `${PREFIX}close`,
 } as const;
 
@@ -57,6 +60,9 @@ const SESSION_TTL_SECONDS = 30 * 60;
 const MAX_CITY_LENGTH = 100;
 const PER_ROW = 2;
 const NEAR_RADIUS_KM = 30;
+// انتخاب نوع سوخت راننده تا این مدت یادش می‌ماند؛ پیش‌فرض گازوئیل (رانندگان کامیون)
+const FUEL_KINDS_TTL_SECONDS = 365 * 86_400;
+const DEFAULT_FUEL_KINDS: FuelKind[] = ['diesel'];
 // آخرین زمان‌های دریافت موقعیت که برای شرکت نوشته می‌شود
 const RECENT_LOCATIONS = 5;
 const NEAR_LIMIT = 12;
@@ -205,6 +211,15 @@ export class TripDialog implements BotDialog, OnModuleInit {
     if (id === Action.ShareLocation) return this.shareLocation();
     if (id === Action.MyLocation) return this.myLocation(ctx);
     if (id === Action.NearStations) return this.nearStations(ctx);
+    if (id.startsWith(Action.NearFuel)) {
+      await this.toggleFuelKind(ctx.userId, arg(Action.NearFuel));
+      return this.nearStations(ctx);
+    }
+    if (id.startsWith(Action.RouteFuel)) {
+      const [listingId, index, kind] = arg(Action.RouteFuel).split(':');
+      await this.toggleFuelKind(ctx.userId, kind);
+      return this.routeDetail(ctx, listingId, this.page(index));
+    }
     if (id.startsWith(Action.Detail)) return this.cargoDetail(ctx, arg(Action.Detail));
     if (id.startsWith(Action.RouteDetail)) {
       const [listingId, index] = arg(Action.RouteDetail).split(':');
@@ -513,7 +528,8 @@ export class TripDialog implements BotDialog, OnModuleInit {
     if (!insight || !route) return this.cargoDetail(ctx, listingId);
 
     const { listing, profile, routes } = insight;
-    const fuel = await this.insights.fuelAlong(route);
+    const kinds = await this.fuelKinds(ctx.userId);
+    const fuel = await this.insights.fuelAlong(route, kinds);
     let shown: RouteFuelStation[] = [];
     const lines = [
       this.t('route.title', { index: fa(index), count: fa(routes.length), origin: listing.origin, destination: listing.destination }),
@@ -531,6 +547,7 @@ export class TripDialog implements BotDialog, OnModuleInit {
 
     if (fuel.coverage === 'none') lines.push(this.t('route.stationsLoading'));
     else {
+      lines.push(this.t('route.fuelKinds', { kinds: this.fuelNames(kinds) }));
       lines.push(this.t('route.stationsCount', { count: fa(fuel.stations.length) }));
       if (fuel.coverage === 'partial') lines.push(this.t('route.stationsPartial'));
       if (fuel.longestGap) {
@@ -589,7 +606,10 @@ export class TripDialog implements BotDialog, OnModuleInit {
         url: this.mapsUrl(insight.originPoint, insight.destinationPoint, [pointAtFraction(route.points, 1 / 3), pointAtFraction(route.points, 2 / 3)]),
       });
     }
-    rows.add(...nav).add({ id: `${Action.Detail}${listing.id}`, label: this.t('actions.backToCargo') }, this.back());
+    rows
+      .add(...this.fuelToggles(kinds, (kind) => `${Action.RouteFuel}${listing.id}:${index}:${kind}`))
+      .add(...nav)
+      .add({ id: `${Action.Detail}${listing.id}`, label: this.t('actions.backToCargo') }, this.back());
     return { text: lines.filter(Boolean).join('\n\n'), actions: rows.actions, ...(photo ? { photo } : {}) };
   }
 
@@ -656,10 +676,16 @@ export class TripDialog implements BotDialog, OnModuleInit {
       return { ...ask, text: `${this.t('near.needLocation')}\n\n${ask.text}` };
     }
     const me = { lat: location.latitude, lng: location.longitude };
-    const stations = await this.fuelStations.near(me, NEAR_RADIUS_KM, NEAR_LIMIT);
+    const kinds = await this.fuelKinds(ctx.userId);
+    const stations = await this.fuelStations.near(me, NEAR_RADIUS_KM, NEAR_LIMIT, kinds);
+    const toggles = this.fuelToggles(kinds, (kind) => `${Action.NearFuel}${kind}`);
+    const kindsLine = this.t('near.fuelKinds', { kinds: this.fuelNames(kinds) });
     const back = new Rows().add({ id: Action.MyLocation, label: this.t('actions.myLocation') }, this.back());
     if (!stations.length) {
-      return { text: [this.t('near.title'), this.t('near.none', { km: fa(NEAR_RADIUS_KM) })].join('\n\n'), actions: back.actions };
+      return {
+        text: [this.t('near.title'), kindsLine, this.t('near.none', { km: fa(NEAR_RADIUS_KM) })].join('\n\n'),
+        actions: new Rows().add(...toggles).add(...back.actions).actions,
+      };
     }
 
     await ctx.progress?.(this.t('map.drawing'));
@@ -682,10 +708,10 @@ export class TripDialog implements BotDialog, OnModuleInit {
       })),
       1,
     );
-    rows.add(...back.actions);
+    rows.add(...toggles).add(...back.actions);
     const voice = await this.stationsVoice(stations);
     return {
-      text: [this.t('near.title'), this.locationLine(location), this.t('near.tapHint'), this.t('route.legend')].join('\n\n'),
+      text: [this.t('near.title'), this.locationLine(location), kindsLine, this.t('near.tapHint'), this.t('route.legend')].join('\n\n'),
       actions: rows.actions,
       ...(photo ? { photo } : {}),
       ...(voice ? { voice } : {}),
@@ -744,8 +770,39 @@ export class TripDialog implements BotDialog, OnModuleInit {
     return { point: { lat: station.lat, lng: station.lng }, kind, ...(label ? { label } : {}) };
   }
 
-  private kinds(station: { diesel: boolean | null; cng: boolean | null }): string {
-    return [station.diesel ? ' 🛢' : '', station.cng ? ' 💨' : ''].join('');
+  private kinds(station: { diesel: boolean | null; cng: boolean | null; petrol: boolean | null }): string {
+    return [station.diesel ? ' 🛢' : '', station.petrol ? ' ⛽' : '', station.cng ? ' 💨' : ''].join('');
+  }
+
+  /** نوع‌های سوختی که راننده برای جایگاه‌ها خواسته (مثل وب: پیش‌فرض گازوئیل). */
+  private async fuelKinds(userId: string): Promise<FuelKind[]> {
+    const saved = await this.redis.getJson<string[]>(RedisService.key('driverFuelKinds', userId)).catch(() => null);
+    const kinds = FUEL_KINDS.filter((kind) => saved?.includes(kind));
+    return kinds.length ? kinds : DEFAULT_FUEL_KINDS;
+  }
+
+  /** یک نوع را روشن/خاموش می‌کند؛ دست‌کم یکی می‌ماند. نوع ناشناخته کاری نمی‌کند. */
+  private async toggleFuelKind(userId: string, kind: string): Promise<void> {
+    const current = await this.fuelKinds(userId);
+    const known = FUEL_KINDS.find((value) => value === kind);
+    if (!known) return;
+    const next = FUEL_KINDS.filter((value) => (value === known ? !current.includes(value) : current.includes(value)));
+    if (!next.length) return;
+    await this.redis
+      .setJson(RedisService.key('driverFuelKinds', userId), next, FUEL_KINDS_TTL_SECONDS)
+      .catch((error: Error) => this.logger.warn(`Could not save fuel kinds of ${userId}: ${error.message}`));
+  }
+
+  /** «✅ گازوئیل»، «⬜ بنزین»، «⬜ CNG»: هر کدام همان صفحه را با انتخاب تازه نشان می‌دهد. */
+  private fuelToggles(kinds: FuelKind[], id: (kind: FuelKind) => string): BotAction[] {
+    return FUEL_KINDS.map((kind) => ({
+      id: id(kind),
+      label: this.t('fuel.toggle', { mark: kinds.includes(kind) ? '✅' : '⬜', name: this.t(`fuel.${kind}`) }),
+    }));
+  }
+
+  private fuelNames(kinds: FuelKind[]): string {
+    return kinds.map((kind) => this.t(`fuel.${kind}`)).join('، ');
   }
 
   /** «🚦 ترافیک همین الان: 🟡 نیمه‌سنگین (۲۵ دقیقه تأخیر)» */

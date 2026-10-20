@@ -46,7 +46,8 @@ const PHOTO_COLUMN: Record<DriverPhotoKind, 'facePhoto' | 'vehiclePhoto' | 'plat
   plate: 'platePhoto',
 };
 const PHOTO_EXTENSIONS: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
-const MAX_PHOTO_BYTES = 8 * 1024 * 1024;
+// the web panel scales photos down before upload (a few hundred KB); this only stops oversized raw uploads
+const MAX_PHOTO_BYTES = 3 * 1024 * 1024;
 
 const USER_FIELDS = ['firstName', 'lastName', 'nationalCode'] as const;
 const DRIVER_FIELDS = [
