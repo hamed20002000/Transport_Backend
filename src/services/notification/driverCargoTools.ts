@@ -17,6 +17,7 @@ import {
   ToolParam,
 } from 'src/application/services/agent/tools/toolKit';
 import { CargoListingStatus, CargoRequestStatus } from 'src/domain/enums/notification';
+import { CargoAction } from 'src/domain/constants/bot/CargoAction';
 import { CargoListingService } from './cargoListing.service';
 import { CargoTripService } from './cargoTrip.service';
 import { cargoSearchText, searchFromParams } from './cargoSearch';
@@ -59,6 +60,8 @@ export class DriverCargoTools implements OnModuleInit {
         const search = searchFromParams(param);
         const matchFilters = boolParam(param.onlyMyFilters) ?? false;
         const searchText = cargoSearchText(search);
+        // the plain list is the bot's «پیدا کردن بار» page; a search or «only my filters» stays this tool's own answer
+        const menuAction = searchText || matchFilters ? undefined : `${CargoAction.OpenCargo}1`;
 
         const page = await self.trips.listOpenForDriver(ctx.userId, { page: 1, pageSize: PAGE_SIZE, matchFilters, ...search });
         if (page.items.length === 0) {
@@ -67,7 +70,7 @@ export class DriverCargoTools implements OnModuleInit {
             : matchFilters
               ? messages.driverLoads.noneForFilters
               : messages.driverLoads.none;
-          return ctx.done({ count: '0' }, empty);
+          return ctx.done({ count: '0' }, empty, { menuAction });
         }
 
         const scope = `${matchFilters ? messages.driverLoads.byFilters : ''}${
@@ -77,7 +80,7 @@ export class DriverCargoTools implements OnModuleInit {
         return ctx.done(
           { count: String(page.total) },
           `${header}\n${numbered(page.items.map((item) => self.loadTitle(item)))}`,
-          { list: page.items.map((item) => ({ ...item, kind: 'driver_load' })) },
+          { list: page.items.map((item) => ({ ...item, kind: 'driver_load' })), menuAction },
         );
       },
     });

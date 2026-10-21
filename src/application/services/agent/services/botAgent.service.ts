@@ -27,7 +27,6 @@ import { AgentRequest, FunctionCallResultType } from '../types';
 import { FunctionCallService } from './functioncall.service';
 import { SpeechToTextService } from './Speechtotext.service';
 import { TranscriptCorrectorService } from './transcriptCorrector.service';
-import { VOICE_IDENTIFIER_NOTICE } from './voiceIdentifiers';
 import { VoiceCodeResolverService } from './voiceCodeResolver.service';
 import { parseChoice, parseYesNo } from './replyChoice';
 
@@ -167,47 +166,23 @@ export class BotAgentService implements BotAgentHandler, AgentChannelRelay, OnMo
     this.pendingCodeChoices.delete(ctx.externalUserId);
 
     // کد بار رو whisper تقریباً هیچ‌وقت دقیق نمی‌نویسه -- با بارهای خود کاربر تطبیق داده می‌شه.
+    // بی‌سؤال: کسی که ویس می‌فرستد دکمه نمی‌زند؛ اگر مطمئن نیستیم، فقط می‌خواهیم دوباره و شمرده بگوید.
     const codes = await this.voiceCodes.resolve(ctx.userId, text);
-    if (codes.kind === 'unresolved') {
-      await this.telegram.editAgentMessage(ctx.chatId, statusId, `🎤 «${text}»\n\n${VOICE_IDENTIFIER_NOTICE}`);
+    if (codes.kind === 'unresolved' || codes.kind === 'choose') {
+      await this.telegram.editAgentMessage(ctx.chatId, statusId, this.t('voiceUnclear', { text }));
       return;
     }
-    if (codes.kind === 'choose') {
-      this.pendingCodeChoices.set(ctx.externalUserId, codes.options.map((option) => option.text));
-      await this.telegram.editAgentMessage(ctx.chatId, statusId, this.t('voiceCodeChoose', { text }), [
-        ...codes.options.map((option, i) => [{ text: option.label, callback_data: `${Action.VoiceCodePrefix}${i}` }]),
-        [{ text: this.t('buttons.cancel'), callback_data: Action.VoiceCancel }],
-      ]);
-      return;
-    }
-    if (codes.kind === 'resolved') {
-      this.pendingTranscripts.set(ctx.externalUserId, codes.text);
-      await this.telegram.editAgentMessage(
-        ctx.chatId,
-        statusId,
-        this.t('voiceCodeConfirm', { text: codes.text, label: codes.label }),
-        [[
-          { text: this.t('buttons.run'), callback_data: Action.VoiceRun },
-          { text: this.t('buttons.cancel'), callback_data: Action.VoiceCancel },
-        ]],
-      );
-      return;
-    }
+    if (codes.kind === 'resolved') text = codes.text;
 
-    // اسم یکی از دکمه‌های منو را گفته: همان دکمه اجرا می‌شود، بدون تأیید متن.
+    // اسم یکی از دکمه‌های منو را گفته: همان دکمه اجرا می‌شود.
     if (await this.telegram.selectMenuByText(ctx.chatId, ctx.externalUserId, text)) {
       await this.telegram.editAgentMessage(ctx.chatId, statusId, this.t('voiceMenuSelected', { text }));
       return;
     }
 
-    // مثل واتس‌اپ: متن تشخیص‌داده‌شده اول به کاربر نشان داده می‌شود
-    this.pendingTranscripts.set(ctx.externalUserId, text);
-    await this.telegram.editAgentMessage(ctx.chatId, statusId, this.t('voiceConfirm', { text }), [
-      [
-        { text: this.t('buttons.run'), callback_data: Action.VoiceRun },
-        { text: this.t('buttons.cancel'), callback_data: Action.VoiceCancel },
-      ],
-    ]);
+    // آنچه شنیده شد نشان داده و همان لحظه اجرا می‌شود
+    await this.telegram.editAgentMessage(ctx.chatId, statusId, this.t('voiceMenuSelected', { text }));
+    await this.run(ctx, text);
   }
 
   /**
@@ -344,6 +319,16 @@ export class BotAgentService implements BotAgentHandler, AgentChannelRelay, OnMo
           : this.t('error', { message: data.message || this.t('failed') });
     const body = data.continuePrompt ? `${text}\n\n💡 ${data.continuePrompt}` : text;
 
+    // the same list as a bot page («پیدا کردن بار», «بارهای پیشنهادی»): open that page, so its buttons
+    // («بار ۱», next page) are in front of the user instead of a text list
+    if (
+      data.result === 'success' &&
+      data.lastsegment &&
+      data.menuAction &&
+      (await this.openMenu(chatId, data.menuAction))
+    )
+      return;
+
     if (!data.lastsegment) {
       await this.showProgress(chatId, body);
       return;
@@ -465,6 +450,21 @@ export class BotAgentService implements BotAgentHandler, AgentChannelRelay, OnMo
       }
     }
     this.progressMessages.set(chatId, await this.telegram.sendAgentMessage(chatId, text));
+  }
+
+  /**
+   * The menu page follows the progress message (closed with «انجام شد»). Opened as the user of this very
+   * chat: a private chat's id is the user's id there; the account may be linked to several messengers, so
+   * its first link is not necessarily the one being used.
+   */
+  private async openMenu(chatId: string, action: string): Promise<boolean> {
+    const progressId = this.progressMessages.get(chatId);
+    this.progressMessages.delete(chatId);
+    if (progressId !== undefined) {
+      await this.telegram.editAgentMessage(chatId, progressId, `✅ ${this.t('done')}`).catch(() => undefined);
+    }
+    await this.telegram.openMenuAction(chatId, chatId, action);
+    return true;
   }
 
   private async chatIdOf(userId: string): Promise<string | null> {

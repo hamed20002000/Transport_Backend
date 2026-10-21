@@ -28,7 +28,7 @@ import { dialablePhones } from 'src/services/messengerBot/core/dialablePhones';
 import { RedisService } from 'src/services/redis/redis.service';
 import { SpeechToTextService } from './Speechtotext.service';
 import { TranscriptCorrectorService } from './transcriptCorrector.service';
-import { VOICE_IDENTIFIER_NOTICE } from './voiceIdentifiers';
+
 import { VoiceCodeResolverService } from './voiceCodeResolver.service';
 import { parseChoice, parseYesNo, voiceMenuPrompt } from './replyChoice';
 import { WhatsappPollService } from './whatsappPoll.service';
@@ -61,8 +61,6 @@ const ACCOUNT_TYPE_PROMPT =
   `${ACCOUNT_TYPE_WELCOME}\n\nنوع حسابتان چیست؟\n` +
   whatsappOptions(ONBOARDING_ACCOUNT_TYPES.map((item) => item.label)) +
   '\n\n👈 شماره‌ی گزینه را بفرستید.';
-// تأیید دستور صوتی
-const CONFIRM_OPTIONS = whatsappOptions(['✅ بله، انجام بده', '❌ نه، لغو کن']);
 // سؤال نظرسنجی‌ها (منوی گفتگوها و نوع حساب)؛ فرستادن شماره‌ی گزینه هم کار می‌کند
 const MENU_POLL_QUESTION = '👇 یکی را انتخاب کنید';
 const UNKNOWN_PHONE_MESSAGE =
@@ -98,6 +96,8 @@ export interface WhatsappDialogHandler {
   handleVoiceChoice?(jid: string, userId: string, text: string): Promise<boolean>;
   /** true اگر متن مال یکی از گفتگوها بود و جواب داده شد. */
   handleText(jid: string, userId: string, text: string): Promise<boolean>;
+  /** صفحه‌ی یک گفتگو (RequestResult.menuAction) برای کاربر باز می‌شود؛ false اگر آن صفحه در واتساپ نیست. */
+  openAction?(jid: string, userId: string, action: string): Promise<boolean>;
   handleLocation(jid: string, userId: string, location: { latitude: number; longitude: number; live: boolean }): Promise<boolean>;
   /** فایلی که گفتگو منتظرش است (مثل اکسل بارها)؛ download فقط اگر گفتگو بخواهد. */
   handleDocument(jid: string, userId: string, document: { fileName: string; size?: number; download(): Promise<Buffer> }): Promise<boolean>;
@@ -105,6 +105,10 @@ export interface WhatsappDialogHandler {
 
 
 const toPersianDigits = (value: number) => String(value).replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]);
+
+// ویس نامطمئن (کد بار نامعلوم یا چند بار نزدیک): بدون سؤال و گزینه، فقط درخواست تکرار
+const VOICE_UNCLEAR =
+  'مطمئن نیستم درست شنیده باشم. لطفاً شمرده‌شمرده دوباره بگویید، یا اسم یا شماره‌ی گزینه را صوتی بفرستید.';
 
 @Injectable()
 export class WhatsappService implements OnModuleInit, OnModuleDestroy {
@@ -674,6 +678,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     if (key) await this.reactToNotification(key, '⏳').catch(() => undefined);
   }
 
+  /** صفحه‌ی منوی معادل نتیجه‌ی agent (menuAction) به‌جای متن آن؛ false اگر باز نشد. */
+  async openDialogAction(jid: string, userId: string, action: string): Promise<boolean> {
+    return (await this.dialogHandler?.openAction?.(jid, userId, action)) ?? false;
+  }
+
   async clearProgress(jid: string): Promise<void> {
     const key = this.lastIncoming.get(jid);
     if (key) await this.reactToNotification(key, '').catch(() => undefined);
@@ -1030,10 +1039,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       }
 
       // جواب صوتی به منوی باز گفتگوها: «دو»، «گزینه دو» یا اسم گزینه همان گزینه را اجرا می‌کند
-      if (menuLabels && !this.pendingTranscriptions.has(jid) && !this.pendingCodeChoices.has(jid)) {
+      // اسم بخش‌های منوی اصلی («قیمت طلا») حتی وقتی منویی باز نیست، مثل ربات‌ها
+      if (!this.pendingTranscriptions.has(jid) && !this.pendingCodeChoices.has(jid)) {
         if (await this.dialogHandler?.handleVoiceChoice?.(jid, mapping.userid, text)) return;
-        // جواب کوتاهی که گزینه‌ای نشد (مثلاً «خوتینه») دستور تازه نیست؛ دوباره بپرسیم
-        if (text.split(/\s+/).length <= 3) {
+        // جواب کوتاهی به منوی باز که گزینه‌ای نشد (مثلاً «خوتینه») دستور تازه نیست؛ دوباره بپرسیم
+        if (menuLabels && text.split(/\s+/).length <= 3) {
           await this.sendMessage(jid, `🎤 «${text}»\n\nمتوجه نشدم کدام گزینه را گفتید. لطفاً شماره‌ی گزینه را بفرستید یا دوباره بگویید، مثلاً «گزینه دو».`);
           return;
         }
@@ -1045,42 +1055,16 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       this.pendingPolls.delete(jid);
 
       // کد بار رو whisper تقریباً هیچ‌وقت دقیق نمی‌نویسه -- با بارهای خود کاربر تطبیق داده می‌شه.
+      // بی‌سؤال: کسی که ویس می‌فرستد گزینه انتخاب نمی‌کند؛ اگر مطمئن نیستیم، فقط می‌خواهیم دوباره و شمرده بگوید.
       const codes = await this.voiceCodes.resolve(mapping.userid, text);
-      if (codes.kind === 'unresolved') {
-        await this.sendMessage(jid, `🎤 «${text}»\n\n${VOICE_IDENTIFIER_NOTICE}`);
+      if (codes.kind === 'unresolved' || codes.kind === 'choose') {
+        await this.sendMessage(jid, `🎤 «${text}»\n\n${VOICE_UNCLEAR}`);
         return;
       }
-      if (codes.kind === 'choose') {
-        this.pendingCodeChoices.set(jid, codes.options.map((option) => option.text));
-        const pollId = await this.polls.send(
-          this.sock,
-          jid,
-          `🎤 «${text}»\nکد بار دقیق شنیده نشد. منظورتان کدام بار است؟ (یا شماره را بنویسید/بگویید)`,
-          [...codes.options.map((option) => option.label), '❌ لغو'],
-        );
-        if (pollId) {
-          this.pendingPolls.set(jid, pollId);
-          return;
-        }
-        await this.sendMenuMessage(
-          jid,
-          mapping.userid,
-          `🎤 متوجه شدم:\n«${text}»\n\nکد بار دقیق شنیده نشد. منظورتان کدام بار است؟\n\n${whatsappOptions([...codes.options.map((option) => option.label), '❌ لغو'])}`,
-        );
-        return;
-      }
-      if (codes.kind === 'resolved') {
-        this.pendingTranscriptions.set(jid, codes.text);
-        if (await this.sendConfirmPoll(jid, `🎤 «${codes.text}»\n📦 بار ${codes.label}\nانجام بدهم؟`)) return;
-        await this.sendMenuMessage(jid, mapping.userid, `🎤 متوجه شدم:\n«${codes.text}»\n\n📦 بار ${codes.label}\n\n${CONFIRM_OPTIONS}`);
-        return;
-      }
-      this.pendingTranscriptions.set(jid, text);
-      if (await this.sendConfirmPoll(jid, `🎤 متوجه شدم:\n«${text}»\nانجام بدهم؟`)) return;
-
-      // Numbered choice (rather than free-text "evet"/"hayır") to reduce the
-      // chance of typos being misread as either answer.
-      await this.sendMenuMessage(jid, mapping.userid, `🎤 متوجه شدم:\n«${text}»\n\n${CONFIRM_OPTIONS}`);
+      const command = codes.kind === 'resolved' ? codes.text : text;
+      // آنچه شنیده شد نشان داده و همان لحظه اجرا می‌شود
+      await this.sendMessage(jid, `🎤 «${command}»`);
+      await this.runCommand(mapping.userid, mapping.username, command);
     } catch (error) {
       // Catches failures from ANY step above -- download, file I/O, ffmpeg
       // conversion, or transcription. A single catch is enough here since

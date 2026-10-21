@@ -83,10 +83,14 @@ export class CargoListingRepository {
 
   findPageForPublisher(
     publisherUserId: string,
-    options: { status?: CargoListingStatus; skip: number; take: number },
+    options: { status?: CargoListingStatus; skip: number; take: number; announcedOnly?: boolean },
   ): Promise<[CargoListing[], number]> {
     return this.repository.findAndCount({
-      where: { publisherUserId, ...(options.status ? { status: options.status } : {}) },
+      where: {
+        publisherUserId,
+        ...(options.status ? { status: options.status } : {}),
+        ...(options.announcedOnly ? { announcedAt: Not(IsNull()) } : {}),
+      },
       order: { createdAt: 'DESC' },
       skip: options.skip,
       take: options.take,

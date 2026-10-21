@@ -5,7 +5,7 @@ import { QueryFailedError } from 'typeorm';
 import { CargoDetectedEvent } from '../../domain/constants/cargoEvents';
 import { CargoListing } from '../../domain/entities/notification/CargoListing';
 import { CargoNotification } from '../../domain/entities/notification/CargoNotification';
-import { CargoListingStatus, CargoTripType, NotificationDeliveryStatus } from '../../domain/enums/notification';
+import { CargoListingStatus, CargoTripType } from '../../domain/enums/notification';
 import { CargoSearch, matchesCargoSearch, prepareCargoSearch } from './cargoSearch';
 import { CargoAudienceRepository } from '../../infrastructure/repositories/notification/cargoAudience.repository';
 import { CargoListingRepository } from '../../infrastructure/repositories/notification/cargoListing.repository';
@@ -128,6 +128,12 @@ export class CargoListingService {
     return this.publishListing(userId, { ...fields, code }, `manual:${randomUUID()}`, null, announce);
   }
 
+  /** بارهای باز خود شرکت که هنوز اعلام نشده‌اند (راننده‌ی مناسب نبود، یا در صف اعلام خودکار)، جدیدترین اول. */
+  async unannounced(userId: string) {
+    const listings = await this.listings.findPendingAnnounce(userId);
+    return listings.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).map((listing) => this.toView(listing));
+  }
+
   /** «📣 اعلام همین الان»: بار باز شرکت به راننده‌های همان نوع (بار در صف یا اعلام دوباره). */
   async announceNow(userId: string, listingId: string) {
     const listing = await this.listings.findOneForPublisher(listingId, userId);
@@ -209,24 +215,13 @@ export class CargoListingService {
       }),
     );
     if (!willAnnounce) {
-      if (!sourceNotificationId) {
-        await this.notifications.insertIgnoringDuplicates([{
-          userId,
-          sourceMessageId,
-          text: listing.text,
-          payload: { ...fields, tripType, rawText: listing.text, registeredByCompany: true },
-          telegramStatus: NotificationDeliveryStatus.Skipped,
-          baleStatus: NotificationDeliveryStatus.Skipped,
-          rubikaStatus: NotificationDeliveryStatus.Skipped,
-          whatsappStatus: NotificationDeliveryStatus.Skipped,
-        }]);
-      }
+      // stays out of «بارهای من» and is listed under «بارهای من که اعلام نشده‌اند» (unannounced) until announced
       await this.announceChange(listing);
       const { nextRunAt } = await this.announceSettings.get(userId);
       return {
         ...this.toView(listing), recipients: 0, pending: true,
         pendingReason: announce ? 'noDrivers' as const : 'automatic' as const,
-        message: announce ? 'بار ثبت شد، اما به‌دلیل نبود راننده مناسب اعلام نشد؛ در بارهای پیشنهادی قابل مشاهده است.' : undefined,
+        message: announce ? 'بار ثبت شد، اما به‌دلیل نبود راننده مناسب اعلام نشد؛ در «پیشنهادها» زیر «بارهای من که اعلام نشده‌اند» است.' : undefined,
         nextAnnounceAt: nextRunAt,
       };
     }
@@ -311,6 +306,10 @@ export class CargoListingService {
       // کد مثل بقیه‌ی خطاهای سفر (taken، reserved…) تا وب و ربات پیام خودشان را نشان دهند
       throw new ConflictException('activeTrip');
     }
+    // بار تحویل‌شده کارش تمام است؛ باز کردنش یعنی اعلام دوباره‌ی باری که دیگر وجود ندارد
+    if (status === CargoListingStatus.Open && (await this.requests.hasDelivered(listing.id))) {
+      throw new ConflictException('delivered');
+    }
 
     if (!(await this.listings.changeStatus(listing.id, status))) {
       return this.toView(listing);
@@ -321,10 +320,13 @@ export class CargoListingService {
     return this.toView(updated);
   }
 
-  /** بارهای خود شرکت؛ با search فقط آن‌هایی که با مبدأ/مقصد/نوع بار/ماشین گفته‌شده جورند. */
+  /**
+   * بارهای خود شرکت؛ با search فقط آن‌هایی که با مبدأ/مقصد/نوع بار/ماشین گفته‌شده جورند. announcedOnly: فقط
+   * بارهای اعلام‌شده («بارهای من»)؛ بار اعلام‌نشده (راننده‌ی مناسب نبود، یا در صف اعلام خودکار) در پیشنهادهاست.
+   */
   async listMine(
     userId: string,
-    options: { status?: CargoListingStatus; page: number; pageSize: number } & CargoSearch,
+    options: { status?: CargoListingStatus; page: number; pageSize: number; announcedOnly?: boolean } & CargoSearch,
   ) {
     const skip = (options.page - 1) * options.pageSize;
     const search = prepareCargoSearch(options);
@@ -335,12 +337,14 @@ export class CargoListingService {
         status: options.status,
         skip,
         take: options.pageSize,
+        announcedOnly: options.announcedOnly,
       });
     } else {
       const [recent] = await this.listings.findPageForPublisher(userId, {
         status: options.status,
         skip: 0,
         take: OPEN_SCAN_LIMIT,
+        announcedOnly: options.announcedOnly,
       });
       const matching = recent.filter((listing) => matchesCargoSearch(listing, search));
       items = matching.slice(skip, skip + options.pageSize);

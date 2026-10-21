@@ -42,7 +42,6 @@ export function bordersText(details: BorderDetail[]): string {
     sorted.map((detail) => `• ${borderLine(detail)}`).join('\n'),
     latest ? `🕓 آخرین به‌روزرسانی: ${updatedAt(latest)}` : '',
     details.some((detail) => detail.stale) ? '⚠️ بعضی مرزها الان جواب نمی‌دهند؛ آخرین وضعیت ذخیره‌شده‌شان نشان داده شده.' : '',
-    'منبع: borderpark.ir',
   ]
     .filter(Boolean)
     .join('\n\n');
@@ -93,8 +92,7 @@ export function borderDetailText(detail: BorderDetail): string {
           .join('\n')}`
       : '',
     detail.lastUpdate ? `🕓 آخرین به‌روزرسانی: ${updatedAt(detail.lastUpdate)}` : '',
-    detail.stale ? '⚠️ borderpark الان جواب نمی‌دهد؛ این آخرین وضعیت ذخیره‌شده است.' : '',
-    'منبع: borderpark.ir',
+    detail.stale ? '⚠️ وضعیت این مرز الان به‌روز نمی‌شود؛ این آخرین وضعیت ذخیره‌شده است.' : '',
   ]
     .filter(Boolean)
     .join('\n\n');

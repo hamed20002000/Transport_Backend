@@ -24,6 +24,7 @@ import {
 } from 'src/application/services/agent/tools/toolKit';
 import { RequestResult } from 'src/application/services/agent/types';
 import { CargoListingStatus } from 'src/domain/enums/notification';
+import { CargoAction } from 'src/domain/constants/bot/CargoAction';
 import { CargoListingService } from './cargoListing.service';
 import { CargoTripService, OFFER_TTL_MINUTES } from './cargoTrip.service';
 import { DriverCard } from '../driver/driverProfile.service';
@@ -67,6 +68,8 @@ export class CompanyCargoTools implements OnModuleInit {
         const onlyNew = boolParam(param.onlyNew) ?? false;
         const search = searchFromParams(param);
         const route = cargoSearchText(search);
+        // the plain list is the bot's «بارهای پیشنهادی» page; a search stays this tool's own answer
+        const menuAction = route ? undefined : `${CargoAction.Suggestions}${onlyNew ? 'u' : 'a'}:1`;
 
         const page = await self.notifications.list(ctx.userId, {
           unreadOnly: onlyNew,
@@ -81,7 +84,7 @@ export class CompanyCargoTools implements OnModuleInit {
             : onlyNew
               ? messages.suggested.noneUnread
               : messages.suggested.none;
-          return ctx.done({ count: '0' }, empty);
+          return ctx.done({ count: '0' }, empty, { menuAction });
         }
 
         const header = format(messages.suggested.header, {
@@ -95,6 +98,7 @@ export class CompanyCargoTools implements OnModuleInit {
         const lines = page.items.map((item) => self.suggestionTitle(item));
         return ctx.done({ count: String(page.total) }, `${header}\n${numbered(lines)}`, {
           list: page.items.map((item) => ({ ...item, kind: 'cargo_suggestion' })),
+          menuAction,
         });
       },
     });
@@ -242,9 +246,12 @@ export class CompanyCargoTools implements OnModuleInit {
           state === 'open' ? CargoListingStatus.Open : state === 'taken' ? CargoListingStatus.Taken : undefined;
         const search = searchFromParams(param);
         const route = cargoSearchText(search);
+        // the plain list is the bot's «بارهای شرکت» page (same status tab); a search stays this tool's own answer
+        const myCargoMenu = route ? undefined : `${CargoAction.MyCargo}${state === 'open' ? 'o' : state === 'taken' ? 't' : 'a'}:1`;
 
         const page = await self.listings.listMine(ctx.userId, {
           status,
+          announcedOnly: true,
           page: 1,
           pageSize: PAGE_SIZE,
           ...search,
@@ -257,7 +264,7 @@ export class CompanyCargoTools implements OnModuleInit {
               : status === CargoListingStatus.Taken
                 ? messages.myCargo.noneTaken
                 : messages.myCargo.none;
-          return ctx.done({ count: '0' }, empty);
+          return ctx.done({ count: '0' }, empty, { menuAction: myCargoMenu });
         }
 
         const scope =
@@ -270,7 +277,7 @@ export class CompanyCargoTools implements OnModuleInit {
         return ctx.done(
           { count: String(page.total) },
           `${header}\n${numbered(page.items.map((item) => self.listingTitle(item)))}`,
-          { list: page.items.map((item) => ({ ...item, kind: 'cargo_listing' })) },
+          { list: page.items.map((item) => ({ ...item, kind: 'cargo_listing' })), menuAction: myCargoMenu },
         );
       },
     });

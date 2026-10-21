@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, LessThan, LessThanOrEqual, MoreThanOrEqual, Not, Repository } from 'typeorm';
+import { In, IsNull, LessThan, LessThanOrEqual, MoreThanOrEqual, Not, Raw, Repository } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import { CargoNotification } from '../../../domain/entities/notification/CargoNotification';
 import { cargoCodeMatch } from './cargoCodeMatch';
@@ -148,6 +148,8 @@ export class CargoNotificationRepository {
         userId,
         ...(options.unreadOnly ? { isRead: false } : {}),
         ...kind,
+        // the company's own unannounced loads (older rows) are not suggestions: they have their own section
+        payload: Raw((column) => `COALESCE((${column} ->> 'registeredByCompany')::boolean, false) = false`),
       },
       relations: { listing: true },
       order: { createdAt: 'DESC' },

@@ -24,7 +24,7 @@ import { MessengerPlatform } from 'src/domain/enums/messenger';
 import { CompanyChannelsDialog } from '../../channel/companyChannelsDialog';
 import { BotSessionState } from 'src/domain/enums/botSession';
 import { createWriteStream } from 'node:fs';
-import { findMenuButton } from './menuTextMatch';
+import { findMenuButton, namesSeveralButtons } from './menuTextMatch';
 import { actionRows, BotAction, BotDialog, BotDialogRegistry, BotLocation, BotReply } from './botDialog';
 import { SubscriptionStatusService } from '../../subscription/subscriptionStatus.service';
 import { pipeline } from 'node:stream/promises';
@@ -291,8 +291,14 @@ export class MessengerBotService implements OnModuleInit {
     const menu = await this.keyboard.getMenuButtons(chatId);
     if (!menu) return false;
 
-    const button = findMenuButton(text, menu.buttons);
-    if (!button) return false;
+    // the menu on screen first, then the main menu (its sections can be named from any page)
+    const button = findMenuButton(text, menu.buttons) ?? findMenuButton(text, menu.mainMenuButtons ?? []);
+    if (!button) {
+      // a name several options on screen share: ask for the number rather than guess (or pass it to the agent)
+      if (!namesSeveralButtons(text, menu.buttons)) return false;
+      await this.sendAgentMessage(chatId, this.messages.get('agent.menuAmbiguous', 'fa', { text }));
+      return true;
+    }
 
     const agent = this.agentBridge.current;
     if (agent) {
@@ -300,18 +306,36 @@ export class MessengerBotService implements OnModuleInit {
       if (ctx && agent.isAwaitingAnswer(ctx)) return false;
     }
 
+    if (button.url) await this.sendLinkButton(chatId, button.text, button.url);
+    else await this.openMenuAction(chatId, externalUserId, button.data);
+    return true;
+  }
+
+  /**
+   * A link button chosen by text or voice: the same link the button opens (a map route from the driver to the
+   * station). A bot cannot open an app on the phone; this is one tap away, exactly what pressing it opens.
+   */
+  private async sendLinkButton(chatId: string, label: string, url: string): Promise<void> {
+    await this.sendAgentMessage(chatId, `🧭 ${label}`, [[{ text: this.messages.get('agent.openLink'), url }]]);
+  }
+
+  /**
+   * A menu page opened as if its button was pressed (a new message below, not an edit): for a name said
+   * by text/voice, or an agent tool whose plain list is that page (RequestResult.menuAction).
+   */
+  async openMenuAction(chatId: string, externalUserId: string, data: string): Promise<void> {
+    const menu = await this.keyboard.getMenuButtons(chatId).catch(() => null);
     await this.handleCallbackQuery({
       id: `text:${Date.now()}`,
       from: { id: externalUserId, is_bot: false, first_name: '' } as unknown as TelegramBot.User,
       chat_instance: chatId,
-      data: button.data,
+      data,
       message: {
-        message_id: menu.messageId,
+        message_id: menu?.messageId ?? 0,
         date: Math.floor(Date.now() / 1000),
         chat: { id: chatId, type: 'private' } as unknown as TelegramBot.Chat,
       },
     }, true);
-    return true;
   }
 
   private async handleCallbackQuery(
@@ -1028,7 +1052,8 @@ export class MessengerBotService implements OnModuleInit {
 
   async refreshChannelMenu(chatId: string, externalUserId: string, userId: string): Promise<void> {
     const menu = await this.keyboard.getMenuButtons(chatId);
-    if (!menu || !menu.buttons.every((button) => this.channelsDialog.ownsAction(button.data))) return;
+    // link buttons (data '') belong to no section
+    if (!menu || !menu.buttons.filter((button) => button.data).every((button) => this.channelsDialog.ownsAction(button.data))) return;
     const reply = await this.channelsDialog.refresh({ platform: MessengerPlatform.Bot, externalUserId, userId });
     if (!reply) return;
     this.keyboard.useCallbackMessage(chatId, menu.messageId);

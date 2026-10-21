@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { I18nService } from 'nestjs-i18n';
 
 import { cargoLine, fa } from 'src/application/services/agent/tools/toolKit';
@@ -23,6 +23,7 @@ import { CargoSearch } from './cargoSearch';
 import { WhatsappDialogBridge } from './whatsappDialogBridge';
 import { DriverProfileService } from '../driver/driverProfile.service';
 import { NotificationsGateway } from './notifications.gateway';
+import { WebPushService } from './webPush.service';
 
 export const CARGO_REQUEST_CHANGED_SOCKET_EVENT = 'cargo-request-changed';
 // موقعیت تازه‌ی راننده‌ای که سفر فعال دارد، برای صفحه‌ی «سفرها»ی باز شرکت (Live Location هم)
@@ -54,6 +55,16 @@ export const deliveryReminderDays = () => Number(process.env.TRIP_DELIVERY_REMIN
  * موقعیت راننده. هر تغییر برای طرف مقابل در همه‌ی پیام‌رسان‌هایی که وصل کرده
  * اعلان می‌شود.
  */
+/** The web page a trip notification opens: the one its buttons lead to in the bots. */
+function pushUrl(actions: BotAction[]): string {
+  const has = (...prefixes: string[]) => actions.some((action) => prefixes.some((prefix) => action.id.startsWith(prefix)));
+  if (has(TripAction.Accept, TripAction.Reject, TripAction.CompanyRequests)) return '/account/company/requests';
+  if (has(TripAction.CompanyTrips, TripAction.RejectDelivery, TripAction.Location)) return '/account/company/trips';
+  if (has(TripAction.OfferYes, TripAction.OfferNo)) return '/account/driver/requests';
+  if (has(TripAction.ActiveTrip, TripAction.ShareLocation)) return '/account/driver/trip';
+  return '/';
+}
+
 @Injectable()
 export class CargoTripService {
   private readonly logger = new Logger(CargoTripService.name);
@@ -69,6 +80,7 @@ export class CargoTripService {
     private readonly whatsapp: WhatsappDialogBridge,
     private readonly profiles: DriverProfileService,
     private readonly gateway: NotificationsGateway,
+    @Optional() private readonly push?: WebPushService,
   ) {}
 
   //#region ----------- Driver ------------------------------------------------
@@ -146,10 +158,11 @@ export class CargoTripService {
     return request;
   }
 
-  driverRequests(driverUserId: string, page: number, pageSize: number) {
+  // status: only that state (the driver home counts delivered and pending from the total)
+  driverRequests(driverUserId: string, page: number, pageSize: number, status?: CargoRequestStatus) {
     return this.requests.findPageForDriver(
       driverUserId,
-      Object.values(CargoRequestStatus),
+      status ? [status] : Object.values(CargoRequestStatus),
       (page - 1) * pageSize,
       pageSize,
     );
@@ -171,6 +184,43 @@ export class CargoTripService {
 
   companyRequests(companyUserId: string, page: number, pageSize: number) {
     return this.requests.findPageForCompany(companyUserId, [CargoRequestStatus.Pending], (page - 1) * pageSize, pageSize);
+  }
+
+  /** درخواست‌های در انتظار بارهای شرکت برای پنل وب، اول‌آمده اول، با کارت راننده (نام، خودرو، عکس). */
+  async companyRequestViews(companyUserId: string, page: number, pageSize: number) {
+    const [items, total] = await this.companyRequests(companyUserId, page, pageSize);
+    const cards = await this.profiles.cards([...new Set(items.map((item) => item.driverUserId))]);
+    const cardOf = new Map(cards.map((card) => [card.userId, card]));
+    return {
+      total,
+      page,
+      pageSize,
+      items: items.map((item) => ({
+        requestId: item.id,
+        requestedAt: item.createdAt,
+        cargo: item.listing
+          ? {
+              id: item.listing.id,
+              code: item.listing.code ?? null,
+              origin: item.listing.origin,
+              destination: item.listing.destination,
+              cargoType: item.listing.cargoType ?? null,
+              weight: item.listing.weight ?? null,
+              vehicleType: item.listing.vehicleType ?? null,
+              price: item.listing.price ?? null,
+            }
+          : null,
+        driver: cardOf.get(item.driverUserId) ?? null,
+      })),
+    };
+  }
+
+  countCompanyRequests(companyUserId: string): Promise<number> {
+    return this.requests.countPendingForCompany(companyUserId);
+  }
+
+  pendingRequestCounts(listingIds: string[]): Promise<Map<string, number>> {
+    return this.requests.countPendingByListings(listingIds);
   }
 
   /** درخواست یا سفری از بارهای همین شرکت؛ null اگر مال شرکت نیست. */
@@ -204,6 +254,8 @@ export class CargoTripService {
           requestId: item.id,
           startedAt: item.decidedAt ?? item.updatedAt,
           deliveryRemindedAt: item.deliveryRemindedAt ?? null,
+          // راننده تحویل را اعلام کرده و منتظر تأیید شرکت است
+          deliveryReportedAt: item.deliveryReportedAt ?? null,
           cargo: item.listing
             ? {
                 id: item.listing.id,
@@ -241,14 +293,20 @@ export class CargoTripService {
       request.deliveryRemindedAt = now;
       await this.requests.save(request);
       const driver = await this.contact(request.driverUserId);
-      const text = this.t('notify.deliveryReminder', { driver: this.describe(driver), cargo: this.cargoTitle(request), days: fa(days) });
+      // راننده تحویل را اعلام کرده: یادآوری تأیید، نه پرسش «تحویل شد؟»
+      const reported = !!request.deliveryReportedAt;
+      const text = this.t(reported ? 'notify.confirmReminder' : 'notify.deliveryReminder', {
+        driver: this.describe(driver),
+        cargo: this.cargoTitle(request),
+        days: fa(days),
+      });
       // پنل وب باز: همان یادآوری به شکل اعلان (بنر سفرهای بی‌تحویل هم با همین رویداد به‌روز می‌شود)
       this.changed(request, { type: 'deliveryReminder', text });
       await this.notify(
         request.companyUserId,
         text,
         [
-          { id: `${TripAction.Deliver}${request.id}`, label: this.t('actions.markDelivered'), row: 0 },
+          { id: `${TripAction.Deliver}${request.id}`, label: this.t(reported ? 'actions.confirmDelivery' : 'actions.markDelivered'), row: 0 },
           { id: `${TripAction.CompanyTrips}1`, label: this.t('actions.companyTrips'), row: 1 },
         ],
       );
@@ -432,7 +490,7 @@ export class CargoTripService {
   }
 
   /** پنل‌های باز شرکت و راننده بدون رفرش به‌روز شوند. */
-  private changed(request: CargoRequest, notice?: { type: 'newRequest' | 'deliveryReminder'; text: string }): void {
+  private changed(request: CargoRequest, notice?: { type: 'newRequest' | 'deliveryReminder' | 'deliveryReported'; text: string }): void {
     const event = { requestId: request.id, listingId: request.listingId, status: request.status, ...notice };
     this.gateway.sendToUser(request.companyUserId, CARGO_REQUEST_CHANGED_SOCKET_EVENT, event);
     this.gateway.sendToUser(request.driverUserId, CARGO_REQUEST_CHANGED_SOCKET_EVENT, event);
@@ -442,25 +500,62 @@ export class CargoTripService {
 
   //#region ----------- Both: delivery ---------------------------------------
 
-  /** تحویل را راننده یا شرکت ثبت می‌کند؛ طرف دیگر خبردار می‌شود. */
+  /**
+   * تحویل در دو قدم: راننده اعلامش می‌کند (سفر تا تأیید شرکت فعال می‌ماند و شرکت با دکمه‌ی تأیید خبردار
+   * می‌شود)؛ شرکت با تأیید یا ثبت مستقیم، بار را «تحویل‌شده» می‌کند و راننده خبردار می‌شود.
+   */
   async deliver(userId: string, requestId: string): Promise<CargoRequest> {
     const request = await this.owned(requestId, (r) => r.driverUserId === userId || r.companyUserId === userId);
     if (request.status !== CargoRequestStatus.Accepted) throw new ConflictException('notActive');
+    const by = await this.contact(userId);
+    const cargo = this.cargoTitle(request);
+
+    if (userId === request.driverUserId) {
+      // دوباره زدن: همان اعلام قبلی منتظر شرکت است
+      if (request.deliveryReportedAt) return request;
+      request.deliveryReportedAt = new Date();
+      await this.requests.save(request);
+      const text = this.t('notify.deliveryReported', { cargo, by: this.describe(by) });
+      // پنل وب باز شرکت: همان خبر به شکل اعلان
+      this.changed(request, { type: 'deliveryReported', text });
+      await this.notify(request.companyUserId, text, [
+        { id: `${TripAction.Deliver}${request.id}`, label: this.t('actions.confirmDelivery'), row: 0 },
+        { id: `${TripAction.RejectDelivery}${request.id}`, label: this.t('actions.rejectDelivery'), row: 0 },
+        { id: `${TripAction.CompanyTrips}1`, label: this.t('actions.companyTrips'), row: 1 },
+      ]);
+      return request;
+    }
+
+    // شرکت: تأیید اعلام راننده، یا ثبت مستقیم
+    const reported = !!request.deliveryReportedAt;
     request.status = CargoRequestStatus.Delivered;
     request.deliveredAt = new Date();
     await this.requests.save(request);
-
-    const byDriver = userId === request.driverUserId;
-    const other = byDriver ? request.companyUserId : request.driverUserId;
-    const by = await this.contact(userId);
     await this.notify(
-      other,
-      this.t(byDriver ? 'notify.deliveredByDriver' : 'notify.deliveredByCompany', {
-        cargo: this.cargoTitle(request),
-        by: this.describe(by),
-      }),
+      request.driverUserId,
+      this.t(reported ? 'notify.deliveryConfirmed' : 'notify.deliveredByCompany', { cargo, by: this.describe(by) }),
     );
-    // پنل‌های باز (سفرها و شمارنده‌ی سفرهای بی‌تحویل) به‌روز شوند
+    // پنل‌های باز (سفرها، شمارنده‌ی سفرهای بی‌تحویل، خانه‌ی راننده) به‌روز شوند
+    this.changed(request);
+    return request;
+  }
+
+  /**
+   * «تحویل نشده»: شرکت اعلام تحویل راننده را رد می‌کند؛ سفر فعال می‌ماند، راننده خبردار می‌شود و
+   * می‌تواند بعداً دوباره اعلام کند.
+   */
+  async rejectDeliveryReport(companyUserId: string, requestId: string): Promise<CargoRequest> {
+    const request = await this.owned(requestId, (r) => r.companyUserId === companyUserId);
+    if (request.status !== CargoRequestStatus.Accepted) throw new ConflictException('notActive');
+    if (!request.deliveryReportedAt) throw new ConflictException('notReported');
+    request.deliveryReportedAt = null;
+    await this.requests.save(request);
+    const company = await this.contact(companyUserId);
+    await this.notify(
+      request.driverUserId,
+      this.t('notify.deliveryRejected', { cargo: this.cargoTitle(request), by: this.describe(company) }),
+      [{ id: TripAction.ActiveTrip, label: this.t('actions.activeTrip') }],
+    );
     this.changed(request);
     return request;
   }
@@ -619,6 +714,10 @@ export class CargoTripService {
     await Promise.all([
       bots().catch((error: Error) => this.logger.warn(`Trip bot notification to ${userId} failed: ${error.message}`)),
       this.whatsapp.notify(userId, text, actions).catch((error: Error) => this.logger.warn(`Trip notification to ${userId} on WhatsApp failed: ${error.message}`)),
+      // the same news as a phone notification of the installed app, even while it is closed
+      this.push
+        ?.sendToUser(userId, { title: 'Setaş', body: text, url: pushUrl(actions) })
+        .catch((error: Error) => this.logger.warn(`Trip web push to ${userId} failed: ${error.message}`)),
     ]);
   }
 

@@ -201,7 +201,12 @@
         "properties": {
           "platform": {
             "type": "string",
-            "enum": ["telegram", "whatsapp", "bale", "rubika"],
+            "enum": [
+              "telegram",
+              "whatsapp",
+              "bale",
+              "rubika"
+            ],
             "description": "فقط اگر کاربر پیام‌رسانی گفت؛ وگرنه خالی. «کانال‌های تلگرامم» → telegram، «گروه‌های واتس‌اپ» → whatsapp، «بله» → bale، «روبیکا» → rubika"
           }
         },
@@ -606,6 +611,33 @@
           }
         },
         "required": []
+      }
+    },
+    {
+      "name": "open_app_section",
+      "description": "یکی از صفحه‌های برنامه را که کاربر با زبان خودش خواست باز می‌کند (همان صفحه‌ی منو): جایگاه‌های سوخت نزدیک، موقعیت من، سفر فعال، بار برگشتی، درخواست‌های من، سفرهای فعال و درخواست رانندگان شرکت، قیمت دلار و طلا، منوی اصلی.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "section": {
+            "type": "string",
+            "enum": [
+              "near_fuel_stations",
+              "my_location",
+              "active_trip",
+              "return_loads",
+              "my_requests",
+              "company_active_trips",
+              "company_driver_requests",
+              "market_prices",
+              "main_menu"
+            ],
+            "description": "صفحه: near_fuel_stations = جایگاه یا پمپ بنزین/گازوئیل نزدیک من («نزدیک‌ترین پمپ بنزین کجاست؟»)؛ my_location = موقعیت من روی نقشه؛ active_trip = سفر فعال راننده؛ return_loads = بار برگشتی از مقصد؛ my_requests = درخواست‌های بار راننده؛ company_active_trips = سفرهای فعال رانندگان شرکت؛ company_driver_requests = درخواست رانندگان برای بارهای شرکت؛ market_prices = قیمت دلار، یورو، سکه و طلا («دلار چنده؟»)؛ main_menu = منوی اصلی"
+          }
+        },
+        "required": [
+          "section"
+        ]
       }
     }
   ]

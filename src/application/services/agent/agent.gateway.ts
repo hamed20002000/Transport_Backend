@@ -77,6 +77,11 @@ export class AgentGateway {
       }
 
       const jid = await this.whatsappService.getJidForUsername(userId);
+      // the same list as a WhatsApp page («پیدا کردن بار», «جایگاه‌های نزدیک»): that page instead of the text
+      if (jid && data.result === "success" && data.lastsegment && data.menuAction) {
+        await this.whatsappService.clearProgress(jid);
+        if (await this.whatsappService.openDialogAction(jid, userId, data.menuAction)) return;
+      }
       if (jid) {
         const text = data.result === "success"
           ? `✅ ${data.message}`

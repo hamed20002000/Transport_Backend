@@ -12,6 +12,8 @@ interface ChatKeyboard {
   messageId?: number;
   /** دکمه‌های آخرین منو تا کاربر بتواند با تایپ/ویس هم انتخاب کند. */
   buttons?: MenuButton[];
+  /** دکمه‌های منوی اصلی؛ اسمشان از هر صفحه‌ای قابل گفتن است («قیمت طلا») */
+  mainMenuButtons?: MenuButton[];
   mainMenu?: TelegramBot.Message;
   mainMenuSignature?: string;
 }
@@ -55,10 +57,12 @@ export class BotKeyboardService {
 
   
   //#region --------------- دکمه های منو فعلی که جلوی کاربر است را برمیگرداند -------------------------------
-  async getMenuButtons(chatId: string): Promise<{ messageId: number; buttons: MenuButton[]; refreshAction?: string } | null> {
+  async getMenuButtons(
+    chatId: string,
+  ): Promise<{ messageId: number; buttons: MenuButton[]; mainMenuButtons: MenuButton[]; refreshAction?: string } | null> {
     const current = await this.redis.getJson<ChatKeyboard>(RedisService.key('telegramKeyboard', this.namespace, chatId));
     return current?.messageId !== undefined && current.buttons?.length
-      ? { messageId: current.messageId, buttons: current.buttons, refreshAction: current.refreshAction }
+      ? { messageId: current.messageId, buttons: current.buttons, mainMenuButtons: current.mainMenuButtons ?? [], refreshAction: current.refreshAction }
       : null;
   }
   //#endregion --------------------------------------------------------------------------------
@@ -104,6 +108,8 @@ export class BotKeyboardService {
         || await this.bot.sendMessage(chatId, text, { ...options });
       if (isMainMenu) {
         current.mainMenu = message;
+        // kept after the main menu message is replaced by an operation: its buttons can still be named
+        current.mainMenuButtons = inlineButtons(options.reply_markup);
         delete current.mainMenuSignature;
       } else if (String(message.message_id) === String(previousMainMenuId)) {
         // The main menu message was turned into this operation; it is no longer the main menu.
@@ -214,8 +220,9 @@ function hasInlineKeyboard(markup: ReplyMarkup): markup is TelegramBot.InlineKey
 
 function inlineButtons(markup: ReplyMarkup): MenuButton[] {
   if (!hasInlineKeyboard(markup)) return [];
+  // link buttons too, in the order they are shown: «دومی» is the second button the user sees
   return markup.inline_keyboard
     .flat()
-    .filter((button) => button.callback_data)
-    .map((button) => ({ text: button.text, data: button.callback_data! }));
+    .filter((button) => button.callback_data || button.url)
+    .map((button) => (button.url ? { text: button.text, data: '', url: button.url } : { text: button.text, data: button.callback_data! }));
 }

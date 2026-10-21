@@ -500,7 +500,8 @@ export class FunctionCallService {
             toolName: toolResult?.toolName,
             isSpecial: this.isSpecial(toolResult?.toolName),
             lastsegment: context.resumeIndex >= context.remainingSegments.length,
-            list: toolResult?.list ?? []
+            list: toolResult?.list ?? [],
+            menuAction: toolResult?.menuAction,
         });
         this.agentGateway.broadcastDomainChange(userId, await this.condinate.getDomainOfPreviousTool(context.toolName) ?? "", {})
 
@@ -803,7 +804,8 @@ export class FunctionCallService {
                 toolName: toolResult.toolName,
                 lastsegment: isLastSegment,
                 isSpecial: this.isSpecial(toolResult.toolName),
-                list: toolResult.list ?? []
+                list: toolResult.list ?? [],
+                menuAction: toolResult.menuAction,
             });
             this.agentGateway.broadcastDomainChange(userId, await this.condinate.getDomainOfPreviousTool(selectedToolName) ?? "", {})
 

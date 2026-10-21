@@ -30,6 +30,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { JwtPayload } from 'src/domain/entities/auth/jwt-payload.dto';
 import { CargoRequest } from 'src/domain/entities/notification/CargoRequest';
+import { CargoRequestStatus } from 'src/domain/enums/notification';
 import { CreateCargoRequestDto, DriverLocationDto, DriverPlaceDto, RespondOfferDto } from 'src/dto/notification/DriverDto';
 import { UpdateDriverProfileDto } from 'src/dto/notification/DriverProfileDto';
 import {
@@ -264,9 +265,10 @@ export class DriverController {
     @Req() request: AuthRequest,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('pageSize', new DefaultValuePipe(20), ParseIntPipe) pageSize: number,
+    @Query('status', new ParseEnumPipe(CargoRequestStatus, { optional: true })) status?: CargoRequestStatus,
   ) {
     const paging = pageOf(page, pageSize);
-    const [items, total] = await this.trips.driverRequests(currentDriverId(request), paging.page, paging.pageSize);
+    const [items, total] = await this.trips.driverRequests(currentDriverId(request), paging.page, paging.pageSize, status);
     return { items: items.map((item) => this.requestView(item)), total, ...paging };
   }
 
@@ -334,6 +336,8 @@ export class DriverController {
       createdAt: item.createdAt,
       decidedAt: item.decidedAt ?? null,
       deliveredAt: item.deliveredAt ?? null,
+      // تحویل را اعلام کرده و منتظر تأیید شرکت است
+      deliveryReportedAt: item.deliveryReportedAt ?? null,
       offerExpiresAt: item.offerExpiresAt ?? null,
       listing: item.listing ? this.listings.toView(item.listing) : null,
     };

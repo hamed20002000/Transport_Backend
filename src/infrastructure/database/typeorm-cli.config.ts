@@ -1,5 +1,6 @@
 import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
+import { sessionTimeZone } from './timeZone';
 
 export const typeOrmConfig = (
   configService: ConfigService,
@@ -26,4 +27,6 @@ export const typeOrmConfig = (
   synchronize: false,
 
   logging: true,
+
+  extra: sessionTimeZone,
 });

@@ -61,6 +61,10 @@ export class CargoRequest {
   @Column({ type: 'timestamp', nullable: true })
   deliveredAt?: Date | null;
 
+  // راننده «تحویل دادم» را زد؛ سفر تا تأیید شرکت فعال (ACCEPTED) می‌ماند و بعد DELIVERED می‌شود
+  @Column({ type: 'timestamp', nullable: true })
+  deliveryReportedAt?: Date | null;
+
   // آخرین یادآوری «تحویل داده شد؟» به شرکت برای سفری که تحویلش ثبت نشده
   @Column({ type: 'timestamp', nullable: true })
   deliveryRemindedAt?: Date | null;

@@ -186,6 +186,12 @@ export class CargoListingController {
     return this.excel.import(userId, file.buffer, dryRun);
   }
 
+  // «بارهای من که اعلام نشده‌اند» (بالای پیشنهادها): بار ثبت‌شده‌ای که راننده‌ی مناسب نداشت یا در صف اعلام خودکار است
+  @Get('unannounced')
+  unannounced(@Req() request: AuthRequest) {
+    return this.listings.unannounced(companyUserId(request));
+  }
+
   // بارهایی که همین کاربر (شرکت) منتشر کرده است، با راننده‌ای که هر بار به او سپرده شده
   @Get()
   async listMine(
@@ -196,11 +202,16 @@ export class CargoListingController {
   ) {
     const result = await this.listings.listMine(currentUserId(request), {
       status,
+      announcedOnly: true,
       page: Math.max(page, 1),
       pageSize: Math.min(Math.max(pageSize, 1), 100),
     });
-    const assignments = await this.trips.assignments(result.items.map((item) => item.id));
-    return { ...result, items: result.items.map((item) => ({ ...item, assignment: assignments.get(item.id) ?? null })) };
+    const ids = result.items.map((item) => item.id);
+    const [assignments, requests] = await Promise.all([this.trips.assignments(ids), this.trips.pendingRequestCounts(ids)]);
+    return {
+      ...result,
+      items: result.items.map((item) => ({ ...item, assignment: assignments.get(item.id) ?? null, pendingRequests: requests.get(item.id) ?? 0 })),
+    };
   }
 
   // «برداشته شد»: راننده‌هایی که برای این بار درخواست داده‌اند و راننده‌ای که منتظر تأیید است
@@ -231,11 +242,45 @@ export class CargoListingController {
     return this.trips.overdueTrips(companyUserId(request));
   }
 
+  // درخواست‌های در انتظار رانندگان برای بارهای شرکت، با کارت راننده
+  @Get('requests')
+  companyRequests(
+    @Req() request: AuthRequest,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('pageSize', new DefaultValuePipe(20), ParseIntPipe) pageSize: number,
+  ) {
+    return this.trips.companyRequestViews(companyUserId(request), Math.max(page, 1), Math.min(Math.max(pageSize, 1), 50));
+  }
+
+  // تعداد درخواست‌های در انتظار (شمارنده‌ی تب «درخواست‌ها» و زنگ)
+  @Get('requests/count')
+  async companyRequestCount(@Req() request: AuthRequest) {
+    return { count: await this.trips.countCompanyRequests(companyUserId(request)) };
+  }
+
+  // قبول یا رد درخواست راننده (409 notPending / taken / reserved)
+  @Patch('requests/:id/:decision')
+  async decideRequest(
+    @Req() request: AuthRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('decision', new ParseEnumPipe(['accept', 'reject'])) decision: 'accept' | 'reject',
+  ) {
+    const decided = await this.trips.decide(companyUserId(request), id, decision === 'accept');
+    return { requestId: decided.id, status: decided.status };
+  }
+
   // شرکت تحویل بار را ثبت می‌کند؛ راننده خبردار می‌شود (409 notActive اگر سفر فعال نیست)
   @Patch('trips/:id/deliver')
   async deliverTrip(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string) {
     const delivered = await this.trips.deliver(companyUserId(request), id);
     return { requestId: delivered.id, status: delivered.status, deliveredAt: delivered.deliveredAt };
+  }
+
+  // «تحویل نشده»: اعلام تحویل راننده رد می‌شود و سفر فعال می‌ماند (409 notReported اگر اعلامی نبود)
+  @Patch('trips/:id/reject-delivery')
+  async rejectDelivery(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string) {
+    const trip = await this.trips.rejectDeliveryReport(companyUserId(request), id);
+    return { requestId: trip.id, status: trip.status, deliveryReportedAt: trip.deliveryReportedAt ?? null };
   }
 
   // سپردن بار به راننده؛ بار بعد از تأیید راننده «برداشته شد» می‌شود

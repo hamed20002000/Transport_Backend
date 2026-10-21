@@ -34,15 +34,12 @@ const PREFIX = 'tr:';
 const Action = {
   ...TripAction,
   Cancel: `${PREFIX}cx:`, // + requestId
-  DriverRequests: `${PREFIX}dr:`, // + page
   Deliver: TripAction.Deliver, // + requestId
-  ReturnLoads: `${PREFIX}rt`,
   ReturnPage: `${PREFIX}rp:`, // + page
   ReturnCity: `${PREFIX}rc`,
   LocationRequest: `${PREFIX}lq:`, // + requestId
   RouteDetail: `${PREFIX}rd:`, // + listingId:index
   CargoReturns: `${PREFIX}rb:`, // + listingId:page
-  NearStations: `${PREFIX}ns`,
   // روشن/خاموش کردن یک نوع سوخت برای جایگاه‌ها، و همان صفحه دوباره
   RouteFuel: `${PREFIX}rf:`, // + listingId:index:kind
   NearFuel: `${PREFIX}nf:`, // + kind
@@ -190,7 +187,7 @@ export class TripDialog implements BotDialog, OnModuleInit {
       return { text: '', actions: [], closed: 'exit' };
     }
 
-    const isCompanyAction = [Action.CompanyRequests, Action.CompanyTrips, Action.Accept, Action.Reject, Action.Location, Action.LocationRequest]
+    const isCompanyAction = [Action.CompanyRequests, Action.CompanyTrips, Action.Accept, Action.Reject, Action.Location, Action.LocationRequest, Action.RejectDelivery]
       .some((prefix) => id.startsWith(prefix));
     // تحویل را هر دو طرف ثبت می‌کنند
     const roles = id.startsWith(Action.Deliver) ? [...DRIVER_ROLES, ...COMPANY_ROLES] : isCompanyAction ? COMPANY_ROLES : DRIVER_ROLES;
@@ -245,6 +242,7 @@ export class TripDialog implements BotDialog, OnModuleInit {
     if (id.startsWith(Action.LocationRequest)) return this.requestLocation(ctx, arg(Action.LocationRequest));
 
     if (id.startsWith(Action.Deliver)) return this.deliver(ctx, arg(Action.Deliver));
+    if (id.startsWith(Action.RejectDelivery)) return this.rejectDelivery(ctx, arg(Action.RejectDelivery));
     return { text: this.t('failed'), actions: [this.back()] };
   }
 
@@ -339,16 +337,19 @@ export class TripDialog implements BotDialog, OnModuleInit {
           trips.length > 1 ? `${fa(i + 1)})` : '',
           listing.text,
           this.t('activeTrip.since', { ago: this.ago(trip.decidedAt ?? trip.updatedAt) }),
+          trip.deliveryReportedAt ? this.t('activeTrip.awaitingConfirm', { ago: this.ago(trip.deliveryReportedAt) }) : '',
         ]
           .filter(Boolean)
           .join('\n');
       })
       .join('\n\n➖➖➖\n\n');
 
-    const delivers = trips.map((trip, i) => ({
-      id: `${Action.Deliver}${trip.id}`,
-      label: this.t(trips.length > 1 ? 'actions.deliveredN' : 'actions.delivered', { index: fa(i + 1) }),
-    }));
+    // سفری که تحویلش اعلام شده دکمه‌ی دوباره ندارد؛ منتظر تأیید شرکت است
+    const delivers = trips.flatMap((trip, i) =>
+      trip.deliveryReportedAt
+        ? []
+        : [{ id: `${Action.Deliver}${trip.id}`, label: this.t(trips.length > 1 ? 'actions.deliveredN' : 'actions.delivered', { index: fa(i + 1) }) }],
+    );
     const routes = trips.map((trip, i) => ({
       id: `${Action.Detail}${trip.listingId}`,
       label: this.t(trips.length > 1 ? 'actions.tripRouteN' : 'actions.tripRoute', { index: fa(i + 1) }),
@@ -374,12 +375,25 @@ export class TripDialog implements BotDialog, OnModuleInit {
     let notice: string;
     try {
       request = await this.trips.deliver(ctx.userId, requestId);
-      notice = this.t('delivered.done', { cargo: this.trips.cargoTitle(request) });
+      // راننده فقط اعلام می‌کند؛ «تحویل‌شده» با تأیید شرکت
+      const reportedOnly = request.status === CargoRequestStatus.Accepted;
+      notice = this.t(reportedOnly ? 'delivered.reported' : 'delivered.done', { cargo: this.trips.cargoTitle(request) });
     } catch (error) {
       notice = this.conflictText(error, 'trip');
     }
     const byCompany = request ? request.companyUserId === ctx.userId : await this.hasRole(ctx, COMPANY_ROLES);
     return byCompany ? this.companyTripsView(ctx, 1, notice) : this.activeTripView(ctx, notice);
+  }
+
+  private async rejectDelivery(ctx: BotContext, requestId: string): Promise<BotReply> {
+    let notice: string;
+    try {
+      const request = await this.trips.rejectDeliveryReport(ctx.userId, requestId);
+      notice = this.t('delivered.rejected', { cargo: this.trips.cargoTitle(request) });
+    } catch (error) {
+      notice = this.conflictText(error, 'trip');
+    }
+    return this.companyTripsView(ctx, 1, notice);
   }
 
   //#endregion
@@ -952,12 +966,20 @@ export class TripDialog implements BotDialog, OnModuleInit {
               cargo: this.trips.cargoTitle(trip),
               ago: this.ago(trip.decidedAt ?? trip.updatedAt),
             }),
+            trip.deliveryReportedAt ? this.t('companyTrips.reported', { ago: this.ago(trip.deliveryReportedAt) }) : '',
             this.locationLine(location),
-          ].join('\n'),
+          ]
+            .filter(Boolean)
+            .join('\n'),
         );
         buttons.push(
           { id: `${Action.Location}${trip.id}`, label: this.t('actions.locationN', { index }) },
-          { id: `${Action.Deliver}${trip.id}`, label: this.t('actions.deliveredN', { index }) },
+          {
+            id: `${Action.Deliver}${trip.id}`,
+            label: this.t(trip.deliveryReportedAt ? 'actions.confirmDeliveryN' : 'actions.deliveredN', { index }),
+          },
+          // the driver reported it: the company can also turn the report down
+          ...(trip.deliveryReportedAt ? [{ id: `${Action.RejectDelivery}${trip.id}`, label: this.t('actions.rejectDeliveryN', { index }) }] : []),
         );
       }
       body = blocks.join('\n\n');

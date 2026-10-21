@@ -42,9 +42,9 @@ export class BorderTools implements OnModuleInit {
         if (matches.length > 1) {
           const ids = new Set(matches.map((border) => border.id));
           const lines = all.filter((detail) => ids.has(detail.border.id)).map((detail) => `• ${borderLine(detail)}`);
-          return ctx.done({ count: String(lines.length) }, [`🛃 مرزهای «${wanted}»`, lines.join('\n'), 'منبع: borderpark.ir'].join('\n\n'));
+          return ctx.done({ count: String(lines.length) }, [`🛃 مرزهای «${wanted}»`, lines.join('\n')].join('\n\n'));
         }
-        const notFound = wanted ? `مرزی به اسم «${wanted}» در borderpark نیست؛ وضعیت همه‌ی مرزها:\n\n` : '';
+        const notFound = wanted ? `مرزی به اسم «${wanted}» پیدا نشد؛ وضعیت همه‌ی مرزها:\n\n` : '';
         return ctx.done({ count: String(all.length) }, `${notFound}${bordersText(all)}`);
       },
     });

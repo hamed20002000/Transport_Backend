@@ -5,12 +5,12 @@ import { WhatsappService } from 'src/application/services/agent/services/whatsap
 import { BotCallback } from 'src/domain/constants/bot/BotCallback';
 import { TripAction } from 'src/domain/constants/bot/TripAction';
 import { MessengerPlatform } from 'src/domain/enums/messenger';
-import { normalizePersianText } from 'src/domain/helper/persianText';
 import { IUserRepository } from 'src/domain/repositories/IUserRepopsitory';
 import { USER_REPOSITORY } from 'src/domain/repositories/repository.tokens';
 import { actionRows, BotAction, BotContext, BotDialogRegistry, BotDocument, BotReply } from '../messengerBot/core/botDialog';
 import { hasCards, whatsappCards, whatsappOptionRows, whatsappOptions } from '../messengerBot/core/botCard';
-import { matchOptionLabel, parseChoice } from 'src/application/services/agent/services/replyChoice';
+import { parseChoice } from 'src/application/services/agent/services/replyChoice';
+import { findMenuButton, MenuButton, namesSeveralButtons } from '../messengerBot/core/menuTextMatch';
 import { MarketAction } from '../market/marketBot.service';
 import { RedisService } from '../redis/redis.service';
 
@@ -61,6 +61,8 @@ interface MenuState {
   actions: string[];
   /** متن گزینه‌ها به همان ترتیب؛ برای جواب صوتی («سفر فعال») و prompt تشخیص گفتار */
   labels?: string[];
+  /** خط‌های «عنوان: لینک» زیر متن (مثلاً مسیریابی تا هر جایگاه)؛ با گفتن اسم یا شماره‌شان هم انتخاب می‌شوند */
+  links?: { label: string; url: string }[];
   refreshAction?: string;
 }
 
@@ -99,7 +101,6 @@ export class WhatsappDialogBridge implements OnModuleInit {
   async handleText(jid: string, userId: string, text: string): Promise<boolean> {
     const ctx = this.ctx(userId);
     const value = text.trim();
-    const normalized = this.normalize(value);
     const menu = await this.getMenu(userId);
 
     if (MENU_WORDS.includes(value.toLowerCase())) {
@@ -123,12 +124,8 @@ export class WhatsappDialogBridge implements OnModuleInit {
       return true;
     }
 
-    // اسم یک بخش، مثل «سفر فعال» یا «بار برگشتی»
-    const section = (await this.sections(ctx)).find((item) => this.normalize(this.sectionLabel(item.key)) === normalized);
-    if (section) {
-      await this.run(jid, ctx, section.action);
-      return true;
-    }
+    // اسم یک گزینه، لینک یا بخش («قیمت طلا رو نشون بده»، «جایگاه دو»): همان قاعده‌ی ربات‌ها (findMenuButton)
+    if (await this.selectByName(jid, userId, value, menu)) return true;
 
     if (menu && CANCEL_WORDS.includes(value.toLowerCase())) {
       await this.clearMenu(userId);
@@ -156,10 +153,46 @@ export class WhatsappDialogBridge implements OnModuleInit {
    */
   async handleVoiceChoice(jid: string, userId: string, text: string): Promise<boolean> {
     const menu = await this.getMenu(userId);
-    if (!menu?.actions.length) return false;
-    const index = parseChoice(text) ?? (menu.labels ? matchOptionLabel(text, menu.labels) : null);
-    if (index === null || index < 1 || index > menu.actions.length) return false;
-    await this.run(jid, this.ctx(userId), menu.actions[index - 1]);
+    const index = menu?.actions.length ? parseChoice(text) : null;
+    if (menu && index !== null && index >= 1 && index <= menu.actions.length) {
+      await this.run(jid, this.ctx(userId), menu.actions[index - 1]);
+      return true;
+    }
+    return this.selectByName(jid, userId, text, menu);
+  }
+
+  /**
+   * The same matching as the bots' menu (findMenuButton): the open menu's options, then its links, then the
+   * sections of the main menu (named from any page). A link is sent as the link itself (one tap opens what
+   * it opens), since WhatsApp has no buttons.
+   */
+  private async selectByName(jid: string, userId: string, text: string, menu: MenuState | null): Promise<boolean> {
+    const ctx = this.ctx(userId);
+    const options: MenuButton[] = (menu?.actions ?? []).map((action, i) => ({
+      text: menu?.labels?.[i] ?? '',
+      data: action,
+    }));
+    const links: MenuButton[] = (menu?.links ?? []).map((link) => ({ text: link.label, data: '', url: link.url }));
+    const sections: MenuButton[] = (await this.sections(ctx)).map((section) => ({
+      text: this.sectionLabel(section.key),
+      data: section.action,
+    }));
+    const button =
+      (options.length ? findMenuButton(text, options) : null) ??
+      (links.length ? findMenuButton(text, links) : null) ??
+      findMenuButton(text, sections);
+    if (!button) {
+      // a name several options share: ask for the number rather than guess (or pass it to the agent)
+      if (!namesSeveralButtons(text, [...options, ...links])) return false;
+      await this.whatsapp.sendMessage(jid, this.t('whatsapp.ambiguous', { text }));
+      return true;
+    }
+    // the same link its line holds (a map route): one tap opens exactly what it opens
+    if (button.url) {
+      await this.whatsapp.sendMessage(jid, `🧭 ${button.text}\n${button.url}`);
+      return true;
+    }
+    await this.run(jid, ctx, button.data);
     return true;
   }
 
@@ -229,6 +262,18 @@ export class WhatsappDialogBridge implements OnModuleInit {
       return true;
     }
     return false;
+  }
+
+  /** صفحه‌ای که agent به‌جای جواب متنی‌اش باز می‌کند (menuAction): منوی اصلی یا صفحه‌ی یک گفتگو. */
+  async openAction(jid: string, userId: string, action: string): Promise<boolean> {
+    const ctx = this.ctx(userId);
+    if (action === BotCallback.MainMenu) {
+      await this.sendMainMenu(jid, ctx);
+      return true;
+    }
+    if (!this.registry.resolve(action)) return false;
+    await this.run(jid, ctx, action);
+    return true;
   }
 
   /** callback منو یا action یکی از گفتگوها را اجرا و جوابش را می‌فرستد. */
@@ -375,11 +420,6 @@ export class WhatsappDialogBridge implements OnModuleInit {
     return /^\d{1,3}$/.test(latin) ? Number(latin) : null;
   }
 
-  /** بدون ایموجی و علامت، برای تطبیق اسم بخش‌ها */
-  private normalize(value: string): string {
-    return normalizePersianText(value.replace(/[^\p{L}\p{N}\s]/gu, ' ')).replace(/\s+/g, ' ').trim();
-  }
-
   private getMenu(userId: string): Promise<MenuState | null> {
     return this.redis.getJson<MenuState>(RedisService.key('whatsappMenu', userId));
   }
@@ -387,7 +427,12 @@ export class WhatsappDialogBridge implements OnModuleInit {
   private saveMenu(userId: string, actions: BotAction[], refreshAction?: string): Promise<void> {
     return this.redis.setJson(
       RedisService.key('whatsappMenu', userId),
-      { actions: this.options(actions).map((a) => a.id), labels: this.options(actions).map((a) => a.label), refreshAction },
+      {
+        actions: this.options(actions).map((a) => a.id),
+        labels: this.options(actions).map((a) => a.label),
+        links: actions.filter((a) => a.url).map((a) => ({ label: a.label, url: a.url! })),
+        refreshAction,
+      },
       MENU_TTL_SECONDS,
     );
   }

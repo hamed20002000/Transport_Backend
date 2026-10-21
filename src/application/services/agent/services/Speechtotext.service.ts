@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { copyFile, mkdir, unlink, writeFile } from 'node:fs/promises';
 import { cpus } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { basename, isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
 import { fixMisheardNumbers } from './spokenCodes';
 import { fixMisheardPlaces } from './spokenPlaces';
@@ -120,20 +120,20 @@ export class SpeechToTextService {
       // («تو هزار» ← «دو هزار»، «به علشتر» ← «به الشتر»)
       const corrected = applyCorrections(cleanTranscript(stdout, options.prompt, options.language), this.corrections);
       const text = fixMisheardPlaces(fixMisheardNumbers(corrected));
-      if (this.sampleDir) await this.keepSample(wavPath, stdout.trim(), text);
+      if (this.sampleDir) await this.keepSample(wavPath, stdout.trim(), text, options.model);
       return text;
     } finally {
       await unlink(wavPath).catch(() => undefined);
     }
   }
 
-  /** فایل X.got.txt را با متن درستِ گفته‌شده به X.txt تغییر نام دهید تا agent:eval-stt آن را بسنجد. */
-  private async keepSample(wavPath: string, raw: string, text: string): Promise<void> {
+  /** متن درست را با npm run stt:label در X.txt بنویسید؛ model: مدلی که این متن را ساخت، برای مقایسه‌ی مدل‌ها. */
+  private async keepSample(wavPath: string, raw: string, text: string, model: string): Promise<void> {
     try {
       await mkdir(this.sampleDir!, { recursive: true });
       const name = join(this.sampleDir!, new Date().toISOString().replace(/[:.]/g, '-'));
       await copyFile(wavPath, `${name}.wav`);
-      await writeFile(`${name}.got.txt`, `raw: ${raw}\nfinal: ${text}\n`);
+      await writeFile(`${name}.got.txt`, `raw: ${raw}\nfinal: ${text}\nmodel: ${basename(model)}\n`);
     } catch (error) {
       this.logger.warn(`Could not keep STT sample: ${(error as Error).message}`);
     }

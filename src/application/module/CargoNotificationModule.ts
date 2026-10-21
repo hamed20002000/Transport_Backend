@@ -11,6 +11,9 @@ import { CargoAlertFilter } from '../../domain/entities/notification/CargoAlertF
 import { CargoListing } from '../../domain/entities/notification/CargoListing';
 import { CargoNotification } from '../../domain/entities/notification/CargoNotification';
 import { CargoRequest } from '../../domain/entities/notification/CargoRequest';
+import { WebPushSubscription } from '../../domain/entities/notification/WebPushSubscription';
+import { WebPushService } from '../../services/notification/webPush.service';
+import { PushController } from '../../presentation/controllers/notification/push.controller';
 import { DriverProfile } from '../../domain/entities/driver/DriverProfile';
 import { DriverProfileService } from '../../services/driver/driverProfile.service';
 import { ApiIrClient } from '../../services/driver/apiIr.client';
@@ -64,6 +67,7 @@ import { BorderModule } from './BorderModule';
 import { CompanyCargoTools } from '../../services/notification/companyCargoTools';
 import { CompanyFilterTools } from '../../services/notification/companyFilterTools';
 import { DriverCargoTools } from '../../services/notification/driverCargoTools';
+import { AppSectionTools } from '../../services/notification/appSectionTools';
 import { DriverProfileTools } from '../../services/driver/driverProfileTools';
 
 /**
@@ -74,7 +78,7 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
 @Module({
   imports: [
     BorderModule,
-    TypeOrmModule.forFeature([CargoNotification, CargoAlertFilter, CargoListing, CargoRequest, DriverLocation, DriverLocationLog, DriverProfile, CompanyAnnounceSetting]),
+    TypeOrmModule.forFeature([CargoNotification, CargoAlertFilter, CargoListing, CargoRequest, DriverLocation, DriverLocationLog, DriverProfile, CompanyAnnounceSetting, WebPushSubscription]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -93,7 +97,7 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
     // مسیر، مسافت، سوخت و جایگاه‌های سوخت برای جزئیات بار راننده
     RoutingModule,
   ],
-  controllers: [CargoNotificationController, CargoListingController, CargoAlertFilterController, DriverController],
+  controllers: [CargoNotificationController, CargoListingController, CargoAlertFilterController, DriverController, PushController],
   providers: [
     CargoNotificationRepository,
     CargoAlertFilterRepository,
@@ -125,6 +129,8 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
     CompanyFilterTools,
     // ابزارهای agent برای بارها و پروفایل راننده
     DriverCargoTools,
+    AppSectionTools,
+    WebPushService,
     DriverProfileTools,
     // دکمه‌های بار در ربات‌ها؛ خودش را در BotDialogRegistry ثبت می‌کند
     CargoDialog,

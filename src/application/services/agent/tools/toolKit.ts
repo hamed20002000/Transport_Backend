@@ -64,7 +64,7 @@ export class ToolContext {
   done(
     result: Record<string, string>,
     message: string,
-    extra: { continuePrompt?: string; list?: AgentListItem[] } = {},
+    extra: { continuePrompt?: string; list?: AgentListItem[]; menuAction?: string } = {},
   ): RequestResult {
     this.history.addNewHistory(
       { status: 'success', operation: this.operation, parameters: this.history.getParams(this.param), result },

@@ -442,7 +442,7 @@ export class CargoNotificationService {
     });
     const matching = rows.filter((row) => {
       const cargo = (row.payload ?? {}) as CargoRouteFields;
-      return (row.payload?.registeredByCompany === true || this.filters.matchesAny(filters, cargo)) && (!search || matchesCargoSearch(cargo, search));
+      return this.filters.matchesAny(filters, cargo) && (!search || matchesCargoSearch(cargo, search));
     });
     return [matching.slice(skip, skip + options.pageSize), matching.length];
   }

@@ -80,6 +80,29 @@ export class CargoRequestRepository {
     return count > 0;
   }
 
+  /** درخواست‌های در انتظار بارهای یک شرکت (شمارنده‌ی پنل وب). */
+  countPendingForCompany(companyUserId: string): Promise<number> {
+    return this.repository.count({ where: { companyUserId, status: CargoRequestStatus.Pending } });
+  }
+
+  /** تعداد درخواست‌های در انتظار هر بار (برای کارت‌های «بارهای من»). */
+  async countPendingByListings(listingIds: string[]): Promise<Map<string, number>> {
+    if (!listingIds.length) return new Map();
+    const rows: Array<{ listingId: string; count: string }> = await this.repository
+      .createQueryBuilder('request')
+      .select('request.listingId', 'listingId')
+      .addSelect('COUNT(*)', 'count')
+      .where('request.listingId IN (:...listingIds) AND request.status = :pending', { listingIds, pending: CargoRequestStatus.Pending })
+      .groupBy('request.listingId')
+      .getRawMany();
+    return new Map(rows.map((row) => [row.listingId, Number(row.count)]));
+  }
+
+  /** بار تحویل داده شده است؟ چنین باری دیگر باز نمی‌شود. */
+  async hasDelivered(listingId: string): Promise<boolean> {
+    return (await this.repository.count({ where: { listingId, status: CargoRequestStatus.Delivered } })) > 0;
+  }
+
   /** سفرهای فعال شرکت که پیش از before شروع شده‌اند و تحویلشان ثبت نشده. */
   countTripsStartedBefore(companyUserId: string, before: Date): Promise<number> {
     return this.repository

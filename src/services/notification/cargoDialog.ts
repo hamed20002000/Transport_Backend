@@ -25,13 +25,13 @@ import { buildCargoListingText, CargoListingFields } from './cargoNotificationTe
 import { card } from '../messengerBot/core/botCard';
 import { filterTemplateText, parseFilterTemplate } from './cargoFilterTemplate';
 import { CargoExcelService, ExcelCargoRow, MAX_EXCEL_BYTES, MAX_EXCEL_ROWS } from './cargoExcel.service';
+import { CargoAction } from 'src/domain/constants/bot/CargoAction';
 
 const PREFIX = 'cg:';
 const Action = {
-  Suggestions: `${PREFIX}sg:`, // + a|u (همه/خوانده‌نشده):page
+  ...CargoAction,
   Announce: `${PREFIX}an:`, // + notificationId
   ReadAll: `${PREFIX}ra:`, // + a|u
-  MyCargo: `${PREFIX}mine:`, // + a|o|t (وضعیت):page
   MarkTaken: `${PREFIX}tk:`, // + listingId:status:page
   // «برداشته شد»: انتخاب راننده‌ای که بار به او داده شد (فهرست در نشست، چون callback حداکثر ۶۴ بایت است)
   AssignPick: `${PREFIX}ap:`, // + index در drivers نشست
@@ -40,7 +40,6 @@ const Action = {
   AssignConfirm: `${PREFIX}aok`,
   AssignCancel: `${PREFIX}ax`,
   Reopen: `${PREFIX}ro:`, // + listingId:status:page
-  OpenCargo: `${PREFIX}find:`, // + page
   Create: `${PREFIX}new`,
   Skip: `${PREFIX}skip`,
   Confirm: `${PREFIX}ok`,
@@ -70,7 +69,9 @@ const Action = {
   // راننده: نوع خودش (داخلی/صادراتی/وارداتی)
   DriverTripType: `${PREFIX}fk:`, // + CargoTripType
   // شرکت: «📣 اعلام همین الان» برای بار در صف اعلام خودکار
-  AnnounceNow: `${PREFIX}nw:`, // + listingId:status:page
+  AnnounceNow: `${PREFIX}nw:`, // + listingId:status:page (status x = back to Unannounced)
+  // بارهای ثبت‌شده‌ی خود شرکت که هنوز اعلام نشده‌اند (نه در «بارهای من»، نه در پیشنهادها)
+  Unannounced: `${PREFIX}ua`,
   // ثبت چند بار با فایل اکسل
   ExcelStart: `${PREFIX}xs`,
   ExcelConfirm: `${PREFIX}xok`,
@@ -361,8 +362,10 @@ export class CargoDialog implements BotDialog, OnModuleInit {
       if (id === Action.AssignConfirm) return this.assignConfirm(ctx, assign);
       return this.assignDetail(ctx, assign, Number(id.slice(Action.AssignPick.length)));
     }
+    if (id === Action.Unannounced) return this.unannouncedView(ctx);
     if (id.startsWith(Action.AnnounceNow)) {
       const [listingId, mine, page] = id.slice(Action.AnnounceNow.length).split(':');
+      if (mine === 'x') return this.announceFromUnannounced(ctx, listingId);
       const announced = await this.listings.announceNow(ctx.userId, listingId);
       return this.myCargoView(ctx, this.mineStatus(mine), this.page(page), this.t('mine.announced', { code: announced.code, recipients: fa(announced.recipients) }));
     }
@@ -488,8 +491,11 @@ export class CargoDialog implements BotDialog, OnModuleInit {
       if (pages > 1) body += `\n\n${this.t('mine.page', { page: fa(page), pages: fa(pages) })}`;
     }
 
+    // the company's own registered loads that were not announced: their own page, not among the suggestions
+    const unannounced = (await this.listings.unannounced(ctx.userId)).length;
     const rows = new Rows()
       .add(...this.tabs('suggestions'))
+      .add(...(unannounced ? [{ id: Action.Unannounced, label: this.t('actions.unannounced', { count: fa(unannounced) }) }] : []))
       .grid(announce)
       .add(...this.pager(`${Action.Suggestions}${filter}:`, page, pages))
       .add(
@@ -507,6 +513,43 @@ export class CargoDialog implements BotDialog, OnModuleInit {
       refreshAction: `${Action.Suggestions}${filter}:${page}`,
       actions: rows.actions,
     };
+  }
+
+  /** «بارهای من که اعلام نشده‌اند»: هر کدام با «اعلام همین الان». */
+  private async unannouncedView(ctx: BotContext, notice?: string): Promise<BotReply> {
+    const items = await this.listings.unannounced(ctx.userId);
+    const body = items.length
+      ? items
+          .map((item, i) =>
+            card(
+              [
+                `${fa(i + 1)}. ${cargoLine(item)}`,
+                this.t('suggestions.code', { code: item.code }),
+                this.t('mine.tripType', { type: TRIP_TYPE_LABELS[item.tripType] }),
+              ].join('\n'),
+            ),
+          )
+          .join('\n\n')
+      : this.t('unannounced.empty');
+    const rows = new Rows()
+      .grid(items.map((item) => ({ id: `${Action.AnnounceNow}${item.id}:x:1`, label: this.t('actions.announceNow', { code: item.code }) })))
+      .add({ id: `${Action.Suggestions}a:1`, label: this.t('actions.backToSuggestions') }, this.back());
+    return {
+      text: [notice, this.t('unannounced.title'), items.length ? this.t('unannounced.hint') : '', body].filter(Boolean).join('\n\n'),
+      refreshAction: Action.Unannounced,
+      actions: rows.actions,
+    };
+  }
+
+  private async announceFromUnannounced(ctx: BotContext, listingId: string): Promise<BotReply> {
+    try {
+      const announced = await this.listings.announceNow(ctx.userId, listingId);
+      return this.unannouncedView(ctx, this.t('mine.announced', { code: announced.code, recipients: fa(announced.recipients) }));
+    } catch (error) {
+      // still no matching driver: say so on the same page
+      if (error instanceof NoCargoRecipientsException) return this.unannouncedView(ctx, error.message);
+      throw error;
+    }
   }
 
   private async readAll(ctx: BotContext, filter: SuggestionFilter): Promise<BotReply> {
@@ -559,6 +602,7 @@ export class CargoDialog implements BotDialog, OnModuleInit {
   private async myCargoView(ctx: BotContext, status: MineStatus, page: number, notice?: string): Promise<BotReply> {
     const result = await this.listings.listMine(ctx.userId, {
       ...(MINE_STATUS[status] ? { status: MINE_STATUS[status] } : {}),
+      announcedOnly: true,
       page,
       pageSize: MINE_PAGE_SIZE,
     });
@@ -582,9 +626,10 @@ export class CargoDialog implements BotDialog, OnModuleInit {
           ),
         )
         .join('\n\n');
-      // باری که سفرش در جریان است (یا سپرده‌شده) «باز کردن» ندارد
+      // باری که سفرش در جریان است (یا سپرده‌شده) یا تحویل شده «باز کردن» ندارد
       const assignments = await this.trips.assignments(result.items.map((item) => item.id));
-      const inTrip = (id: string) => [CargoRequestStatus.Accepted, CargoRequestStatus.Offered].includes(assignments.get(id)?.status as CargoRequestStatus);
+      const inTrip = (id: string) =>
+        [CargoRequestStatus.Accepted, CargoRequestStatus.Offered, CargoRequestStatus.Delivered].includes(assignments.get(id)?.status as CargoRequestStatus);
       for (const item of result.items) {
         const target = `${item.id}:${status}:${page}`;
         if (item.status === CargoListingStatus.Open && item.announcedAt === null) {
@@ -628,7 +673,8 @@ export class CargoDialog implements BotDialog, OnModuleInit {
       });
       return this.myCargoView(ctx, mine, page, notice);
     } catch (error) {
-      return this.myCargoView(ctx, mine, page, this.t(error instanceof ConflictException ? 'mine.activeTrip' : 'mine.notFound'));
+      const reason = error instanceof ConflictException ? (error.message === 'delivered' ? 'mine.delivered' : 'mine.activeTrip') : 'mine.notFound';
+      return this.myCargoView(ctx, mine, page, this.t(reason));
     }
   }
 

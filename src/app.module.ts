@@ -37,6 +37,7 @@ import { CargoNotificationModule } from './application/module/CargoNotificationM
 import { MarketModule } from './application/module/MarketModule';
 import { BorderModule } from './application/module/BorderModule';
 import { SubscriptionAdminModule } from './application/module/SubscriptionAdminModule';
+import { sessionTimeZone } from './infrastructure/database/timeZone';
 
 @Module({
   imports: [
@@ -204,6 +205,9 @@ import { SubscriptionAdminModule } from './application/module/SubscriptionAdminM
 
         logger:
           'advanced-console',
+
+        // same time zone as Node, so «now» written by the database and read by the app agree
+        extra: sessionTimeZone,
       }),
     }),
 

@@ -89,6 +89,11 @@ export type RequestResult = {
      * (تلگرام و واتس‌اپ فقط message را می‌فرستند). در history مدل نمی‌رود.
      */
     list?: AgentListItem[];
+    /**
+     * صفحه‌ی منوی ربات که همین نتیجه را نشان می‌دهد (CargoAction/BotCallback)؛ در پیام‌رسان به‌جای message
+     * همان صفحه باز می‌شود تا دکمه‌هایش («بار ۱»، صفحه‌ی بعد) جلوی کاربر باشد. وب نادیده‌اش می‌گیرد.
+     */
+    menuAction?: string;
 }
 
 /** یک مورد از لیستی که ابزار برگردانده؛ kind می‌گوید وب چه کارتی برایش بکشد. */
@@ -116,6 +121,8 @@ export type FunctionCallResultType = {
     isGenerator?:boolean,
     data?:GeneratorDataType,
     list: any[],
+    // RequestResult.menuAction
+    menuAction?: string,
     source?:"telegram"|"web"|"whatsapp"
 }
 
