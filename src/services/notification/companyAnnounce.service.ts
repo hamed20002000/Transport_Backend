@@ -4,6 +4,7 @@ import { LessThanOrEqual, Repository } from 'typeorm';
 
 import { CompanyAnnounceSetting } from '../../domain/entities/notification/CompanyAnnounceSetting';
 import { CargoAnnounceMode } from '../../domain/enums/notification';
+import { CargoListingRepository } from '../../infrastructure/repositories/notification/cargoListing.repository';
 
 export const ANNOUNCE_INTERVALS = { min: 15, max: 24 * 60 };
 
@@ -13,15 +14,32 @@ export interface AnnounceSettingView {
   /** نوبت بعدی اعلام خودکار؛ در حالت دستی null */
   nextRunAt: Date | null;
   lastRunAt: Date | null;
+  /** بارهای اعلام‌شده در آخرین نوبت خودکار؛ تا نوبت اول (و در حالت دستی) null */
+  lastRunAnnounced: number | null;
 }
+
+// یک نوبت چند ثانیه طول می‌کشد؛ اعلام‌های این بازه بعد از lastRunAt مال همان نوبت‌اند
+const RUN_WINDOW_MS = 5 * 60_000;
 
 /** حالت اعلام بار شرکت (دستی یا خودکار هر چند دقیقه) و نوبت بعدی اعلام خودکار. */
 @Injectable()
 export class CompanyAnnounceService {
-  constructor(@InjectRepository(CompanyAnnounceSetting) private readonly settings: Repository<CompanyAnnounceSetting>) {}
+  constructor(
+    @InjectRepository(CompanyAnnounceSetting) private readonly settings: Repository<CompanyAnnounceSetting>,
+    private readonly listings: CargoListingRepository,
+  ) {}
 
   async get(userId: string): Promise<AnnounceSettingView> {
-    return this.toView((await this.settings.findOne({ where: { userId } })) ?? this.settings.create({ userId }));
+    const setting = (await this.settings.findOne({ where: { userId } })) ?? this.settings.create({ userId });
+    const view = this.toView(setting);
+    // روشن کردن خودکار lastRunAt را همان autoSince می‌گذارد؛ یعنی هنوز نوبتی اجرا نشده
+    const ran = view.mode === CargoAnnounceMode.Auto && setting.lastRunAt && setting.autoSince
+      && setting.lastRunAt.getTime() - setting.autoSince.getTime() > 1000;
+    if (ran) {
+      const from = setting.lastRunAt!;
+      view.lastRunAnnounced = await this.listings.countAnnouncedBetween(userId, from, new Date(from.getTime() + RUN_WINDOW_MS));
+    }
+    return view;
   }
 
   async isAuto(userId: string): Promise<boolean> {
@@ -42,7 +60,8 @@ export class CompanyAnnounceService {
       setting.lastRunAt = new Date();
     }
     setting.mode = mode;
-    return this.toView(await this.settings.save(setting));
+    await this.settings.save(setting);
+    return this.get(userId);
   }
 
   /** شرکت‌هایی که نوبت اعلام خودکارشان رسیده است. */
@@ -60,6 +79,6 @@ export class CompanyAnnounceService {
     const intervalMinutes = setting.intervalMinutes ?? 120;
     const lastRunAt = setting.lastRunAt ?? null;
     const nextRunAt = mode === CargoAnnounceMode.Auto ? new Date((lastRunAt ?? new Date()).getTime() + intervalMinutes * 60_000) : null;
-    return { mode, intervalMinutes, nextRunAt, lastRunAt };
+    return { mode, intervalMinutes, nextRunAt, lastRunAt, lastRunAnnounced: null };
   }
 }

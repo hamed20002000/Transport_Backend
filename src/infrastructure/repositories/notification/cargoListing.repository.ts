@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, Not, Repository } from 'typeorm';
+import { Between, In, IsNull, Not, Repository } from 'typeorm';
 import { CargoListing } from '../../../domain/entities/notification/CargoListing';
 import { cargoCodeMatch } from './cargoCodeMatch';
 import { CargoListingStatus, CargoTripType } from '../../../domain/enums/notification';
@@ -45,6 +45,11 @@ export class CargoListingRepository {
       where: { publisherUserId, announcedAt: IsNull(), status: CargoListingStatus.Open },
       order: { createdAt: 'ASC' },
     });
+  }
+
+  /** بارهای شرکت که در این بازه به راننده‌ها اعلام شده‌اند (نتیجه‌ی یک نوبت اعلام خودکار). */
+  countAnnouncedBetween(publisherUserId: string, from: Date, to: Date): Promise<number> {
+    return this.repository.count({ where: { publisherUserId, announcedAt: Between(from, to) } });
   }
 
   findById(id: string): Promise<CargoListing | null> {
