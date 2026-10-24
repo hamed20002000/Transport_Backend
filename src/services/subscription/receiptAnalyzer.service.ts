@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { readFile } from 'node:fs/promises';
 
+import { llmJson } from '../common/llmClient';
+
 import {
   IReceiptAnalyzer,
   ReceiptAnalysisResult,
@@ -64,26 +66,17 @@ export class ReceiptAnalyzerService
   ): Promise<ReceiptAnalysisResult> {
     const model = this.config.get<string>('OLLAMA_VISION_MODEL', 'qwen2.5vl:3b');
     try {
-      const response = await axios.post(
-        this.config.get<string>('OLLAMA_URL', 'http://localhost:11434/api/chat'),
-        {
-          model,
-          messages: [{
-            role: 'user',
-            content: RECEIPT_PROMPT,
-            images: [await this.loadImage(imageUrl)],
-          }],
-          format: RECEIPT_SCHEMA,
-          stream: false,
-          options: { temperature: 0 },
-        },
-        {
-          timeout: Number(this.config.get('OLLAMA_VISION_TIMEOUT_MS', 120000)),
-        },
-      );
-
-      const content: string = response.data?.message?.content ?? '';
-      const parsed = JSON.parse(content) as Record<string, unknown>;
+      const parsed = await llmJson<Record<string, unknown>>({
+        model,
+        messages: [{
+          role: 'user',
+          content: RECEIPT_PROMPT,
+          images: [await this.loadImage(imageUrl)],
+        }],
+        format: RECEIPT_SCHEMA,
+        options: { temperature: 0 },
+        timeoutMs: Number(this.config.get('OLLAMA_VISION_TIMEOUT_MS', 120000)),
+      });
 
       return {
         amount: this.digits(parsed.amount),

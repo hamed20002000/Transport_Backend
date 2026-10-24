@@ -14,9 +14,6 @@ export type ScoredDomain = { name: string; score: number };
  */
 export const DOMAIN_TEXT_SEARCH_CONFIG = 'simple';
 
-export const EMBEDDING_URL = 'http://localhost:11434/api/embed';
-export const EMBEDDING_MODEL = 'bge-m3:latest';
-
 const SHORT_STEM_LENGTH_THRESHOLD = 3;
 // استم‌های کوتاه فقط 15% از idf واقعی‌شان را نگه می‌دارند
 const SHORT_STEM_DISCOUNT_FACTOR = 0.15;

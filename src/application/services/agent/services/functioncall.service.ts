@@ -1,8 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ChatRequest, Tool } from 'src/agent/types';
-import axios from "axios";
+import { llmJson, LlmUnavailableError } from 'src/services/common/llmClient';
 import { DataSource } from "typeorm";
 import { InjectDataSource } from '@nestjs/typeorm';
 import { ToolRegister } from '../toolRegister';
@@ -166,6 +165,8 @@ export class FunctionCallService {
                     isSpecial: false,
                     list: []
                 });
+            } else if (error instanceof LlmUnavailableError) {
+                this.sendLlmUnavailable(userId, prompt, error);
             } else {
                 this.agentGateway.sendToolResult(userId, {
                     result: "error",
@@ -559,34 +560,27 @@ export class FunctionCallService {
             join(process.cwd(), 'src/application/services/agent/prompts/segmention.prompt'),
             'utf8'
         );
-        const ollamareq: ChatRequest = {
-            model: "qwen3:8b",
+        const result = await llmJson<{ segments?: string[] }>({
             messages: [
                 { role: "system", content: systemPrompt },
                 { role: "user", content: prompt },
             ],
-            stream: false,
             // با فکر کردن چند ثانیه کندتر است و گاهی «/think» را به متن segment می‌چسباند
             think: false,
-        };
-        const resp = await axios.post(
-            "http://localhost:11434/api/chat",
-            JSON.stringify({
-                ...ollamareq,
-                format: {
-                    type: "object",
-                    properties: {
-                        segments: {
-                            type: "array",
-                            items: { type: "string" },
-                        },
+            // فقط شکستن جمله؛ انتخاب ابزار و استخراج پارامتر مدل قوی‌تر را می‌گیرند
+            tier: "light",
+            format: {
+                type: "object",
+                properties: {
+                    segments: {
+                        type: "array",
+                        items: { type: "string" },
                     },
-                    required: ["segments"],
                 },
-            }),
-            { headers: { "Content-Type": "application/json" }, signal }
-        );
-        const result = JSON.parse(resp.data.message.content);
+                required: ["segments"],
+            },
+            signal,
+        });
 
         const segments: string[] = result.segments && result.segments.length > 0 ? result.segments : [prompt];
 
@@ -621,6 +615,38 @@ export class FunctionCallService {
 
 
     async processSegments(
+        segmentsPrompts: string[],
+        startIndex: number,
+        submission: { Id: string },
+        req: AgentRequest,
+        files: string[],
+        sessionId: string,
+        controller: AbortController
+    ): Promise<void> {
+        // از سه جا صدا زده می‌شود (اجرای تازه، بعد از تأیید، بعد از پاسخ generator)؛ جواب ندادن
+        // مدل در هر سه همین پیام را به کاربر می‌دهد
+        try {
+            await this.runSegments(segmentsPrompts, startIndex, submission, req, files, sessionId, controller);
+        } catch (error) {
+            if (!(error instanceof LlmUnavailableError)) throw error;
+            this.sendLlmUnavailable(req.user.userId, segmentsPrompts[startIndex], error);
+        }
+    }
+
+    private sendLlmUnavailable(userId: string, prompt: string, error: LlmUnavailableError): void {
+        this.agentGateway.sendToolResult(userId, {
+            result: "error",
+            message: error.message,
+            prompt,
+            continuePrompt: undefined,
+            toolName: undefined,
+            lastsegment: true,
+            isSpecial: false,
+            list: []
+        });
+    }
+
+    private async runSegments(
         segmentsPrompts: string[],
         startIndex: number,
         submission: { Id: string },

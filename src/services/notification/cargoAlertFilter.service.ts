@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CargoAlertFilter } from '../../domain/entities/notification/CargoAlertFilter';
+import { CargoTripType } from '../../domain/enums/notification';
 import { normalizePersianText } from '../../domain/helper/persianText';
 import { parsePriceToman } from '../../domain/helper/price';
 import { CargoAlertFilterRepository } from '../../infrastructure/repositories/notification/cargoAlertFilter.repository';
@@ -13,6 +14,8 @@ export interface CargoRouteFields {
   price?: string | null;
   // فقط بارهایی که شرکتی اعلام کرده نام شرکت دارند؛ بار خام کانال‌ها ندارد.
   companyName?: string | null;
+  // بار منتشرشده همیشه دارد؛ پیشنهاد کانال‌ها از وقتی موقع رسیدن تشخیص داده می‌شود
+  tripType?: CargoTripType | null;
 }
 
 export interface CargoAlertFilterInput {

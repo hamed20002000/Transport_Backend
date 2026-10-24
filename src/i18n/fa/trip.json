@@ -88,6 +88,7 @@
   },
   "notify": {
     "newRequest": "🙋 درخواست تازه‌ی راننده\n\n🚛 {driver}\n📦 {cargo}",
+    "requestCancelled": "↩️ راننده درخواستش را لغو کرد\n\n🚛 {driver}\n📦 {cargo}",
     "accepted": "✅ شرکت {company} درخواست شما را قبول کرد. سفر شما شروع شد:\n{cargo}\n\nلطفاً موقعیت خود را برای شرکت بفرستید.",
     "rejected": "❌ شرکت درخواست شما برای این بار را رد کرد:\n{cargo}",
     "rejectedTaken": "این بار به راننده‌ی دیگری داده شد:\n{cargo}",

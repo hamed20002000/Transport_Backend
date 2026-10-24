@@ -10,10 +10,12 @@ import {
   Put,
   Query,
   Req,
+  ServiceUnavailableException,
   UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import { LlmUnavailableError } from 'src/services/common/llmClient';
 
 import {
   ApiBearerAuth,
@@ -346,6 +348,9 @@ export class AgentController {
         text,
         elapsedMs: Date.now() - startTime,
       };
+    } catch (error) {
+      if (error instanceof LlmUnavailableError) throw new ServiceUnavailableException(error.message);
+      throw error;
     } finally {
       await removeVoiceFiles(file.path);
     }

@@ -19,6 +19,9 @@ export const CARGO_LISTING_CHANGED_SOCKET_EVENT = 'cargo-listing-changed';
 // تغییر وضعیت عضویت گروه/کانال ثبت‌شده (عضو شد، منتظر تأیید، ناموفق، حذف شد).
 export const CHANNEL_STATUS_SOCKET_EVENT = 'channel-status';
 
+// پروفایل یک راننده (نام، ناوگان، عکس، نوع حمل) عوض شد -- برای شرکت‌ها، تا صفحه‌ی «رانندگان» بی‌رفرش بروز شود.
+export const DRIVERS_CHANGED_SOCKET_EVENT = 'drivers-changed';
+
 /**
  * اعلان لحظه‌ای برای کاربرهای آنلاین پنل وب. کلاینت باید token را بفرستد:
  *   io(`${API_URL}/notifications`, { path: '/socket.io', auth: { token } })
@@ -40,18 +43,24 @@ export class NotificationsGateway implements OnGatewayConnection {
   constructor(private readonly jwtService: JwtService) {}
 
   async handleConnection(client: Socket): Promise<void> {
-    const userId = await this.authenticate(client);
-    if (!userId) {
+    const payload = await this.authenticate(client);
+    if (!payload) {
       client.disconnect(true);
       return;
     }
 
-    client.data.userId = userId;
-    await client.join(this.room(userId));
+    client.data.userId = payload.userId;
+    await client.join(this.room(payload.userId));
+    for (const role of payload.roles ?? []) await client.join(this.roleRoom(role));
   }
 
   sendToUser(userId: string, event: string, data: unknown): void {
     this.server?.to(this.room(userId)).emit(event, data);
+  }
+
+  /** به همه‌ی کاربرهای آنلاین این نقش‌ها (هر اتصال یک بار)؛ نقش‌ها از JWT همان لحظه‌ی اتصال. */
+  sendToRoles(roles: string[], event: string, data: unknown): void {
+    this.server?.to(roles.map((role) => this.roleRoom(role))).emit(event, data);
   }
 
   /** به همه‌ی اتصال‌های باز؛ فقط برای داده‌ای که همه‌ی کاربرها اجازه‌ی دیدنش را دارند. */
@@ -65,7 +74,7 @@ export class NotificationsGateway implements OnGatewayConnection {
     return (await this.server.in(this.room(userId)).fetchSockets()).length > 0;
   }
 
-  private async authenticate(client: Socket): Promise<string | null> {
+  private async authenticate(client: Socket): Promise<JwtPayload | null> {
     const header = client.handshake.headers.authorization;
     const token =
       (client.handshake.auth?.token as string | undefined) ??
@@ -75,7 +84,7 @@ export class NotificationsGateway implements OnGatewayConnection {
 
     try {
       const payload = await this.jwtService.verifyAsync<JwtPayload>(token);
-      return payload.isActive === false ? null : payload.userId ?? null;
+      return payload.isActive === false || !payload.userId ? null : payload;
     } catch (error) {
       this.logger.debug(`Rejected notification socket: ${(error as Error).message}`);
       return null;
@@ -84,5 +93,9 @@ export class NotificationsGateway implements OnGatewayConnection {
 
   private room(userId: string): string {
     return `user:${userId}`;
+  }
+
+  private roleRoom(role: string): string {
+    return `role:${role}`;
   }
 }

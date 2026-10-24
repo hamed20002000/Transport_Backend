@@ -1,15 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ChatRequest, Tool } from 'src/agent/types';
-import axios from "axios";
 import { DataSource } from "typeorm";
 import { InjectDataSource } from '@nestjs/typeorm';
 import tools from 'src/application/services/agent/localFiles/tools.json';
 import { ToolRegister } from '../toolRegister';
 import { EmbeddingDomainTool, EmbeddingToolType } from '../types';
 import { DomainSeedResult, seedEmbeddingTools, seedToolDomains } from '../domainSeeding';
-import { EMBEDDING_MODEL, EMBEDDING_URL } from '../domainRanking';
+import { embed, llmChat } from 'src/services/common/llmClient';
 
 export const TOOL_DOCS_PATH = join(process.cwd(), 'src/application/services/agent/localFiles/tool_embedding_docs.json');
 export const DOMAIN_DOCS_PATH = join(process.cwd(), 'src/application/services/agent/localFiles/domain_embedding_docs.json');
@@ -44,8 +42,7 @@ export class EmbeddingService {
                     Do not add unsupported functionality.
                     Tool Definition: ${JSON.stringify(tool)}`;
 
-            const ollamareq: ChatRequest = {
-                model: "qwen3:8b",
+            const document = await llmChat({
                 messages: [
                     {
                         role: 'system',
@@ -55,26 +52,11 @@ export class EmbeddingService {
                         role: "user",
                         content: prompt
                     }],
-                stream: false,
-
-            }
-
-            const resp = await axios.post(
-                "http://localhost:11434/api/chat",
-                JSON.stringify({
-                    ...ollamareq
-                }),
-
-                {
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
-                },
-            );
+            });
 
             embeddingList.push({
                 tool_name: tool.name,
-                document: resp.data.message.content
+                document
             });
         }
 
@@ -108,7 +90,7 @@ export class EmbeddingService {
         return seedEmbeddingTools(
             this.dataSource,
             docs.map((doc) => ({ tool_name: doc.tool_name, embedding_text: doc.embedding_text, domain_name: doc.domain_name })),
-            async (text) => (await axios.post(EMBEDDING_URL, { model: EMBEDDING_MODEL, input: text })).data.embeddings[0],
+            embed,
             { replaceAll: !embeddings },
         );
     }
@@ -123,7 +105,7 @@ export class EmbeddingService {
         return seedToolDomains(
             this.dataSource,
             docs,
-            async (text) => (await axios.post(EMBEDDING_URL, { model: EMBEDDING_MODEL, input: text })).data.embeddings[0],
+            embed,
             { removeMissing: !embeddings },
         );
     }

@@ -30,7 +30,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { JwtPayload } from 'src/domain/entities/auth/jwt-payload.dto';
 import { CargoRequest } from 'src/domain/entities/notification/CargoRequest';
-import { CargoRequestStatus } from 'src/domain/enums/notification';
+import { CargoRequestStatus, CargoTripType } from 'src/domain/enums/notification';
 import { CreateCargoRequestDto, DriverLocationDto, DriverPlaceDto, RespondOfferDto } from 'src/dto/notification/DriverDto';
 import { UpdateDriverProfileDto } from 'src/dto/notification/DriverProfileDto';
 import {
@@ -292,6 +292,29 @@ export class DriverController {
   @Patch('requests/:id/deliver')
   async deliver(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string) {
     return this.requestView(await this.trips.deliver(currentDriverId(request), id));
+  }
+
+  // «سفرهای رفته»: days = تحویل در چند روز اخیر؛ q = کد، مبدأ، مقصد یا نام شرکت
+  @Get('trips/history')
+  async tripHistory(
+    @Req() request: AuthRequest,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('pageSize', new DefaultValuePipe(20), ParseIntPipe) pageSize: number,
+    @Query('q') q?: string,
+    @Query('tripType', new ParseEnumPipe(CargoTripType, { optional: true })) tripType?: CargoTripType,
+    @Query('companyId', new ParseUUIDPipe({ optional: true })) companyUserId?: string,
+    @Query('days', new ParseIntPipe({ optional: true })) days?: number,
+    @Query('order', new ParseEnumPipe(['newest', 'oldest'], { optional: true })) order?: 'newest' | 'oldest',
+  ) {
+    const paging = pageOf(page, pageSize);
+    const since = days && days > 0 ? new Date(Date.now() - Math.min(days, 3660) * 24 * 60 * 60 * 1000) : undefined;
+    const result = await this.trips.driverHistory(
+      currentDriverId(request),
+      { q: q?.slice(0, 100), tripType, companyUserId, since, order },
+      paging.page,
+      paging.pageSize,
+    );
+    return { ...result, items: result.items.map((item) => this.requestView(item)), ...paging };
   }
 
   @Get('trips/active')

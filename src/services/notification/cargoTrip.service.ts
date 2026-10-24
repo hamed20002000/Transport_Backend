@@ -10,6 +10,7 @@ import { BOT_LINK_REPOSITORY } from '../../domain/repositories/repository.tokens
 import {
   CargoRequestRepository,
   DriverLocationRepository,
+  type DriverHistoryFilters,
 } from '../../infrastructure/repositories/notification/cargoRequest.repository';
 import { TripAction } from '../../domain/constants/bot/TripAction';
 import { MessengerPlatform } from '../../domain/enums/messenger';
@@ -155,7 +156,23 @@ export class CargoTripService {
     if (request.status !== CargoRequestStatus.Pending) throw new ConflictException('notPending');
     request.status = CargoRequestStatus.Cancelled;
     await this.requests.save(request);
-    return request;
+
+    // like a new request: the company's open panel updates and it hears about it right away
+    const full = (await this.requests.findById(request.id))!;
+    const text = this.t('notify.requestCancelled', { driver: this.describe(await this.contact(driverUserId)), cargo: this.cargoTitle(full) });
+    this.changed(full, { type: 'requestCancelled', text });
+    await this.notify(full.companyUserId, text, [{ id: `${TripAction.CompanyRequests}1`, label: this.t('actions.allRequests'), row: 0 }]);
+    return full;
+  }
+
+  /** «سفرهای رفته»: بارهای تحویل‌شده‌ی راننده با فیلترها، شمار هر نوع حمل و شرکت‌هایی که برایشان بار برده. */
+  async driverHistory(driverUserId: string, filters: DriverHistoryFilters, page: number, pageSize: number) {
+    const [[items, total], byTripType, companies] = await Promise.all([
+      this.requests.findDeliveredForDriver(driverUserId, filters, (page - 1) * pageSize, pageSize),
+      this.requests.countDeliveredByTripType(driverUserId, filters),
+      this.requests.deliveredCompanies(driverUserId),
+    ]);
+    return { items, total, byTripType, companies };
   }
 
   // status: only that state (the driver home counts delivered and pending from the total)
@@ -330,17 +347,18 @@ export class CargoTripService {
 
     const company = await this.contact(companyUserId);
     const cargo = this.cargoTitle(request);
+    const text = accept ? this.t('notify.accepted', { cargo, company: this.describe(company) }) : this.t('notify.rejected', { cargo });
     if (accept) {
-      await this.notify(request.driverUserId, this.t('notify.accepted', { cargo, company: this.describe(company) }), [
+      await this.notify(request.driverUserId, text, [
         { id: TripAction.ActiveTrip, label: this.t('actions.activeTrip'), row: 0 },
         { id: TripAction.ShareLocation, label: this.t('actions.shareLocation'), row: 0 },
       ]);
       await this.completeAssignment(request);
     } else {
-      await this.notify(request.driverUserId, this.t('notify.rejected', { cargo }));
+      await this.notify(request.driverUserId, text);
     }
     // پنل‌های باز (درخواست‌های راننده، بارها و سفرهای شرکت) بی‌رفرش به‌روز شوند
-    this.changed(request);
+    this.changed(request, undefined, text);
     return request;
   }
 
@@ -351,8 +369,9 @@ export class CargoTripService {
       other.status = CargoRequestStatus.Rejected;
       other.decidedAt = new Date();
       await this.requests.save(other);
-      this.changed(other);
-      await this.notify(other.driverUserId, this.t('notify.rejectedTaken', { cargo: this.cargoTitle(other) }));
+      const text = this.t('notify.rejectedTaken', { cargo: this.cargoTitle(other) });
+      this.changed(other, undefined, text);
+      await this.notify(other.driverUserId, text);
     }
   }
 
@@ -404,15 +423,16 @@ export class CargoTripService {
     const full = (await this.requests.findById(saved.id))!;
 
     const company = await this.contact(companyUserId);
+    const text = this.t('notify.offer', { company: this.describe(company), cargo: this.cargoTitle(full), minutes: OFFER_TTL_MINUTES });
     await this.notify(
       driverUserId,
-      this.t('notify.offer', { company: this.describe(company), cargo: this.cargoTitle(full), minutes: OFFER_TTL_MINUTES }),
+      text,
       [
         { id: `${TripAction.OfferYes}${saved.id}`, label: this.t('actions.offerYes'), row: 0 },
         { id: `${TripAction.OfferNo}${saved.id}`, label: this.t('actions.offerNo'), row: 0 },
       ],
     );
-    this.changed(full);
+    this.changed(full, undefined, text);
     return full;
   }
 
@@ -458,8 +478,9 @@ export class CargoTripService {
     const driver = await this.contact(request.driverUserId);
     const cargo = this.cargoTitle(request);
     await this.notify(request.companyUserId, this.t('notify.offerExpiredCompany', { driver: this.describe(driver), cargo }));
-    await this.notify(request.driverUserId, this.t('notify.offerExpiredDriver', { cargo }));
-    this.changed(request);
+    const text = this.t('notify.offerExpiredDriver', { cargo });
+    await this.notify(request.driverUserId, text);
+    this.changed(request, undefined, text);
   }
 
   /** راننده‌ی هر بار (سپرده‌شده، در سفر یا تحویل‌شده) برای کارت «بارهای من» شرکت. */
@@ -490,10 +511,15 @@ export class CargoTripService {
   }
 
   /** پنل‌های باز شرکت و راننده بدون رفرش به‌روز شوند. */
-  private changed(request: CargoRequest, notice?: { type: 'newRequest' | 'deliveryReminder' | 'deliveryReported'; text: string }): void {
-    const event = { requestId: request.id, listingId: request.listingId, status: request.status, ...notice };
-    this.gateway.sendToUser(request.companyUserId, CARGO_REQUEST_CHANGED_SOCKET_EVENT, event);
-    this.gateway.sendToUser(request.driverUserId, CARGO_REQUEST_CHANGED_SOCKET_EVENT, event);
+  private changed(
+    request: CargoRequest,
+    notice?: { type: 'newRequest' | 'requestCancelled' | 'deliveryReminder' | 'deliveryReported'; text: string },
+    driverText?: string,
+  ): void {
+    const event = { requestId: request.id, listingId: request.listingId, status: request.status };
+    this.gateway.sendToUser(request.companyUserId, CARGO_REQUEST_CHANGED_SOCKET_EVENT, { ...event, ...notice });
+    // the driver's open panel shows the same news the messengers get
+    this.gateway.sendToUser(request.driverUserId, CARGO_REQUEST_CHANGED_SOCKET_EVENT, driverText ? { ...event, type: 'driverNotice', text: driverText } : event);
   }
 
   //#endregion
@@ -531,12 +557,10 @@ export class CargoTripService {
     request.status = CargoRequestStatus.Delivered;
     request.deliveredAt = new Date();
     await this.requests.save(request);
-    await this.notify(
-      request.driverUserId,
-      this.t(reported ? 'notify.deliveryConfirmed' : 'notify.deliveredByCompany', { cargo, by: this.describe(by) }),
-    );
+    const text = this.t(reported ? 'notify.deliveryConfirmed' : 'notify.deliveredByCompany', { cargo, by: this.describe(by) });
+    await this.notify(request.driverUserId, text);
     // پنل‌های باز (سفرها، شمارنده‌ی سفرهای بی‌تحویل، خانه‌ی راننده) به‌روز شوند
-    this.changed(request);
+    this.changed(request, undefined, text);
     return request;
   }
 
@@ -551,12 +575,9 @@ export class CargoTripService {
     request.deliveryReportedAt = null;
     await this.requests.save(request);
     const company = await this.contact(companyUserId);
-    await this.notify(
-      request.driverUserId,
-      this.t('notify.deliveryRejected', { cargo: this.cargoTitle(request), by: this.describe(company) }),
-      [{ id: TripAction.ActiveTrip, label: this.t('actions.activeTrip') }],
-    );
-    this.changed(request);
+    const text = this.t('notify.deliveryRejected', { cargo: this.cargoTitle(request), by: this.describe(company) });
+    await this.notify(request.driverUserId, text, [{ id: TripAction.ActiveTrip, label: this.t('actions.activeTrip') }]);
+    this.changed(request, undefined, text);
     return request;
   }
 
@@ -716,7 +737,7 @@ export class CargoTripService {
       this.whatsapp.notify(userId, text, actions).catch((error: Error) => this.logger.warn(`Trip notification to ${userId} on WhatsApp failed: ${error.message}`)),
       // the same news as a phone notification of the installed app, even while it is closed
       this.push
-        ?.sendToUser(userId, { title: 'Setaş', body: text, url: pushUrl(actions) })
+        ?.sendToUser(userId, { title: 'ترابوت', body: text, url: pushUrl(actions) })
         .catch((error: Error) => this.logger.warn(`Trip web push to ${userId} failed: ${error.message}`)),
     ]);
   }

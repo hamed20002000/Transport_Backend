@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ChatRequest, Tool } from 'src/agent/types';
-import axios from "axios";
+import { llmChat, llmJson } from 'src/services/common/llmClient';
 import { DataSource } from "typeorm";
 import { InjectDataSource } from '@nestjs/typeorm';
 import tables from 'src/agent/tables.json';
@@ -17,8 +16,7 @@ export class AgentSqlService {
     }
 
     async runPrompt(prompt: string, systemContent: string): Promise<string> {
-        const ollamareq: ChatRequest = {
-            model: "qwen3:8b",
+        return llmChat({
             messages: [
                 {
                     role: 'system',
@@ -28,47 +26,29 @@ export class AgentSqlService {
                     role: "user",
                     content: prompt
                 }],
-            stream: false,
             options: {
                 temperature: 0,
                 top_p: 0.9,
                 repeat_penalty: 1.1
-            }
-
-        }
-
-
-        const resp = await axios.post(
-            "http://localhost:11434/api/chat",
-            JSON.stringify({
-                ...ollamareq, format: {
-                    "type": "object",
-                    "properties": {
-                        "sql": {
+            },
+            format: {
+                "type": "object",
+                "properties": {
+                    "sql": {
+                        "type": "string"
+                    },
+                    "error": {
+                        "type": "string"
+                    },
+                    "fields": {
+                        "type": "array",
+                        "items": {
                             "type": "string"
-                        },
-                        "error": {
-                            "type": "string"
-                        },
-                        "fields": {
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            }
                         }
                     }
                 }
-            }),
-
-            {
-                headers: {
-                    "Content-Type": "application/json",
-                },
-            },
-        );
-
-
-        return resp.data.message.content;
+            }
+        });
 
     }
     async executeQuery(text: string): Promise<void> {
@@ -108,8 +88,7 @@ export class AgentSqlService {
     
     
     
-            const ollamareq: ChatRequest = {
-                model: "qwen3:8b",
+            const parsed = await llmJson<{ tables?: string[] }>({
                 messages: [
                     {
                         role: 'system',
@@ -119,35 +98,20 @@ export class AgentSqlService {
                         role: "user",
                         content: prompt
                     }],
-                stream: false,
-    
-            }
-    
-    
-            const resp = await axios.post(
-                "http://localhost:11434/api/chat",
-                JSON.stringify({
-                    ...ollamareq, format: {
-                        type: "object",
-                        properties: {
-                            tables: {
-                                type: "array",
-                                items: {
-                                    type: "string"
-                                }
+                format: {
+                    type: "object",
+                    properties: {
+                        tables: {
+                            type: "array",
+                            items: {
+                                type: "string"
                             }
-                        },
-                        required: ["tables"]
-                    }
-                }),
-    
-                {
-                    headers: {
-                        "Content-Type": "application/json",
+                        }
                     },
-                },
-            );
-            const tablesResponse = JSON.parse(resp.data.message.content)?.tables || [];
+                    required: ["tables"]
+                }
+            });
+            const tablesResponse = parsed?.tables || [];
             const selectedTables = [];
             for (const tableName of tablesResponse) {
                 const table = schema.tables.find(t => t.name === tableName);

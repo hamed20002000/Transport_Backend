@@ -3,7 +3,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Between, In, IsNull, Not, Repository } from 'typeorm';
 import { CargoListing } from '../../../domain/entities/notification/CargoListing';
 import { cargoCodeMatch } from './cargoCodeMatch';
-import { CargoListingStatus, CargoTripType } from '../../../domain/enums/notification';
+import { CargoListingStatus, CargoRequestStatus, CargoTripType } from '../../../domain/enums/notification';
+
+/** Where a published load is: still open for drivers, on a driver's trip, or delivered. */
+export type ListingStage = 'published' | 'inTransit' | 'delivered';
+export const LISTING_STAGES: ListingStage[] = ['published', 'inTransit', 'delivered'];
 
 @Injectable()
 export class CargoListingRepository {
@@ -88,18 +92,19 @@ export class CargoListingRepository {
 
   findPageForPublisher(
     publisherUserId: string,
-    options: { status?: CargoListingStatus; skip: number; take: number; announcedOnly?: boolean },
+    options: { status?: CargoListingStatus; stage?: ListingStage; skip: number; take: number; announcedOnly?: boolean },
   ): Promise<[CargoListing[], number]> {
-    return this.repository.findAndCount({
-      where: {
-        publisherUserId,
-        ...(options.status ? { status: options.status } : {}),
-        ...(options.announcedOnly ? { announcedAt: Not(IsNull()) } : {}),
-      },
-      order: { createdAt: 'DESC' },
-      skip: options.skip,
-      take: options.take,
-    });
+    const query = this.repository.createQueryBuilder('listing').where('listing.publisherUserId = :publisherUserId', { publisherUserId });
+    if (options.status) query.andWhere('listing.status = :status', { status: options.status });
+    if (options.announcedOnly) query.andWhere('listing.announcedAt IS NOT NULL');
+    if (options.stage === 'published') query.andWhere('listing.status = :open', { open: CargoListingStatus.Open });
+    if (options.stage === 'inTransit' || options.stage === 'delivered') {
+      query.andWhere(
+        'EXISTS (SELECT 1 FROM "CargoRequest" trip WHERE trip."listingId" = listing.id AND trip.status = :tripStatus)',
+        { tripStatus: options.stage === 'inTransit' ? CargoRequestStatus.Accepted : CargoRequestStatus.Delivered },
+      );
+    }
+    return query.orderBy('listing.createdAt', 'DESC').skip(options.skip).take(options.take).getManyAndCount();
   }
 
   /** بارهای هنوز برداشته‌نشده‌ی همه‌ی شرکت‌ها، جدیدترین اول (برای «پیدا کردن بار» راننده). */

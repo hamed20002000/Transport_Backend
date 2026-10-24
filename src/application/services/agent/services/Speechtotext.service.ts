@@ -3,9 +3,10 @@ import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { copyFile, mkdir, unlink, writeFile } from 'node:fs/promises';
 import { cpus } from 'node:os';
-import { basename, isAbsolute, join } from 'node:path';
+import { basename, extname, isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
-import { fixMisheardNumbers } from './spokenCodes';
+import { Transcript, transcribeSpeech } from 'src/services/common/llmClient';
+import { fixMisheardNumbers, numbersToDigits } from './spokenCodes';
 import { fixMisheardPlaces } from './spokenPlaces';
 
 const execFileAsync = promisify(execFile);
@@ -21,6 +22,22 @@ export interface TranscriptCorrection {
 // برش فرکانس‌های خیلی پایین/بالا (لرزش میکروفون، نویز) و یکسان کردن بلندی صدا؛
 // ویس‌های پیام‌رسان معمولاً یا خیلی آرام‌اند یا clip شده‌اند.
 const AUDIO_FILTER = 'highpass=f=80,lowpass=f=7600,loudnorm';
+
+// مکث‌های بیش از ۰.۷ ثانیه به ۰.۳۵ ثانیه: مدل‌های OpenAI سر مکث وسط جمله متن را تمام می‌کنند
+// («لیست بارهای تهران ...» برای «لیست بارهای تهران [مکث] مرند رو بیار»). فقط برای تلاش دوم؛ روی
+// همه‌ی ویس‌ها در eval دو ویس سالم را خراب کرد («ثبت کن» ← «ثبت شد»، «پمپ گازوئیل» ← «اون پگازویل»).
+const SHORTEN_PAUSES = 'silenceremove=stop_periods=-1:stop_duration=0.7:stop_threshold=-45dB:stop_silence=0.35';
+
+// OpenAI فایل اصلی را می‌گیرد (۴۸ کیلوهرتز پیام‌رسان‌ها، بدون فیلتر whisper)؛ فرمت‌های دیگر (مثلاً aac) همان WAV فیلترشده
+const OPENAI_AUDIO_FORMATS = new Set(['.flac', '.m4a', '.mp3', '.mp4', '.mpeg', '.mpga', '.oga', '.ogg', '.wav', '.webm']);
+
+/**
+ * مدل بخشی از گفتار را نفهمیده: جای خالی («تهران ... رو بیار») یا گفتار فارسی که به زبان دیگری
+ * رفته («Liste بارهاyı Tehranlara»). کدهای حروف بزرگ مثل TRB منحرف‌شدن حساب نمی‌شوند.
+ */
+export function isIncompleteTranscript(text: string, language = 'fa'): boolean {
+  return /\.\.\.|…/.test(text) || (language === 'fa' && /[a-zçğıöşüə]/.test(text));
+}
 
 export interface WhisperOptions {
   /** نام فایل داخل models/ یا مسیر کامل */
@@ -48,6 +65,8 @@ export function cleanTranscript(raw: string, prompt = '', language = 'fa'): stri
   if (!/[\p{L}\p{N}]/u.test(text)) return '';
   // گفتار فارسی که نه حرف فارسی دارد نه عدد («PYM JBZ») حدس مدل روی صدای نامفهوم است
   if (language === 'fa' && !/[\u0600-\u06FF\p{N}]/u.test(text)) return '';
+  // اجرای نصفِ دستور بدتر از دوباره پرسیدن است
+  if (isIncompleteTranscript(text, language)) return '';
   // روی سکوت گاهی خودِ prompt برگردانده می‌شود
   if (text.length >= 15 && prompt.includes(text.replace(/[.،,]+$/, ''))) return '';
 
@@ -105,26 +124,54 @@ export class SpeechToTextService {
       throw new Error('VAD model is missing. Download Silero or set WHISPER_VAD_MODEL.');
     }
     // همیشه یک فایل جدا (حتی اگر ورودی WAV باشد) تا فیلتر صدا اعمال شود و ورودی/خروجی ffmpeg یکی نشود
-    const wavPath = audioFilePath.replace(/\.[^/.]+$/, '') + '-converted.wav';
+    const base = audioFilePath.replace(/\.[^/.]+$/, '');
+    const wavPath = `${base}-converted.wav`;
+    const shortenedWavPath = `${base}-shortened.wav`;
+    const shortenedOriginalPath = `${base}-shortened-original.wav`;
+    const sendsOriginal = OPENAI_AUDIO_FORMATS.has(extname(audioFilePath).toLowerCase());
 
     try {
       await execFileAsync('ffmpeg', ['-y', '-i', audioFilePath, '-af', AUDIO_FILTER, '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', wavPath]);
 
-      const args = ['-m', this.modelPath(options.model), '-f', wavPath, '-l', options.language, '-t', String(cpus().length), '--no-timestamps'];
-      if (options.prompt) args.push('--prompt', options.prompt);
-      if (options.vad && this.vadModel) args.push('--vad', '-vm', this.vadModel);
-
-      const { stdout } = await execFileAsync(this.whisperBinaryPath, args, { maxBuffer: 1024 * 1024 * 10 });
-      this.logger.debug(`whisper (${options.model}) raw: "${stdout.trim()}"`);
+      // اول OpenAI، اگر جواب نداد whisper.cpp (یا با LLM_LOCAL_FALLBACK=off، LlmUnavailableError)؛
+      // مدل whisper صریح (ارزیابی مدل‌های محلی) مستقیم محلی است. پاک‌سازی و اصلاح‌های پایین برای هر دو یکسان است
+      const transcribe = (openAiAudio: string, localWav: string) =>
+        overrides.model
+          ? this.runWhisper(localWav, options)
+          : transcribeSpeech(openAiAudio, options, () => this.runWhisper(localWav, options));
+      let heard = await transcribe(sendsOriginal ? audioFilePath : wavPath, wavPath);
+      this.logger.debug(`${heard.model} raw: "${heard.text.trim()}"`);
+      // متن ناقص: یک بار دیگر با مکث‌های کوتاه‌شده؛ اگر باز ناقص بود cleanTranscript ردش می‌کند (دوباره بگو)
+      if (isIncompleteTranscript(heard.text, options.language)) {
+        await execFileAsync('ffmpeg', ['-y', '-i', wavPath, '-af', SHORTEN_PAUSES, shortenedWavPath]);
+        // آستانه‌ی سکوت (-45dB) برای صدای هم‌بلندشده است؛ نرخ نمونه‌برداری اصلی می‌ماند
+        if (sendsOriginal) {
+          await execFileAsync('ffmpeg', ['-y', '-i', audioFilePath, '-af', `loudnorm,${SHORTEN_PAUSES}`, '-ar', '48000', '-ac', '1', shortenedOriginalPath]);
+        }
+        heard = await transcribe(sendsOriginal ? shortenedOriginalPath : shortenedWavPath, shortenedWavPath);
+        this.logger.debug(`${heard.model} raw (pauses shortened): "${heard.text.trim()}"`);
+      }
       // fixed list of known mishearings, then number words and city names misheard by sound-alike letters
       // («تو هزار» ← «دو هزار»، «به علشتر» ← «به الشتر»)
-      const corrected = applyCorrections(cleanTranscript(stdout, options.prompt, options.language), this.corrections);
-      const text = fixMisheardPlaces(fixMisheardNumbers(corrected));
-      if (this.sampleDir) await this.keepSample(wavPath, stdout.trim(), text, options.model);
+      const corrected = applyCorrections(cleanTranscript(heard.text, options.prompt, options.language), this.corrections);
+      // عدد به حروف («شصت تن») به رقم، مثل whisper محلی؛ OpenAI گاهی رقمی، گاهی به حروف می‌نویسد
+      const text = numbersToDigits(fixMisheardPlaces(fixMisheardNumbers(corrected)));
+      if (this.sampleDir) await this.keepSample(wavPath, heard.text.trim(), text, heard.model);
       return text;
     } finally {
       await unlink(wavPath).catch(() => undefined);
+      await unlink(shortenedWavPath).catch(() => undefined);
+      await unlink(shortenedOriginalPath).catch(() => undefined);
     }
+  }
+
+  private async runWhisper(wavPath: string, options: WhisperOptions): Promise<Transcript> {
+    const args = ['-m', this.modelPath(options.model), '-f', wavPath, '-l', options.language, '-t', String(cpus().length), '--no-timestamps'];
+    if (options.prompt) args.push('--prompt', options.prompt);
+    if (options.vad && this.vadModel) args.push('--vad', '-vm', this.vadModel);
+
+    const { stdout } = await execFileAsync(this.whisperBinaryPath, args, { maxBuffer: 1024 * 1024 * 10 });
+    return { text: stdout, model: basename(options.model) };
   }
 
   /** متن درست را با npm run stt:label در X.txt بنویسید؛ model: مدلی که این متن را ساخت، برای مقایسه‌ی مدل‌ها. */
@@ -133,7 +180,7 @@ export class SpeechToTextService {
       await mkdir(this.sampleDir!, { recursive: true });
       const name = join(this.sampleDir!, new Date().toISOString().replace(/[:.]/g, '-'));
       await copyFile(wavPath, `${name}.wav`);
-      await writeFile(`${name}.got.txt`, `raw: ${raw}\nfinal: ${text}\nmodel: ${basename(model)}\n`);
+      await writeFile(`${name}.got.txt`, `raw: ${raw}\nfinal: ${text}\nmodel: ${model}\n`);
     } catch (error) {
       this.logger.warn(`Could not keep STT sample: ${(error as Error).message}`);
     }

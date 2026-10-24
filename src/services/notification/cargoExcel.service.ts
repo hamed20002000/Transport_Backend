@@ -182,7 +182,7 @@ export class CargoExcelService {
     const byRoute = new Map<string, CargoTripType>();
     for (const row of rows) {
       const route = `${row.fields.origin}\u0000${row.fields.destination}`;
-      if (!byRoute.has(route)) byRoute.set(route, await this.tripTypes.classify(row.fields.origin, row.fields.destination));
+      if (!byRoute.has(route)) byRoute.set(route, await this.tripTypes.classifyListing(row.fields.origin, row.fields.destination));
       row.tripType = byRoute.get(route);
     }
     return { rows, errors };
@@ -191,7 +191,7 @@ export class CargoExcelService {
   /** انتشار ردیف‌های بررسی‌شده، هر کدام مثل «ثبت بار» دستی، به نام شرکت. */
   async publish(userId: string, rows: ExcelCargoRow[]) {
     const { companyName } = await this.listings.buildManualDraft(userId);
-    const created: { row: number; id: string; code: string | null; origin: string; destination: string; recipients: number; tripType: string; pending: boolean }[] = [];
+    const created: { row: number; id: string; code: string | null; origin: string; destination: string; recipients: number; tripType: string; pending: boolean; pendingReason: 'automatic' | 'noDrivers' | null }[] = [];
     for (const { row, fields } of rows) {
       const listing = await this.listings.createManual(userId, { ...fields, companyName });
       created.push({
@@ -204,6 +204,8 @@ export class CargoExcelService {
         tripType: listing.tripType,
         // اعلام خودکار: در صف نوبت بعدی
         pending: listing.pending,
+        // automatic: در صف نوبت بعدی؛ noDrivers: دستی، ولی راننده‌ی مناسبی نبود
+        pendingReason: 'pendingReason' in listing ? listing.pendingReason : null,
       });
     }
     return created;

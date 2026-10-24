@@ -169,6 +169,20 @@ export class RoutingService {
   }
 
   /**
+   * داخل ایران بودن یک اسم فقط با جستجوی جهانی: true ایران، false خارج، null نامعلوم. geocode برای
+   * نوع سفر بار مناسب نیست چون آخرش جستجوی ایران (نشان) است و برای هر اسم خارجی خیابان یا روستای
+   * هم‌نامی در ایران پیدا می‌کند («ادانا» نزدیک مشهد، «اربیل» در تهران).
+   */
+  async inIranWorldwide(place: string): Promise<boolean | null> {
+    for (const candidate of placeCandidates(place)) {
+      const abroad = await this.lookupAbroad(candidate);
+      if (abroad === 'iran') return true;
+      if (abroad) return false;
+    }
+    return null;
+  }
+
+  /**
    * نتیجه‌ی جهانی وقتی انتخاب می‌شود که بیرون از ایران، معتبر و آشکارا مهم‌تر از نتیجه‌ی
    * ایران باشد (کشور/شهر بزرگ در برابر روستا یا خیابان). 'iran' یعنی بهترین نتیجه‌ی جهانی
    * خودش در ایران است (شهرهای ایران)؛ null یعنی نتیجه‌ی خارجی قابل اعتمادی نیست.

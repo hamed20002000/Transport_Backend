@@ -5,6 +5,9 @@
  *   npm run agent:eval-stt -- --models ggml-medium.bin,ggml-large-v3-q5_0.bin --prompt both
  *   npm run agent:eval-stt -- --samples uploads/stt-dataset/test   (any folder of audio + same-name .txt)
  *
+ * بدون --models همان مسیر واقعی سنجیده می‌شود (اول OpenAI با OPENAI_STT_MODEL)؛ با --models فقط
+ * همان مدل‌های whisper محلی.
+ *
  * نمونه‌ها: هر فایل صوتی در eval/stt-samples (ogg، webm، wav، m4a، mp3) با یک فایل
  * هم‌نام .txt که متن درستِ گفته‌شده در آن است. معیار CER است (درصد حروف اشتباه)؛
  * فاصله، نیم‌فاصله، علائم و فرق عدد فارسی/لاتین حساب نمی‌شود.

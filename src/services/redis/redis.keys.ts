@@ -24,6 +24,9 @@ export const KEY_PREFIXES = {
   // v3: مکان خارجی به هم‌نام داخل ایران نمی‌رسد و کل اسم یکجا کش می‌شود (نتیجه‌های قبلی دور ریخته می‌شوند)
   routingGeocode: 'routing:geocode:v4',
   routingPlace: 'routing:place:v1',
+  // داخل ایران بودن مبدأ و مقصد یک مسیر بار (نوع سفر بار)؛ v3: v1 جواب‌های غلط مدل محلی و v2 جواب‌های
+  // نشان (هم‌نام ایرانی برای اسم خارجی) را هم نگه داشته بودند
+  tripTypeRoute: 'cargo:trip-type-route:v3',
   // v3: مسیر مبدأ/مقصد خارجی با OSRM جهانی (نشان تا مرز حساب می‌کرد)
   routingRoutes: 'routing:routes:v3',
   routingDistance: 'routing:distance:v2',
@@ -68,6 +71,7 @@ export type RedisKeyParts = {
   whatsappLive: [userId: string];
   routingGeocode: [place: string];
   routingPlace: [point: string];
+  tripTypeRoute: [route: string];
   routingRoutes: [points: string];
   routingDistance: [points: string];
   routingTraffic: [points: string];

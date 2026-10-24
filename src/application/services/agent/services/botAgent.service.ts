@@ -26,6 +26,7 @@ import { AgentChannelRelay, AgentChannelRelays } from '../agentChannelRelays';
 import { AgentRequest, FunctionCallResultType } from '../types';
 import { FunctionCallService } from './functioncall.service';
 import { SpeechToTextService } from './Speechtotext.service';
+import { LlmUnavailableError } from 'src/services/common/llmClient';
 import { TranscriptCorrectorService } from './transcriptCorrector.service';
 import { VoiceCodeResolverService } from './voiceCodeResolver.service';
 import { parseChoice, parseYesNo } from './replyChoice';
@@ -145,7 +146,9 @@ export class BotAgentService implements BotAgentHandler, AgentChannelRelay, OnMo
       text = (await this.speechToText.transcribeFile(path)).trim();
     } catch (error) {
       this.logger.error(`Bot voice transcription failed for ${ctx.userId}`, error as Error);
-      await this.telegram.editAgentMessage(ctx.chatId, statusId, this.t('voiceFailed'));
+      // مدل ویس در دسترس نیست (OpenAI قطع و مدل محلی خاموش) -- «دوباره بفرست» کمکی نمی‌کند
+      const reply = error instanceof LlmUnavailableError ? error.message : this.t('voiceFailed');
+      await this.telegram.editAgentMessage(ctx.chatId, statusId, reply);
       return;
     } finally {
       await removeVoiceFiles(path);

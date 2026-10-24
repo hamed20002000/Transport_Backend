@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ServiceUnavailableException,
   Body,
   Controller,
   Get,
@@ -26,6 +27,7 @@ import { DataSource } from 'typeorm';
 import { AgentGateway } from 'src/application/services/agent/agent.gateway';
 import { FunctionCallService } from 'src/application/services/agent/services/functioncall.service';
 import { SpeechToTextService } from 'src/application/services/agent/services/Speechtotext.service';
+import { LlmUnavailableError } from 'src/services/common/llmClient';
 import { TranscriptCorrectorService } from 'src/application/services/agent/services/transcriptCorrector.service';
 import { VOICE_IDENTIFIER_NOTICE } from 'src/application/services/agent/services/voiceIdentifiers';
 import { VoiceCodeResolverService } from 'src/application/services/agent/services/voiceCodeResolver.service';
@@ -137,26 +139,19 @@ export class AgentChatController {
     text = await this.corrector.correct(text);
 
     // کد بار رو whisper تقریباً هیچ‌وقت دقیق نمی‌نویسه -- با بارهای خود کاربر تطبیق داده می‌شه.
-    // در هر حالتی که کد داره، اجرا نمی‌شه تا کاربر متن (با کد دقیق) رو تایید کنه.
+    // مثل ربات‌ها: کدِ مطمئن جایگزین و همان لحظه اجرا می‌شود؛ چند گزینه یا نامطمئن فقط پیام. پیام باید از
+    // socket برود: پنل منتظر نتیجه‌ی socket است و جواب HTTP «confirmation_required» را نمی‌شناخت، پس ویسی
+    // که کدش تطبیق می‌خورد روی «در حال تبدیل صدا به متن» می‌ماند.
     const codes = await this.voiceCodes.resolve(req.user.userId, text);
-    if (codes.kind === 'resolved') {
-      const message = `📦 بار ${codes.label}`;
-      return { result: 'confirmation_required', text: codes.text, sessionId: dto.sessionId, message };
-    }
-    if (codes.kind === 'choose') {
-      const message = `کد بار دقیق شنیده نشد. منظورتان کدام بار است؟\n${codes.options.map((option) => `• ${option.label}`).join('\n')}`;
-      return {
-        result: 'confirmation_required',
-        text,
-        sessionId: dto.sessionId,
-        message,
-        options: codes.options,
-      };
-    }
-    if (codes.kind === 'unresolved') {
+    if (codes.kind === 'resolved') text = codes.text;
+    if (codes.kind === 'choose' || codes.kind === 'unresolved') {
+      const notice =
+        codes.kind === 'choose'
+          ? `کد بار دقیق شنیده نشد. منظورتان کدام بار است؟\n${codes.options.map((option) => `• ${option.label}`).join('\n')}\nکد را بنویسید یا شمرده بگویید.`
+          : VOICE_IDENTIFIER_NOTICE;
       await this.agentGateway.sendToolResult(req.user.userId, {
         result: 'cancelled',
-        message: `🎤 «${text}»\n\n${VOICE_IDENTIFIER_NOTICE}`,
+        message: `🎤 «${text}»\n\n${notice}`,
         prompt: text,
         continuePrompt: undefined,
         lastsegment: true,
@@ -164,7 +159,13 @@ export class AgentChatController {
         list: [],
         source: 'web',
       });
-      return { result: 'confirmation_required', text, sessionId: dto.sessionId, message: VOICE_IDENTIFIER_NOTICE };
+      return {
+        result: 'confirmation_required',
+        text,
+        sessionId: dto.sessionId,
+        message: notice,
+        ...(codes.kind === 'choose' && { options: codes.options }),
+      };
     }
 
     return { ...(await this.run(req.user, text, dto.sessionId)), text };
@@ -230,6 +231,7 @@ export class AgentChatController {
       return (await this.speechToText.transcribeFile(path)).trim();
     } catch (error) {
       this.logger.error('Voice transcription failed', error as Error);
+      if (error instanceof LlmUnavailableError) throw new ServiceUnavailableException(error.message);
       throw new BadRequestException('Could not process the audio file.');
     }
   }

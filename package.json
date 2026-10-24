@@ -21,6 +21,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "typeorm": "ts-node -r tsconfig-paths/register node_modules/typeorm/cli.js -d ./src/infrastructure/database/data-source.ts",
     "seed": "ts-node -r tsconfig-paths/register src/infrastructure/database/seeds/seed.ts",
+    "backfill:trip-types": "ts-node -r tsconfig-paths/register src/infrastructure/database/seeds/backfillSuggestionTripTypes.ts",
     "agent:eval-domains": "ts-node -r tsconfig-paths/register src/application/services/agent/eval/evaluateDomains.ts",
     "agent:seed": "ts-node -r tsconfig-paths/register src/application/services/agent/eval/seedAgent.ts",
     "agent:eval-tools": "ts-node -r tsconfig-paths/register src/application/services/agent/eval/evaluateTools.ts",

@@ -10,10 +10,8 @@ import { Boom } from '@hapi/boom';
 import { Agent as HttpsAgent } from 'node:https';
 import { pino } from 'pino';
 import * as qrcode from 'qrcode-terminal';
-import { exec } from 'node:child_process';
-import { promisify } from 'node:util';
 import { join } from 'node:path';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import { WhatsappAuthCredential } from 'src/domain/entities/agent/WhatsappAuthCredential';
 import { WhatsappAuthKey } from 'src/domain/entities/agent/WhatsappAuthKey';
 import { WhatsappUserMapping } from 'src/domain/entities/agent/WhatsappUserMapping';
@@ -27,6 +25,7 @@ import { normalizePhoneNumber } from 'src/dto/auth/phone-number';
 import { dialablePhones } from 'src/services/messengerBot/core/dialablePhones';
 import { RedisService } from 'src/services/redis/redis.service';
 import { SpeechToTextService } from './Speechtotext.service';
+import { LlmUnavailableError } from 'src/services/common/llmClient';
 import { TranscriptCorrectorService } from './transcriptCorrector.service';
 
 import { VoiceCodeResolverService } from './voiceCodeResolver.service';
@@ -38,7 +37,6 @@ import { PendingConfirmationService } from './PendingConfirmationService';
 import { MessengerPlatform } from 'src/domain/enums/messenger';
 import { CompanyChannelsDialog } from 'src/services/channel/companyChannelsDialog';
 
-const execAsync = promisify(exec);
 
 const DEFAULT_SESSION_ID = 'main';
 
@@ -959,13 +957,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       // پیام «در حال پردازش» نه؛ ⏳ روی خود ویس (تعداد پیام‌ها کم بماند)
       await this.showProgress(jid);
 
-      // Two separate directories, mirroring MessengerBotService's approach --
-      // keeps the raw downloaded file and the ffmpeg-converted output from
-      // ever colliding or being confused with each other.
       const downloadDir = join(process.cwd(), 'uploads', 'whatsapp-voice', 'downloads');
-      const convertedDir = join(process.cwd(), 'uploads', 'whatsapp-voice', 'converted');
       await mkdir(downloadDir, { recursive: true });
-      await mkdir(convertedDir, { recursive: true });
 
       // Baileys-specific way of pulling the actual audio bytes for a
       // message -- unlike Telegram's simple file-id-based download, this
@@ -990,22 +983,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       );
       await writeFile(oggPath, buffer);
 
-      // The speech-to-text model expects 16kHz mono PCM WAV -- same
-      // conversion command used on the Telegram side, so both channels feed
-      // the transcription service identical audio characteristics.
-      const wavPath = join(
-        convertedDir,
-        `${Date.now()}-${Math.random().toString(36).slice(2)}.wav`,
-      );
-      await execAsync(`ffmpeg -y -i "${oggPath}" -ar 16000 -ac 1 -c:a pcm_s16le "${wavPath}"`);
-
       // منوی شماره‌دار باز است: whisper با «گزینه یک، گزینه دو…» و اسم گزینه‌ها راهنمایی
-      // می‌شود تا جواب کوتاه («دو») درست شنیده شود.
+      // می‌شود تا جواب کوتاه («دو») درست شنیده شود. فایل اصلی (نه WAV) مثل ربات‌ها: سرویس
+      // خودش برای whisper تبدیل می‌کند و OpenAI صدای اصلی را می‌گیرد.
       const menuLabels = await this.dialogHandler?.menuLabels?.(mapping.userid) ?? null;
-      const heard = await this.speechToTextService.transcribeFile(
-        wavPath,
-        menuLabels ? { promptPrefix: voiceMenuPrompt(menuLabels) } : {},
-      );
+      const heard = await this.speechToTextService
+        .transcribeFile(oggPath, menuLabels ? { promptPrefix: voiceMenuPrompt(menuLabels) } : {})
+        .finally(() => unlink(oggPath).catch(() => undefined));
       // Misheard words («کار تهران…» → «بار تهران…»): the user confirms and runs the corrected text.
       const text = heard ? await this.corrector.correct(heard) : heard;
 
@@ -1072,7 +1056,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       // failure point; the user just needs to know it didn't work and can
       // try again.
       this.logger.error(`Ses işleme hatası: ${jid}`, error as Error);
-      await this.sendMessage(jid, 'در پردازش پیام صوتی خطایی رخ داد.');
+      // مدل ویس در دسترس نیست (OpenAI قطع و مدل محلی خاموش) -- همان پیام ربات
+      await this.sendMessage(jid, error instanceof LlmUnavailableError ? error.message : 'در پردازش پیام صوتی خطایی رخ داد.');
     } finally {
       await this.clearProgress(jid);
     }

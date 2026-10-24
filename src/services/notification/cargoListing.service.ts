@@ -8,7 +8,7 @@ import { CargoNotification } from '../../domain/entities/notification/CargoNotif
 import { CargoListingStatus, CargoTripType } from '../../domain/enums/notification';
 import { CargoSearch, matchesCargoSearch, prepareCargoSearch } from './cargoSearch';
 import { CargoAudienceRepository } from '../../infrastructure/repositories/notification/cargoAudience.repository';
-import { CargoListingRepository } from '../../infrastructure/repositories/notification/cargoListing.repository';
+import { CargoListingRepository, type ListingStage } from '../../infrastructure/repositories/notification/cargoListing.repository';
 import { CargoNotificationRepository } from '../../infrastructure/repositories/notification/cargoNotification.repository';
 import { CargoRequestRepository } from '../../infrastructure/repositories/notification/cargoRequest.repository';
 import { WhatsappService } from '../../application/services/agent/services/whatsapp.service';
@@ -18,8 +18,9 @@ import { CargoNotificationService } from './cargoNotification.service';
 import { SubscriptionPolicyService } from '../subscription/subscriptionPolicy.service';
 import { buildCargoListingText, buildCargoTakenText, cargoTextWithCard, CargoListingFields } from './cargoNotificationText';
 import { whatsappCards } from '../messengerBot/core/botCard';
-import { CargoTripTypeService } from './cargoTripType';
+import { CargoTripTypeService, parseTripType } from './cargoTripType';
 import { CompanyAnnounceService } from './companyAnnounce.service';
+import { WebPushService } from './webPush.service';
 import { NoCargoRecipientsException } from './cargoAnnouncementError';
 import { AgentGateway } from '../../application/services/agent/agent.gateway';
 import { BOT_LINK_REPOSITORY } from '../../domain/repositories/repository.tokens';
@@ -51,6 +52,9 @@ const PUBLISH_SAFETY_RETRY_MS = 5 * 60 * 1000;
  * که فیلترشان match است فرستاده می‌شود → وقتی راننده‌ای بار را برداشت، شرکت
  * «برداشته شد» می‌زند و پیام همه‌ی راننده‌ها ویرایش می‌شود.
  */
+/** Loads announced to each driver in one auto-announce turn, for a single phone notification at its end. */
+type PushBatch = Map<string, CargoListing[]>;
+
 @Injectable()
 export class CargoListingService {
   private readonly logger = new Logger(CargoListingService.name);
@@ -71,6 +75,7 @@ export class CargoListingService {
     @Inject(forwardRef(() => AgentGateway)) private readonly agentGateway: AgentGateway,
     @Inject(BOT_LINK_REPOSITORY) private readonly botLinks: IBotLinkRepository,
     private readonly requests: CargoRequestRepository,
+    private readonly push: WebPushService,
   ) {}
 
   /** نمونه‌ی پیشنهادی برای انتشار؛ شرکت می‌تواند قبل از ارسال ویرایشش کند. */
@@ -104,7 +109,7 @@ export class CargoListingService {
     };
   }
 
-  async publish(userId: string, notificationId: string, fields: CargoListingFields) {
+  async publish(userId: string, notificationId: string, fields: CargoListingFields, pushBatch?: PushBatch) {
     const suggestion = await this.getSuggestion(userId, notificationId);
     const existing = await this.listings.findBySourceAndPublisher(suggestion.sourceMessageId, userId);
     if (existing?.announcedAt === null && existing.status === CargoListingStatus.Open) return this.announceNow(userId, existing.id);
@@ -113,7 +118,7 @@ export class CargoListingService {
     }
     // رویدادهای قدیمی کد ندارند؛ آن‌ها مثل بار دستی کد می‌گیرند.
     const code = (suggestion.payload as Partial<CargoDetectedEvent>).code ?? await this.listings.nextManualCode();
-    return this.publishListing(userId, { ...fields, code }, suggestion.sourceMessageId, suggestion.id, true);
+    return this.publishListing(userId, { ...fields, code }, suggestion.sourceMessageId, suggestion.id, true, pushBatch);
   }
 
   /**
@@ -152,13 +157,15 @@ export class CargoListingService {
    * مقصد و شماره‌ی تماس) منتشر می‌شوند و بارهای ثبت‌شده‌ی در صف اعلام می‌شوند.
    */
   async autoAnnounce(userId: string, since: Date): Promise<{ suggestions: number; pending: number }> {
+    // ده بار در یک نوبت = یک اعلان گوشی برای هر راننده، نه ده اعلان
+    const pushBatch: PushBatch = new Map();
     let suggestions = 0;
     for (const suggestion of await this.notifications.findSuggestionsSince(userId, since)) {
       if (await this.listings.findBySourceAndPublisher(suggestion.sourceMessageId, userId)) continue;
       const draft = await this.buildDraft(userId, suggestion.id);
       if (!draft.origin.trim() || !draft.destination.trim() || !draft.contactPhones.length) continue;
       try {
-        const result = await this.publish(userId, suggestion.id, draft);
+        const result = await this.publish(userId, suggestion.id, draft, pushBatch);
         if (!result.pending) suggestions++;
       } catch (error) {
         if (!(error instanceof ConflictException) && !(error instanceof NoCargoRecipientsException)) throw error;
@@ -176,9 +183,10 @@ export class CargoListingService {
       listing.announcedAt = new Date();
       const saved = await this.listings.save(listing);
       await this.announceChange(saved);
-      await this.sendToDrivers(saved, recipients);
+      await this.sendToDrivers(saved, recipients, pushBatch);
       pending++;
     }
+    await this.sendPushBatch(pushBatch);
     return { suggestions, pending };
   }
 
@@ -188,10 +196,11 @@ export class CargoListingService {
     sourceMessageId: string,
     sourceNotificationId: string | null,
     announce: boolean,
+    pushBatch?: PushBatch,
   ) {
     const contact = await this.audience.findPublisherContact(userId);
     // داخلی/صادراتی/وارداتی همیشه از مبدأ و مقصد؛ شرکت انتخابش نمی‌کند
-    const tripType = await this.tripTypes.classify(fields.origin, fields.destination);
+    const tripType = await this.tripTypes.classifyListing(fields.origin, fields.destination);
     let driverIds: string[] = [];
     if (announce) {
       try {
@@ -226,7 +235,7 @@ export class CargoListingService {
       };
     }
     await this.announceChange(listing);
-    const recipients = await this.sendToDrivers(listing, driverIds);
+    const recipients = await this.sendToDrivers(listing, driverIds, pushBatch);
     return { ...this.toView(listing), recipients, pending: false, nextAnnounceAt: null };
   }
 
@@ -240,7 +249,8 @@ export class CargoListingService {
     return recipients;
   }
 
-  private async sendToDrivers(listing: CargoListing, recipients: string[]): Promise<number> {
+  /** pushBatch: the phone notification waits for the end of the auto-announce turn (one per driver). */
+  private async sendToDrivers(listing: CargoListing, recipients: string[], pushBatch?: PushBatch): Promise<number> {
 
     const safetyRetryAt = new Date(Date.now() + PUBLISH_SAFETY_RETRY_MS);
     await this.notifications.insertIgnoringDuplicates(
@@ -263,14 +273,20 @@ export class CargoListingService {
       this.gateway.sendToUser(row.userId, CARGO_NOTIFICATION_SOCKET_EVENT, this.delivery.toView(row));
     }
 
+    if (pushBatch) {
+      for (const row of rows) pushBatch.set(row.userId, [...(pushBatch.get(row.userId) ?? []), listing]);
+    }
+
     // تلگرام/واتساپ برای تعداد زیاد راننده زمان می‌برد؛ درخواست شرکت منتظر نمی‌ماند.
-    void this.dispatch(listing, rows);
+    void this.dispatch(listing, rows, !pushBatch);
 
     this.logger.log(`Listing ${listing.id} (${listing.tripType}) announced to ${rows.length} driver(s)`);
     return rows.length;
   }
 
-  private async dispatch(listing: CargoListing, rows: CargoNotification[]): Promise<void> {
+  private async dispatch(listing: CargoListing, rows: CargoNotification[], push: boolean): Promise<void> {
+    // phone notification of the installed app, even while it is closed; quick, so before the messengers
+    if (push) await Promise.all(rows.map((row) => this.pushLoads(row.userId, [listing])));
     try {
       for (const row of rows) {
         await this.delivery.deliver(row);
@@ -278,6 +294,26 @@ export class CargoListingService {
     } catch (error) {
       this.logger.error(`Dispatching listing ${listing.id} failed; the retry worker will resume it`, (error as Error).stack);
     }
+  }
+
+  private async sendPushBatch(pushBatch: PushBatch): Promise<void> {
+    await Promise.all([...pushBatch].map(([userId, listings]) => this.pushLoads(userId, listings)));
+  }
+
+  /** One phone notification for one load, or a summary for several («۱۰ بار تازه»). */
+  private async pushLoads(userId: string, listings: CargoListing[]): Promise<void> {
+    if (!listings.length) return;
+    const fa = (value: number) => value.toLocaleString('fa-IR');
+    const routes = listings.slice(0, 2).map((listing) => `${listing.origin} ← ${listing.destination}`).join('، ');
+    const more = listings.length > 2 ? ` و ${fa(listings.length - 2)} بار دیگر` : '';
+    const companies = [...new Set(listings.map((listing) => listing.companyName).filter(Boolean))];
+    const company = companies.length === 1 ? ` · ${companies[0]}` : '';
+    const message = {
+      title: listings.length === 1 ? 'ترابوت · بار تازه' : `ترابوت · ${fa(listings.length)} بار تازه`,
+      body: `📦 ${routes}${more}${company}`,
+      url: '/account/driver/loads',
+    };
+    await this.push.sendToUser(userId, message).catch((error: Error) => this.logger.warn(`Cargo web push to ${userId} failed: ${error.message}`));
   }
 
   /**
@@ -326,7 +362,7 @@ export class CargoListingService {
    */
   async listMine(
     userId: string,
-    options: { status?: CargoListingStatus; page: number; pageSize: number; announcedOnly?: boolean } & CargoSearch,
+    options: { status?: CargoListingStatus; stage?: ListingStage; page: number; pageSize: number; announcedOnly?: boolean } & CargoSearch,
   ) {
     const skip = (options.page - 1) * options.pageSize;
     const search = prepareCargoSearch(options);
@@ -335,6 +371,7 @@ export class CargoListingService {
     if (!search) {
       [items, total] = await this.listings.findPageForPublisher(userId, {
         status: options.status,
+        stage: options.stage,
         skip,
         take: options.pageSize,
         announcedOnly: options.announcedOnly,
@@ -342,6 +379,7 @@ export class CargoListingService {
     } else {
       const [recent] = await this.listings.findPageForPublisher(userId, {
         status: options.status,
+        stage: options.stage,
         skip: 0,
         take: OPEN_SCAN_LIMIT,
         announcedOnly: options.announcedOnly,
@@ -370,18 +408,19 @@ export class CargoListingService {
    * اعلانی که برایش می‌رود). match روی متن آزاد در SQL ممکن نیست، پس
    * جدیدترین OPEN_SCAN_LIMIT بار در برنامه فیلتر می‌شوند.
    */
-  /** tripType: فقط بارهای همین نوع (فهرست بار راننده، مثل اعلام بار فقط به راننده‌های همان نوع). */
-  async listOpen(options: { page: number; pageSize: number; userId?: string; tripType?: CargoTripType; tripTypes?: CargoTripType[] } & CargoSearch) {
+  /** tripTypes: فقط بارهای این نوع‌ها (فهرست بار راننده، مثل اعلام بار فقط به راننده‌های همان نوع)؛ tripType جستجو یکی از آن‌ها. */
+  async listOpen(options: { page: number; pageSize: number; userId?: string; tripTypes?: CargoTripType[] } & CargoSearch) {
     const skip = (options.page - 1) * options.pageSize;
+    const tripType = parseTripType(options.tripType) ?? undefined;
     const filters = options.userId ? await this.filters.activeFor(options.userId) : [];
     // جستجوی مبدأ/مقصد/نوع بار/ماشین («شامل بودن» مثل فیلترها)؛ بار برگشتی هم از همین استفاده می‌کند
     const search = prepareCargoSearch(options);
     let items: CargoListing[];
     let total: number;
     if (filters.length === 0 && !search) {
-      [items, total] = await this.listings.findOpenPage({ skip, take: options.pageSize, tripType: options.tripType, ...(options.tripTypes && { tripTypes: options.tripTypes }) });
+      [items, total] = await this.listings.findOpenPage({ skip, take: options.pageSize, tripType, ...(options.tripTypes && { tripTypes: options.tripTypes }) });
     } else {
-      const [recent] = await this.listings.findOpenPage({ skip: 0, take: OPEN_SCAN_LIMIT, tripType: options.tripType, ...(options.tripTypes && { tripTypes: options.tripTypes }) });
+      const [recent] = await this.listings.findOpenPage({ skip: 0, take: OPEN_SCAN_LIMIT, tripType, ...(options.tripTypes && { tripTypes: options.tripTypes }) });
       const matching = recent.filter(
         (listing) => this.filters.matchesAny(filters, listing) && (!search || matchesCargoSearch(listing, search)),
       );

@@ -1,13 +1,24 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, LessThan, MoreThanOrEqual, Not, Repository } from 'typeorm';
+import { In, LessThan, MoreThanOrEqual, Not, Repository, type SelectQueryBuilder } from 'typeorm';
 
 import { CargoRequest } from '../../../domain/entities/notification/CargoRequest';
 import { DriverLocation } from '../../../domain/entities/notification/DriverLocation';
 import { DriverLocationLog } from '../../../domain/entities/notification/DriverLocationLog';
-import { CargoRequestStatus } from '../../../domain/enums/notification';
+import { CargoRequestStatus, CargoTripType } from '../../../domain/enums/notification';
 
 const WITH_PARTIES = { listing: true, driver: true } as const;
+
+/** Filters of the driver's past trips (delivered loads). */
+export interface DriverHistoryFilters {
+  // code, origin, destination or company name
+  q?: string;
+  tripType?: CargoTripType;
+  companyUserId?: string;
+  // delivered on or after
+  since?: Date;
+  order?: 'newest' | 'oldest';
+}
 
 @Injectable()
 export class CargoRequestRepository {
@@ -43,6 +54,59 @@ export class CargoRequestRepository {
       skip,
       take,
     });
+  }
+
+  /** سفرهای رفته‌ی راننده (بارهای تحویل‌شده) با فیلترها. */
+  findDeliveredForDriver(driverUserId: string, filters: DriverHistoryFilters, skip: number, take: number): Promise<[CargoRequest[], number]> {
+    return this.deliveredQuery(driverUserId, filters)
+      .leftJoinAndSelect('request.driver', 'driver')
+      .orderBy('request.deliveredAt', filters.order === 'oldest' ? 'ASC' : 'DESC')
+      .skip(skip)
+      .take(take)
+      .getManyAndCount();
+  }
+
+  /** شمار سفرهای رفته به تفکیک نوع حمل، با همان فیلترها جز خود نوع حمل. */
+  async countDeliveredByTripType(driverUserId: string, filters: DriverHistoryFilters): Promise<Record<CargoTripType, number>> {
+    const rows = await this.deliveredQuery(driverUserId, { ...filters, tripType: undefined })
+      .select('listing.tripType', 'tripType')
+      .addSelect('COUNT(*)', 'count')
+      .groupBy('listing.tripType')
+      .getRawMany<{ tripType: CargoTripType; count: string }>();
+    const counts = Object.fromEntries(Object.values(CargoTripType).map((type) => [type, 0])) as Record<CargoTripType, number>;
+    for (const row of rows) counts[row.tripType] = Number(row.count);
+    return counts;
+  }
+
+  /** شرکت‌هایی که راننده برایشان بار برده، برای فیلتر شرکت. */
+  async deliveredCompanies(driverUserId: string): Promise<{ id: string; name: string | null; trips: number }[]> {
+    const rows = await this.deliveredQuery(driverUserId, {})
+      .select('request.companyUserId', 'id')
+      .addSelect('MAX(listing.companyName)', 'name')
+      .addSelect('COUNT(*)', 'trips')
+      .groupBy('request.companyUserId')
+      .orderBy('trips', 'DESC')
+      .getRawMany<{ id: string; name: string | null; trips: string }>();
+    return rows.map((row) => ({ id: row.id, name: row.name, trips: Number(row.trips) }));
+  }
+
+  private deliveredQuery(driverUserId: string, filters: DriverHistoryFilters): SelectQueryBuilder<CargoRequest> {
+    const query = this.repository
+      .createQueryBuilder('request')
+      .innerJoinAndSelect('request.listing', 'listing')
+      .where('request.driverUserId = :driverUserId', { driverUserId })
+      .andWhere('request.status = :status', { status: CargoRequestStatus.Delivered });
+    if (filters.tripType) query.andWhere('listing.tripType = :tripType', { tripType: filters.tripType });
+    if (filters.companyUserId) query.andWhere('request.companyUserId = :companyUserId', { companyUserId: filters.companyUserId });
+    if (filters.since) query.andWhere('request.deliveredAt >= :since', { since: filters.since });
+    const q = filters.q?.trim();
+    if (q) {
+      query.andWhere(
+        '(listing.code ILIKE :q OR listing.origin ILIKE :q OR listing.destination ILIKE :q OR listing.companyName ILIKE :q)',
+        { q: `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%` },
+      );
+    }
+    return query;
   }
 
   /** درخواست‌های راننده برای چند بار (وضعیت «درخواست من» روی کارت بارها). */

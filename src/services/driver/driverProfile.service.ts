@@ -13,7 +13,9 @@ import { DriverProfile } from 'src/domain/entities/driver/DriverProfile';
 import { RecordStatus } from 'src/domain/enums/RecordStatus';
 import { CargoTripType } from 'src/domain/enums/notification';
 import { UpdateDriverProfileDto } from 'src/dto/notification/DriverProfileDto';
+import { COMPANY_ROLES } from 'src/infrastructure/repositories/notification/cargoAudience.repository';
 import { UserProfile, UserService } from '../UserService';
+import { DRIVERS_CHANGED_SOCKET_EVENT, NotificationsGateway } from '../notification/notifications.gateway';
 import { evaluateVerification } from './driverVerification.service';
 
 // خارج از پوشه‌ی uploads که به‌صورت عمومی سرو می‌شود؛ فقط از راه API با توکن.
@@ -88,7 +90,13 @@ export class DriverProfileService {
     @InjectRepository(DriverProfile) private readonly profiles: Repository<DriverProfile>,
     private readonly dataSource: DataSource,
     private readonly users: UserService,
+    private readonly gateway: NotificationsGateway,
   ) {}
+
+  // صفحه‌ی «رانندگان» شرکت‌های آنلاین با این رویداد لیست را دوباره می‌گیرد (پنل و ربات هر دو از این سرویس رد می‌شوند).
+  private changed(userId: string): void {
+    this.gateway.sendToRoles(COMPANY_ROLES, DRIVERS_CHANGED_SOCKET_EVENT, { userId });
+  }
 
   async get(userId: string) {
     const [user, driver] = await Promise.all([this.users.getProfile(userId), this.profiles.findOne({ where: { userId } })]);
@@ -120,7 +128,9 @@ export class DriverProfileService {
       driver.tripTypes = [dto.tripType];
     }
     if (dto.companyUserIds !== undefined) driver.companyUserIds = dto.companyUserIds;
-    return this.toView(user, await this.profiles.save(driver));
+    const saved = await this.profiles.save(driver);
+    this.changed(userId);
+    return this.toView(user, saved);
   }
 
   /** فایل آپلودشده جای عکس قبلی می‌نشیند و قبلی پاک می‌شود. */
@@ -131,6 +141,7 @@ export class DriverProfileService {
     driver[PHOTO_COLUMN[kind]] = file.filename;
     await this.profiles.save(driver);
     await this.removeFile(previous);
+    this.changed(userId);
     return this.get(userId);
   }
 
@@ -141,6 +152,7 @@ export class DriverProfileService {
       driver[PHOTO_COLUMN[kind]] = null;
       await this.profiles.save(driver);
       await this.removeFile(previous);
+      this.changed(userId);
     }
     return this.get(userId);
   }
@@ -250,11 +262,13 @@ export class DriverProfileService {
 
   async setTripType(userId: string, tripType: CargoTripType): Promise<void> {
     await this.profiles.upsert({ userId, tripType, tripTypes: [tripType] }, ['userId']);
+    this.changed(userId);
   }
 
   async setTripTypes(userId: string, tripTypes: CargoTripType[]): Promise<void> {
     if (!tripTypes.length) throw new BadRequestException('حداقل یک نوع حمل را انتخاب کنید.');
     await this.profiles.upsert({ userId, tripTypes, tripType: tripTypes[0] }, ['userId']);
+    this.changed(userId);
   }
 
   /**

@@ -12,18 +12,14 @@
 import { readFileSync } from 'node:fs';
 
 import { ConfigService } from '@nestjs/config';
-import axios from 'axios';
 import { config } from 'dotenv';
 import { DataSource, DataSourceOptions } from 'typeorm';
 
 import { typeOrmConfig } from 'src/infrastructure/database/typeorm-cli.config';
-import { EMBEDDING_MODEL, EMBEDDING_URL } from '../domainRanking';
+import { embed } from 'src/services/common/llmClient';
 import { seedEmbeddingTools, seedToolDomains, ToolSeedDoc } from '../domainSeeding';
 import { DOMAIN_DOCS_PATH, TOOL_DOCS_PATH } from '../services/embedding.service';
 import { EmbeddingDomainTool } from '../types';
-
-const embed = async (text: string): Promise<number[]> =>
-  (await axios.post(EMBEDDING_URL, { model: EMBEDDING_MODEL, input: text })).data.embeddings[0];
 
 async function main(): Promise<void> {
   config();

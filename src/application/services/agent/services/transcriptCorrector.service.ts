@@ -1,11 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import axios from 'axios';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { llmJson } from 'src/services/common/llmClient';
 
 const PROMPT_PATH = join(process.cwd(), 'src/application/services/agent/prompts/transcript_correction.prompt');
 const VOCABULARY_PATH = join(process.cwd(), 'src/application/services/agent/localFiles/whisper_prompt.txt');
-const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
 // کاربر منتظر دیدن متن ویس است؛ اگر مدل کند بود همان متن whisper می‌ماند
 const TIMEOUT_MS = 4000;
 // هم‌آوا یعنی یک حرف فرق در کلمه‌ی کوتاه («کار» → «بار»، «تیران» → «تهران») و
@@ -107,22 +106,16 @@ export class TranscriptCorrectorService {
   async correct(heard: string): Promise<string> {
     if (!this.systemPrompt || !heard.trim()) return heard;
     try {
-      const response = await axios.post(
-        `${OLLAMA_URL}/api/chat`,
-        {
-          model: 'qwen3:8b',
-          messages: [
-            { role: 'system', content: this.systemPrompt },
-            { role: 'user', content: heard },
-          ],
-          stream: false,
-          think: false,
-          options: { temperature: 0 },
-          format: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
-        },
-        { timeout: TIMEOUT_MS },
-      );
-      const suggested = (JSON.parse(response.data?.message?.content ?? '{}') as { text?: string }).text;
+      const { text: suggested } = await llmJson<{ text?: string }>({
+        messages: [
+          { role: 'system', content: this.systemPrompt },
+          { role: 'user', content: heard },
+        ],
+        think: false,
+        options: { temperature: 0 },
+        format: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+        timeoutMs: TIMEOUT_MS,
+      });
       const text = acceptCorrection(heard, suggested, this.known);
       if (text !== heard) this.logger.debug(`voice transcript corrected: "${heard}" → "${text}"`);
       else if (suggested && suggested.trim() !== heard.trim()) this.logger.debug(`voice correction rejected: "${heard}" → "${suggested}"`);

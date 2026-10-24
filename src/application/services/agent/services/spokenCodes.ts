@@ -169,6 +169,78 @@ export function fixMisheardNumbers(text: string): string {
   return parts.join('');
 }
 
+// تنها که بیایند معمولاً عدد نیستند: «یک بار از تبریز»، «نه، ثبت نکن»؛ فقط پیش از واحد مقدار («یک تن»)
+const NOT_ALONE = new Set(['یک', 'یه', 'نه']);
+
+/** یک عدد به رقم؛ «هفتصد میلیون» ← «700 میلیون» (همان شکل نوشتن قیمت)، «شش هزار» ← «6000»، «ده هزار و نه» ← «10009». */
+function numberDigits(words: string[]): string {
+  const last = words[words.length - 1];
+  const scales = words.filter((word) => word in MULTIPLIERS);
+  if (words.length > 1 && scales.length === 1 && last === 'میلیون') return `${arithmetic(words.slice(0, -1))} ${last}`;
+  return arithmetic(words);
+}
+
+/**
+ * دنباله‌ی کلمه‌های عددی به عددهای جدا، با همان قاعده‌ی readings: عددی که از قبلی کوچک‌تر نیست عدد
+ * تازه است («سیصد و سی و چهار یازده» ← 334 و 11). دنباله‌ای که صفر دارد رقم‌به‌رقم گفته شده (کد،
+ * «یک صفر صفر صفر هشت» ← 10008) و یکجا نوشته می‌شود.
+ */
+function runDigits(words: string[]): string {
+  if (words.includes('صفر')) {
+    const options = readings(words);
+    return options[options.length - 1];
+  }
+  const numbers: string[][] = [];
+  let group: string[] = [];
+  let last = Infinity;
+  for (const word of words) {
+    const value = /^\d+$/.test(word) ? Number(word) : UNITS[word];
+    if (!(word in MULTIPLIERS) && group.length && value >= last) {
+      numbers.push(group);
+      group = [];
+    }
+    group.push(word);
+    last = word in MULTIPLIERS ? Infinity : value;
+  }
+  if (group.length) numbers.push(group);
+  return numbers.map(numberDigits).join(' ');
+}
+
+/**
+ * عددهای به حروف متن ویس به رقم («شصت تن» ← «60 تن»، «گزینه سه» ← «گزینه 3»)؛ مدل‌های OpenAI عدد را
+ * گاهی رقمی، گاهی به حروف می‌نویسند. «و» فقط وسط عدد جزو آن است («صد و نه»)؛ علامت‌ها و فاصله‌ها می‌مانند.
+ */
+export function numbersToDigits(text: string): string {
+  const parts = text.split(/(\s+)/);
+  const word = (i: number) => toLatinDigits(PUNCTUATION.exec(parts[i])?.[2] ?? parts[i]);
+  const isNumber = (w: string) => /^\d+$/.test(w) || w in UNITS || w in MULTIPLIERS;
+  const wordIndex = parts.map((_, i) => i).filter((i) => !/^\s*$/.test(parts[i]));
+
+  const out = [...parts];
+  for (let k = 0; k < wordIndex.length; k++) {
+    if (!isNumber(word(wordIndex[k]))) continue;
+    // تا کلمه‌ی غیرعددی یا علامت («سی، چهار» دو عدد است)؛ «و» فقط اگر بعدش هم عدد باشد
+    let end = k;
+    while (end + 1 < wordIndex.length && !PUNCTUATION.exec(parts[wordIndex[end]])?.[3]) {
+      const next = word(wordIndex[end + 1]);
+      if (isNumber(next)) end++;
+      else if (next === 'و' && end + 2 < wordIndex.length && isNumber(word(wordIndex[end + 2])) && !PUNCTUATION.exec(parts[wordIndex[end + 1]])?.[3]) end += 2;
+      else break;
+    }
+    const words = wordIndex.slice(k, end + 1).map(word).filter((w) => w !== 'و');
+    const after = end + 1 < wordIndex.length ? word(wordIndex[end + 1]) : undefined;
+    const keep = (words.length === 1 && NOT_ALONE.has(words[0]) && !(after && QUANTITY_AFTER.test(after))) || words.every((w) => /^\d+$/.test(w));
+    if (!keep) {
+      const [, lead] = PUNCTUATION.exec(parts[wordIndex[k]]) ?? [];
+      const [, , , trail] = PUNCTUATION.exec(parts[wordIndex[end]]) ?? [];
+      out[wordIndex[k]] = `${lead ?? ''}${runDigits(words)}${trail ?? ''}`;
+      for (let i = wordIndex[k] + 1; i <= wordIndex[end]; i++) out[i] = '';
+    }
+    k = end;
+  }
+  return out.join('');
+}
+
 /**
  * فاصله‌ی رقمی با تحمل صفر: whisper صفرها رو زیاد جا می‌ندازه یا اضافه می‌کنه
  * («100009» ← «1009»)، پس حذف/درج صفر نصف هزینه داره.

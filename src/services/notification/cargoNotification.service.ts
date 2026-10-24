@@ -25,6 +25,7 @@ import { whatsappCards } from '../messengerBot/core/botCard';
 import { CargoVoiceService } from './cargoVoice.service';
 import { DriverProfileService } from '../driver/driverProfile.service';
 import { CargoSearch, matchesCargoSearch, prepareCargoSearch } from './cargoSearch';
+import { CargoTripTypeService } from './cargoTripType';
 import { CARGO_NOTIFICATION_SOCKET_EVENT, NotificationsGateway } from './notifications.gateway';
 import { TripAction } from '../../domain/constants/bot/TripAction';
 import { RedisService } from '../redis/redis.service';
@@ -88,6 +89,7 @@ export class CargoNotificationService {
     private readonly profiles: DriverProfileService,
     private readonly audience: CargoAudienceRepository,
     private readonly redis: RedisService,
+    private readonly tripTypes: CargoTripTypeService,
   ) {}
 
   /**
@@ -113,12 +115,18 @@ export class CargoNotificationService {
     }
 
     const text = buildCargoNotificationText(event);
+    // داخلی/صادراتی/وارداتی از مبدأ و مقصد، تا لیست پیشنهادها با نوع سفر فیلتر شود؛ خطا (مثلاً
+    // سرویس مکان در دسترس نیست) پیشنهاد را نگه نمی‌دارد، فقط نوعش نامعلوم می‌ماند
+    const tripType = await this.tripTypes.classify(event.origin ?? '', event.destination ?? '').catch((error: Error) => {
+      this.logger.warn(`Trip type of cargo message ${event.messageId} unknown: ${error.message}`);
+      return null;
+    });
     const createdIds = await this.notifications.insertIgnoringDuplicates(
       recipients.map((userId) => ({
         userId,
         sourceMessageId: event.messageId,
         text,
-        payload: event as Record<string, unknown>,
+        payload: { ...event, tripType } as Record<string, unknown>,
       })),
     );
 

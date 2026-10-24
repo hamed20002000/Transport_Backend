@@ -33,6 +33,7 @@ import { CreateCargoAlertFilterDto, UpdateCargoAlertFilterDto } from 'src/dto/no
 import { SetCargoStatusDto } from 'src/dto/notification/SetCargoStatusDto';
 import { PublishCargoListingDto } from 'src/dto/notification/PublishCargoListingDto';
 import { CargoNotificationKind } from 'src/infrastructure/repositories/notification/cargoNotification.repository';
+import { LISTING_STAGES, type ListingStage } from 'src/infrastructure/repositories/notification/cargoListing.repository';
 import { CargoListingService } from 'src/services/notification/cargoListing.service';
 import { CargoListingStatus, CargoTripType } from 'src/domain/enums/notification';
 import { CompanyAnnounceService } from 'src/services/notification/companyAnnounce.service';
@@ -199,9 +200,12 @@ export class CargoListingController {
     @Query('status', new ParseEnumPipe(CargoListingStatus, { optional: true })) status: CargoListingStatus | undefined,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('pageSize', new DefaultValuePipe(20), ParseIntPipe) pageSize: number,
+    // published (open), inTransit (on a driver's trip) or delivered
+    @Query('stage', new ParseEnumPipe(LISTING_STAGES, { optional: true })) stage?: ListingStage,
   ) {
     const result = await this.listings.listMine(currentUserId(request), {
       status,
+      stage,
       announcedOnly: true,
       page: Math.max(page, 1),
       pageSize: Math.min(Math.max(pageSize, 1), 100),

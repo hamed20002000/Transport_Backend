@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ChatRequest } from 'src/agent/types';
-import axios from "axios";
+import { embed, llmJson } from 'src/services/common/llmClient';
 import { DataSource } from "typeorm";
 import { InjectDataSource } from '@nestjs/typeorm';
 import { CondinateToolsTyes, ExtracteToolsType } from '../types';
@@ -12,8 +11,6 @@ import {
     DOMAIN_FINAL_LIMIT,
     DOMAIN_SEARCH_LIMIT,
     DOMAIN_TEXT_SEARCH_CONFIG,
-    EMBEDDING_MODEL,
-    EMBEDDING_URL,
     rankDomains,
     scoreLexical,
 } from '../domainRanking';
@@ -38,11 +35,7 @@ export class CondinateService {
 
 
     async getEmbedding(text: string): Promise<number[]> {
-        const resp = await axios.post(EMBEDDING_URL, {
-            model: EMBEDDING_MODEL,
-            input: text,
-        });
-        return resp.data.embeddings[0];
+        return embed(text);
     }
 
     weightedCombine(vecPrompt: number[], vecHistory: number[], alpha: number): number[] {
@@ -252,34 +245,22 @@ export class CondinateService {
             { "segments": ["...", "..."] }
             `;
 
-        const ollamareq: ChatRequest = {
-            model: "qwen3:8b",
+        const result = await llmJson<{ segments?: string[] }>({
             messages: [
                 { role: "system", content: systemPrompt },
                 { role: "user", content: prompt },
             ],
-            stream: false,
-        };
-
-        const resp = await axios.post(
-            "http://localhost:11434/api/chat",
-            JSON.stringify({
-                ...ollamareq,
-                format: {
-                    type: "object",
-                    properties: {
-                        segments: {
-                            type: "array",
-                            items: { type: "string" },
-                        },
+            format: {
+                type: "object",
+                properties: {
+                    segments: {
+                        type: "array",
+                        items: { type: "string" },
                     },
-                    required: ["segments"],
                 },
-            }),
-            { headers: { "Content-Type": "application/json" } }
-        );
-
-        const result = JSON.parse(resp.data.message.content);
+                required: ["segments"],
+            },
+        });
 
         // fallback ایمنی: اگه به هر دلیلی خالی برگشت، خود prompt اصلی رو برگردون
         return result.segments && result.segments.length > 0 ? result.segments : [prompt];

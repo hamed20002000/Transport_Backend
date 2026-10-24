@@ -150,6 +150,15 @@ export class CargoNotificationRepository {
         ...kind,
         // the company's own unannounced loads (older rows) are not suggestions: they have their own section
         payload: Raw((column) => `COALESCE((${column} ->> 'registeredByCompany')::boolean, false) = false`),
+        // a suggestion the company has published is in «بارهای منتشرشده» (or, not yet announced, in its own section)
+        ...(options.kind === 'suggestion'
+          ? {
+              sourceMessageId: Raw(
+                (column) => `NOT EXISTS (SELECT 1 FROM "CargoListing" published WHERE published."sourceMessageId" = ${column} AND published."publisherUserId" = :publisherUserId)`,
+                { publisherUserId: userId },
+              ),
+            }
+          : {}),
       },
       relations: { listing: true },
       order: { createdAt: 'DESC' },

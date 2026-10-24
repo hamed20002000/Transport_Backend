@@ -13,12 +13,12 @@ import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import { ConfigService } from '@nestjs/config';
-import axios from 'axios';
 import { config } from 'dotenv';
 import { DataSource, DataSourceOptions } from 'typeorm';
 
 import { typeOrmConfig } from 'src/infrastructure/database/typeorm-cli.config';
-import { DOMAIN_TEXT_SEARCH_CONFIG, EMBEDDING_MODEL, EMBEDDING_URL } from '../domainRanking';
+import { embedMany } from 'src/services/common/llmClient';
+import { DOMAIN_TEXT_SEARCH_CONFIG } from '../domainRanking';
 import { DomainDoc, EvalPrompt, evaluateDomains, formatReport } from './domainEvaluation';
 
 const AGENT_DIR = join(process.cwd(), 'src/application/services/agent');
@@ -54,8 +54,7 @@ async function main(): Promise<void> {
 
   try {
     const report = await evaluateDomains(docs, prompts, {
-      embed: async (texts) =>
-        (await axios.post(EMBEDDING_URL, { model: EMBEDDING_MODEL, input: texts })).data.embeddings,
+      embed: embedMany,
       lexemes: async (text) =>
         (
           await dataSource.query(

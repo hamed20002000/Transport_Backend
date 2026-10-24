@@ -2,6 +2,8 @@ import { textParam, ToolParam } from 'src/application/services/agent/tools/toolK
 import { normalizePersianText } from '../../domain/helper/persianText';
 import { CargoRouteFields } from './cargoAlertFilter.service';
 import { IRAN_PROVINCES } from '../../domain/helper/iranProvinces';
+import { CargoTripType } from '../../domain/enums/notification';
+import { parseTripType, TRIP_TYPE_LABELS } from './cargoTripType';
 
 /**
  * جستجوی لحظه‌ای در لیست بارها (مثلاً «لیست بارهای کارتن از تهران» در agent)؛
@@ -12,6 +14,8 @@ export interface CargoSearch {
   destination?: string;
   cargoType?: string;
   vehicleType?: string;
+  /** داخلی/صادراتی/وارداتی (متن آزاد، مثل «صادراتی» یا EXPORT)؛ نوع سفر است، نه نوع کالا */
+  tripType?: string;
 }
 
 const FIELDS = ['origin', 'destination', 'cargoType', 'vehicleType'] as const;
@@ -20,7 +24,7 @@ type Field = (typeof FIELDS)[number];
 const PLACE_FIELDS: ReadonlySet<Field> = new Set(['origin', 'destination']);
 
 /** خروجی prepareCargoSearch: برای هر فیلد پرشده، آیا مقدار همان فیلد بار جور است. */
-export type PreparedCargoSearch = Partial<Record<Field, (value: string) => boolean>>;
+export type PreparedCargoSearch = Partial<Record<Field, (value: string) => boolean>> & { tripType?: CargoTripType };
 
 // «یزد، اصفهان و شیراز»، «هرمزگان یا بوشهر»، «تبریز/مرند»
 const PLACE_SEPARATOR = /\s*(?:[،,\/|؛;]|\s+و\s+|\s+یا\s+)\s*/;
@@ -81,18 +85,24 @@ export function prepareCargoSearch(search: CargoSearch): PreparedCargoSearch | n
       prepared[field] = (cargoValue) => cargoValue.includes(value);
     }
   }
+  // متنی که نوع سفر نیست نادیده گرفته می‌شود، نه اینکه هیچ باری پیدا نشود
+  const tripType = parseTripType(search.tripType);
+  if (tripType) prepared.tripType = tripType;
   return Object.keys(prepared).length ? prepared : null;
 }
 
-/** search باید خروجی prepareCargoSearch باشد. */
+/** search باید خروجی prepareCargoSearch باشد. باری که نوع سفرش معلوم نیست با فیلتر نوع سفر جور نیست. */
 export function matchesCargoSearch(cargo: CargoRouteFields, search: PreparedCargoSearch): boolean {
+  if (search.tripType && cargo.tripType !== search.tripType) return false;
   return FIELDS.every((field) => !search[field] || search[field]!(normalizePersianText(cargo[field] ?? '')));
 }
 
 /** شرط‌های جستجو برای متن جواب: « کارتن از تهران به کرج با تریلی» */
 export function cargoSearchText(search: CargoSearch): string {
   const { cargoType, origin, destination, vehicleType } = search;
+  const tripType = parseTripType(search.tripType);
   return [
+    tripType && ` ${TRIP_TYPE_LABELS[tripType]}`,
     cargoType && ` ${cargoType}`,
     origin && ` از ${origin}`,
     destination && ` به ${destination}`,
@@ -102,12 +112,13 @@ export function cargoSearchText(search: CargoSearch): string {
     .join('');
 }
 
-/** شرط‌های جستجو از پارامترهای ابزار agent (origin، destination، cargoType، vehicleType). */
+/** شرط‌های جستجو از پارامترهای ابزار agent (origin، destination، cargoType، vehicleType، tripType). */
 export function searchFromParams(param: ToolParam): CargoSearch {
   return {
     origin: textParam(param.origin),
     destination: textParam(param.destination),
     cargoType: textParam(param.cargoType),
     vehicleType: textParam(param.vehicleType),
+    tripType: textParam(param.tripType),
   };
 }

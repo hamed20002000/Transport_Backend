@@ -1,6 +1,5 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { ChatRequest } from 'src/agent/types';
-import axios from "axios";
+import { llmJson } from 'src/services/common/llmClient';
 import { DataSource } from "typeorm";
 import { InjectDataSource } from '@nestjs/typeorm';
 import tools from 'src/application/services/agent/localFiles/tools.json';
@@ -94,8 +93,7 @@ Return JSON only.
 `;
 
         const ask = async (think: boolean): Promise<string> => {
-            const ollamareq: ChatRequest = {
-                model: "qwen3:8b",
+            const result = await llmJson<{ functionName: string }>({
                 messages: [
                     {
                         role: 'system',
@@ -105,35 +103,22 @@ Return JSON only.
                         role: "user",
                         content: prompt
                     }],
-                stream: false,
                 think,
                 // بدون نمونه‌گیری: یک جمله همیشه همان ابزار و همان پارامترها را بدهد
                 options: { temperature: 0, top_p: 0.9, repeat_penalty: 1.1 },
-            }
-
-            const resp = await axios.post(
-                "http://localhost:11434/api/chat",
-                JSON.stringify({
-                    ...ollamareq,
-                    format: {
-                        type: "object",
-                        properties: {
-                            functionName: {
-                                type: "string",
-                                enum: [...condinateTools, NO_TOOL]
-                            }
-                        },
-                        required: ["functionName"]
-                    }
-                }),
-                {
-                    headers: {
-                        "Content-Type": "application/json",
+                format: {
+                    type: "object",
+                    properties: {
+                        functionName: {
+                            type: "string",
+                            enum: [...condinateTools, NO_TOOL]
+                        }
                     },
-                },
-            );
+                    required: ["functionName"]
+                }
+            });
 
-            return JSON.parse(resp.data.message.content).functionName;
+            return result.functionName;
         };
 
         // انتخاب بدون فکر کردن چند برابر سریع‌تر است و برای بیشتر جمله‌ها همان دقت را دارد؛
@@ -310,9 +295,7 @@ Tool schema:
 ${JSON.stringify(selectedTool)}
 `;
 
-  const ollamareq: ChatRequest = {
-    model: 'qwen3:8b',
-
+  const parsed = await llmJson<ExtracteToolsType>({
     messages: [
       {
         role: 'system',
@@ -323,50 +306,31 @@ ${JSON.stringify(selectedTool)}
         content: prompt,
       },
     ],
-
-    stream: false,
     // think روشن می‌ماند: بدون آن استخراج پارامتر در ارزیابی holdout ضعیف‌تر بود
     // بدون نمونه‌گیری: یک جمله همیشه همان ابزار و همان پارامترها را بدهد
     options: { temperature: 0, top_p: 0.9, repeat_penalty: 1.1 },
-  };
+    format: {
+      type: 'object',
 
-  const resp = await axios.post(
-    'http://localhost:11434/api/chat',
-    JSON.stringify({
-      ...ollamareq,
-
-      format: {
-        type: 'object',
-
-        properties: {
-          functionName: {
-            type: 'string',
-          },
-
-          confidence: {
-            type: 'number',
-          },
-
-          parameters: selectedTool.parameters,
+      properties: {
+        functionName: {
+          type: 'string',
         },
 
-        required: [
-          'functionName',
-          'parameters',
-          'confidence',
-        ],
-      },
-    }),
-    {
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    },
-  );
+        confidence: {
+          type: 'number',
+        },
 
-  const parsed = JSON.parse(
-    resp.data.message.content,
-  ) as ExtracteToolsType;
+        parameters: selectedTool.parameters,
+      },
+
+      required: [
+        'functionName',
+        'parameters',
+        'confidence',
+      ],
+    },
+  });
 
   const result: ExtracteToolsType = {
     functionName: parsed.functionName,
