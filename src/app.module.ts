@@ -183,7 +183,7 @@ import { sessionTimeZone } from './infrastructure/database/timeZone';
         database:
           configService.get<string>(
             'DB_DATABASE',
-            'SetasportalDb',
+            'trabot',
           ),
 
         entities: [

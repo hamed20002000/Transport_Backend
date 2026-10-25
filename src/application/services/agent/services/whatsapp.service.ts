@@ -20,6 +20,7 @@ import { FunctionCallService } from './functioncall.service';
 import { AgentRequest } from '../types';
 import { PhoneAccountService } from 'src/services/auth/phoneAccount.service';
 import { AccountType } from 'src/domain/enums/subscription';
+import { SubscriptionAccessService } from 'src/services/subscription/subscriptionAccess.service';
 import { RecordStatus } from 'src/domain/enums/RecordStatus';
 import { normalizePhoneNumber } from 'src/dto/auth/phone-number';
 import { dialablePhones } from 'src/services/messengerBot/core/dialablePhones';
@@ -108,6 +109,12 @@ const toPersianDigits = (value: number) => String(value).replace(/\d/g, (d) => '
 const VOICE_UNCLEAR =
   'مطمئن نیستم درست شنیده باشم. لطفاً شمرده‌شمرده دوباره بگویید، یا اسم یا شماره‌ی گزینه را صوتی بفرستید.';
 
+// WhatsApp cannot take a receipt; buying happens in the app or the Telegram/Bale bot.
+const WHATSAPP_TRIAL_ENDED_TEXT =
+  '⏳ دوره‌ی رایگان شما تمام شده است.\nبرای ادامه‌ی کار، اشتراک را از بخش «اشتراک» در برنامه‌ی ترابوت یا از ربات تلگرام/بله بخرید.';
+const WHATSAPP_SUBSCRIPTION_REQUIRED_TEXT =
+  'برای ادامه‌ی کار اشتراک لازم است. اشتراک را از بخش «اشتراک» در برنامه‌ی ترابوت یا از ربات تلگرام/بله بخرید.';
+
 @Injectable()
 export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WhatsappService.name);
@@ -184,6 +191,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     private readonly pendingConfirmationService: PendingConfirmationService,
     private readonly channelsDialog: CompanyChannelsDialog,
     private readonly redis: RedisService,
+    private readonly subscriptionAccess: SubscriptionAccessService,
   ) { }
 
   async onModuleInit() {
@@ -538,6 +546,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     }
 
     const { userid, username } = mapping;
+    if (await this.blockedBySubscription(jid, userid)) return;
     // «۰» (ساده‌ترین چیز برای تایپ در واتساپ) همان /start است: منوی اصلی از نو
     if (isHomeCommand(text) && this.dialogHandler) {
       await this.resetConversation(jid, userid);
@@ -632,6 +641,21 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     await this.runCommand(userid, username, text);
   }
 
+  /**
+   * Same rule as the bots' menu (SubscriptionAccessService): a driver whose free period is over, or anyone the
+   * policy asks to subscribe, can only buy. WhatsApp has no purchase flow, so it says where to buy and stops.
+   * A failed check lets the message through rather than lock out a paying user.
+   */
+  private async blockedBySubscription(jid: string, userid: string): Promise<boolean> {
+    const access = await this.subscriptionAccess.check(userid).catch((error: Error) => {
+      this.logger.warn(`Subscription check for ${userid} failed: ${error.message}`);
+      return null;
+    });
+    if (!access || access.allowed) return false;
+    await this.sendMessage(jid, access.isDriver ? WHATSAPP_TRIAL_ENDED_TEXT : WHATSAPP_SUBSCRIPTION_REQUIRED_TEXT);
+    return true;
+  }
+
   setDialogHandler(handler: WhatsappDialogHandler): void {
     this.dialogHandler = handler;
   }
@@ -642,6 +666,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     if (!location || location.degreesLatitude == null || location.degreesLongitude == null) return;
     const mapping = await this.resolveUserFromJid(jid);
     if (!mapping || !this.dialogHandler) return;
+    if (await this.blockedBySubscription(jid, mapping.userid)) return;
     const handled = await this.dialogHandler.handleLocation(jid, mapping.userid, {
       latitude: Number(location.degreesLatitude),
       longitude: Number(location.degreesLongitude),
@@ -940,6 +965,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       if (await this.handleOnboardingMessage(jid, '')) await this.sendMessage(jid, 'لطفاً پیامتان را دوباره بفرستید.');
       return;
     }
+    if (await this.blockedBySubscription(jid, mapping.userid)) return;
 
     // Guard against calling downloadMediaMessage/sendMessage while the
     // socket isn't actually connected (e.g. mid-reconnect).
@@ -1082,6 +1108,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       if (await this.handleOnboardingMessage(jid, '')) await this.sendMessage(jid, 'لطفاً پیامتان را دوباره بفرستید.');
       return;
     }
+    if (await this.blockedBySubscription(jid, mapping.userid)) return;
 
     // فایلی که یکی از گفتگوها منتظرش است (مثل اکسل «ثبت چند بار»)؛ کپشن لازم ندارد
     const document = msg.message?.documentMessage;
@@ -1190,13 +1217,14 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     if (this.menuPolls.get(vote.jid) === vote.pollId) {
       this.menuPolls.delete(vote.jid);
       const mapping = await this.resolveUserFromJid(vote.jid);
-      if (mapping && this.dialogHandler) await this.dialogHandler.handleText(vote.jid, mapping.userid, answer);
+      if (!mapping || await this.blockedBySubscription(vote.jid, mapping.userid)) return;
+      if (this.dialogHandler) await this.dialogHandler.handleText(vote.jid, mapping.userid, answer);
       return;
     }
     if (this.pendingPolls.get(vote.jid) !== vote.pollId) return;
 
     const mapping = await this.resolveUserFromJid(vote.jid);
-    if (!mapping) return;
+    if (!mapping || await this.blockedBySubscription(vote.jid, mapping.userid)) return;
 
     if (this.pendingCodeChoices.has(vote.jid)) {
       await this.handleCodeChoiceReply(vote.jid, answer, mapping.userid, mapping.username);

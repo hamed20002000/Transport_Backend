@@ -28,6 +28,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
+import { SubscriptionGuard } from 'src/auth/guards/subscription.guard';
 import { JwtPayload } from 'src/domain/entities/auth/jwt-payload.dto';
 import { CargoRequest } from 'src/domain/entities/notification/CargoRequest';
 import { CargoRequestStatus, CargoTripType } from 'src/domain/enums/notification';
@@ -87,7 +88,8 @@ function thin(points: GeoPoint[]): GeoPoint[] {
  * سفر فعال، تحویل، موقعیت) روی CargoTripService / CargoInsightService.
  */
 @Controller('api/driver')
-@UseGuards(JwtAuthGuard)
+// a driver whose free period is over, without a subscription, can do nothing here but buy (api/subscription)
+@UseGuards(JwtAuthGuard, SubscriptionGuard)
 export class DriverController {
   constructor(
     private readonly trips: CargoTripService,

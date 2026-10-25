@@ -1,9 +1,12 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SubscriptionOrder } from '../../domain/entities/subscription/SubscriptionOrder';
+import { PaymentReceipt } from '../../domain/entities/subscription/PaymentReceipt';
 import { SubscriptionOrderController } from '../../presentation/controllers/admin/subscription-order.controller';
 import { MessengerBotModule } from './MessengerBotModule';
 import { SubscriptionModule } from './SubscriptionModule';
+import { RedisModule } from './RedisModule';
+import { ReceiptAccessService } from '../../services/subscription/receiptAccess.service';
 
 /**
  * تأیید/رد رسید خرید اشتراک توسط ادمین. جدا از SubscriptionModule چون
@@ -11,7 +14,8 @@ import { SubscriptionModule } from './SubscriptionModule';
  * SubscriptionModule وابسته است.
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([SubscriptionOrder]), SubscriptionModule, MessengerBotModule],
+  imports: [TypeOrmModule.forFeature([SubscriptionOrder, PaymentReceipt]), SubscriptionModule, MessengerBotModule, RedisModule],
   controllers: [SubscriptionOrderController],
+  providers: [ReceiptAccessService],
 })
 export class SubscriptionAdminModule {}

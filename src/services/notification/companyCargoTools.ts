@@ -40,7 +40,7 @@ type SuggestionView = Awaited<ReturnType<CargoNotificationService['list']>>['ite
 
 /**
  * ابزارهای agent برای بارهای شرکت (domainهای company_suggested_cargo،
- * company_create_cargo و company_my_cargo). مثل order.service در setash،
+ * company_create_cargo و company_my_cargo).
  * handlerها هنگام بالا آمدن ماژول در ToolRegister ثبت می‌شوند.
  */
 @Injectable()
@@ -54,7 +54,7 @@ export class CompanyCargoTools implements OnModuleInit {
   ) {}
 
   onModuleInit() {
-    // handlerها async function* هستند و this ندارند (الگوی setash)
+    // handlerها async function* هستند و this ندارند
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this;
 

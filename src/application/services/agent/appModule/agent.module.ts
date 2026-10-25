@@ -1,4 +1,5 @@
 import { forwardRef, Module } from '@nestjs/common';
+import { SubscriptionModule } from 'src/application/module/SubscriptionModule';
 import { AgentSqlService } from '../services/agentSql.service';
 import { AgentToolsService } from '../services/agentTools.service';
 import { ToolRegisterModule } from './toolregister.module';
@@ -31,6 +32,8 @@ import { BotAgentService } from '../services/botAgent.service';
     ToolRegisterModule,
     forwardRef(() => MessengerBotModule),
     RedisModule,
+    // SubscriptionGuard on the chat endpoints
+    SubscriptionModule,
       forwardRef(() => AuthModule), 
       forwardRef(() => WhatsappModule), 
       forwardRef(() => UserModule), 

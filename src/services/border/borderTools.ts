@@ -21,7 +21,7 @@ export class BorderTools implements OnModuleInit {
   ) {}
 
   onModuleInit() {
-    // handlerها async function* هستند و this ندارند (الگوی setash)
+    // handlerها async function* هستند و this ندارند
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this;
 

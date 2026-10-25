@@ -24,23 +24,34 @@ export class CargoAudienceRepository {
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
   /**
-   * راننده‌های فعال؛ با requireSubscription فقط آن‌هایی که اشتراک فعال دارند و با tripType
-   * فقط راننده‌های عضو نوع حمل و شرکت منتشرکننده.
+   * راننده‌های فعال که الان اجازه‌ی کار دارند و با tripType فقط راننده‌های عضو نوع حمل و شرکت منتشرکننده.
+   * driverRule روشن: فقط آن‌هایی که اشتراک فعال دارند یا هنوز در دوره‌ی رایگانشان هستند
+   * (از ثبت‌نام یا شروع قاعده، هر کدام دیرتر؛ همان حساب SubscriptionAccessService).
    */
-  async findDriverIds(requireSubscription: boolean, tripType?: CargoTripType, publisherUserId?: string, now = new Date()): Promise<string[]> {
+  async findDriverIds(
+    driverRule: { driversEnforced: boolean; driverTrialDays: number; driverTrialStartedAt: string },
+    tripType?: CargoTripType,
+    publisherUserId?: string,
+    now = new Date(),
+  ): Promise<string[]> {
     const query = this.dataSource
       .getRepository(User)
       .createQueryBuilder('user')
       .select('DISTINCT user.id', 'id')
       .innerJoin('user.userRoles', 'userRole')
       .innerJoin('userRole.role', 'role', 'role.name = :driver AND role.recordStatus = :active');
-    if (requireSubscription) {
-      query.innerJoin(
-        'Subscription',
-        'subscription',
-        'subscription.userId = user.id AND subscription.status = :subscriptionActive ' +
-          'AND subscription.startAt <= :now AND subscription.expireAt > :now',
-      );
+    if (driverRule.driversEnforced) {
+      query
+        .leftJoin(
+          'Subscription',
+          'subscription',
+          'subscription.userId = user.id AND subscription.status = :subscriptionActive ' +
+            'AND subscription.startAt <= :now AND subscription.expireAt > :now',
+        )
+        .andWhere(
+          '(subscription.id IS NOT NULL OR GREATEST(user.createdAt, :trialStartedAt) + make_interval(days => :trialDays) > :now)',
+          { trialStartedAt: new Date(driverRule.driverTrialStartedAt), trialDays: driverRule.driverTrialDays },
+        );
     }
     if (tripType || publisherUserId) query.innerJoin('DriverProfile', 'profile', 'profile.userId = user.id');
     if (tripType) query.andWhere(':tripType = ANY(profile.tripTypes)', { tripType });

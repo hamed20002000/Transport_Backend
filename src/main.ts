@@ -38,6 +38,12 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
 
+  // Payment receipts once lived in the public uploads folder; they are private now (receiptStorage) and that
+  // old address must never serve a file, even before `npm run move:receipts` has moved them. Registered before
+  // the static files, which are added when the app starts.
+  app.use('/uploads/payment-receipts', (_request: unknown, response: { status: (code: number) => { end: () => void } }) =>
+    response.status(404).end());
+
   // Enable CORS using environment variables
   app.enableCors({
     origin: configService
@@ -51,8 +57,8 @@ async function bootstrap() {
 
   // Configure Swagger
   const config = new DocumentBuilder()
-    .setTitle('Setas APIs')  // Title of your API
-    .setDescription('API documentation for Setas')  // Description of your API
+    .setTitle('Trabot APIs')  // Title of your API
+    .setDescription('API documentation for Trabot')  // Description of your API
     .setVersion('1.0.0')  // Version of the API
     .addBearerAuth() 
     /* .setBasePath('/api')  */  

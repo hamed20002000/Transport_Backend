@@ -241,7 +241,7 @@ export class CargoListingService {
 
   /** اعلان بار به راننده‌های همان نوع (داخلی/صادراتی/وارداتی) که فیلترشان جور است. */
   private async announcementRecipients(userId: string, tripType: CargoTripType, fields: CargoListingFields): Promise<string[]> {
-    const drivers = (await this.audience.findDriverIds(await this.policy.isRequired(), tripType, userId)).filter(
+    const drivers = (await this.audience.findDriverIds(await this.policy.getDriverRule(), tripType, userId)).filter(
       (id) => id !== userId,
     );
     const recipients = await this.filters.filterInterestedUsers(drivers, fields);

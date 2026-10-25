@@ -313,7 +313,7 @@
 //         const text = msg.text?.trim();
 
 //         if (msg.text == "/start") {
-//             await this.safeSendMessage(chatId, 'Merhaba! Ben Setash Agent botuyum. Hesabınızı bağlamak için şunu yazın: /link kullaniciadiniz parolanız');
+//             await this.safeSendMessage(chatId, 'Merhaba! Ben Trabot botuyum. Hesabınızı bağlamak için şunu yazın: /link kullaniciadiniz parolanız');
 //             return;
 //         }
 

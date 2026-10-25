@@ -1,5 +1,5 @@
 {
-  "name": "setash-backend",
+  "name": "trabot-backend",
   "version": "0.0.1",
   "description": "",
   "author": "",
@@ -22,6 +22,8 @@
     "typeorm": "ts-node -r tsconfig-paths/register node_modules/typeorm/cli.js -d ./src/infrastructure/database/data-source.ts",
     "seed": "ts-node -r tsconfig-paths/register src/infrastructure/database/seeds/seed.ts",
     "backfill:trip-types": "ts-node -r tsconfig-paths/register src/infrastructure/database/seeds/backfillSuggestionTripTypes.ts",
+    "move:receipts": "ts-node -r tsconfig-paths/register src/infrastructure/database/seeds/movePaymentReceipts.ts",
+    "receipt-password": "ts-node -r tsconfig-paths/register src/infrastructure/database/seeds/receiptPassword.ts",
     "agent:eval-domains": "ts-node -r tsconfig-paths/register src/application/services/agent/eval/evaluateDomains.ts",
     "agent:seed": "ts-node -r tsconfig-paths/register src/application/services/agent/eval/seedAgent.ts",
     "agent:eval-tools": "ts-node -r tsconfig-paths/register src/application/services/agent/eval/evaluateTools.ts",

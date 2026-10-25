@@ -25,7 +25,7 @@ export const COMPANY_ROLES = ['COMPANY', 'COMPANY_ADMIN','DRIVER'];
 export const DRIVER_ROLES = ['DRIVER'];
 
 /**
- * قدم‌های مشترک هر handler (الگوی setash): ثبت خطا/موفقیت در history و
+ * قدم‌های مشترک هر handler: ثبت خطا/موفقیت در history و
  * برگرداندن RequestResult. شناسه‌ی کاربر همیشه از req (JWT/اتصال پیام‌رسان) است،
  * نه از خروجی مدل.
  */

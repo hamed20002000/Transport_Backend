@@ -15,6 +15,9 @@ export const KEY_PREFIXES = {
   companyChannelsDialog: 'messenger:channel-flow:v1',
   companyProfileDialog: 'messenger:company-profile:v1',
   cargoSuggestionNoticeActivity: 'messenger:cargo-suggestion-activity:v1',
+  // یک اعلان گوشی برای هر موج پیشنهاد بار: پنجره‌ی ارسال و «در این پنجره بار تازه آمد»
+  cargoSuggestionPushWindow: 'push:cargo-suggestion-window:v1',
+  cargoSuggestionPushPending: 'push:cargo-suggestion-pending:v1',
   cargoDialog: 'messenger:cargo-flow:v1',
   tripDialog: 'messenger:trip-flow:v1',
   locationRequest: 'messenger:location-request:v1',
@@ -38,6 +41,11 @@ export const KEY_PREFIXES = {
   driverFuelKinds: 'driver:fuel-kinds:v1',
   rubikaPollOffset: 'rubika:poll-offset:v1',
   subscriptionPolicy: 'settings:subscription-policy:v1',
+  // مشاهده‌ی عکس رسیدها: توکن کوتاه‌عمر بعد از رمز، و شمارش رمزهای اشتباه هر ادمین
+  receiptViewToken: 'admin:receipt-view-token:v1',
+  receiptUnlockAttempts: 'admin:receipt-unlock-attempts:v1',
+  // هر خبر رسید/نتیجه فقط یک بار فرستاده شود، حتی وقتی چند نمونه‌ی سرور به یک کانال گوش می‌دهند
+  subscriptionNoticeSent: 'subscription:notice-sent:v1',
   // v2: همه‌ی قلم‌های قابل انتخاب (MARKET_CATALOG)؛ نسخه‌ی v1 فقط ۶ قلم ثابت را داشت
   marketPrices: 'market:prices:v2',
   marketRefreshLock: 'market:refresh-lock:v2',
@@ -63,6 +71,8 @@ export type RedisKeyParts = {
   companyChannelsDialog: [platform: string, externalUserId: string];
   companyProfileDialog: [platform: string, externalUserId: string];
   cargoSuggestionNoticeActivity: [platform: string, userId: string];
+  cargoSuggestionPushWindow: [userId: string];
+  cargoSuggestionPushPending: [userId: string];
   cargoDialog: [platform: string, externalUserId: string];
   tripDialog: [platform: string, externalUserId: string];
   locationRequest: [driverUserId: string];
@@ -85,10 +95,31 @@ export type RedisKeyParts = {
   marketLiveMessages: [];
   borderData: [kind: string, border: string];
   borderRefreshLock: [];
+  receiptViewToken: [token: string];
+  receiptUnlockAttempts: [adminUserId: string];
+  subscriptionNoticeSent: [event: string, id: string];
 };
 
 /** کانال‌های pub/sub بین نمونه‌های برنامه. */
 export const REDIS_CHANNELS = {
   /** ادمین سیاست اشتراک را عوض کرده؛ نمونه‌ها کش محلی‌شان را پاک می‌کنند. */
   subscriptionPolicyChanged: 'settings:subscription-policy:changed:v1',
+  /** رسید پرداخت تازه (ربات یا برنامه): به ادمین‌ها خبر داده می‌شود تا خریدار معطل نماند. */
+  paymentReceiptSubmitted: 'subscription:receipt-submitted:v1',
+  /** ادمین رسید را تأیید یا رد کرد: به خریدار در برنامه و واتساپ خبر داده می‌شود. */
+  subscriptionDecided: 'subscription:decided:v1',
 } as const;
+
+export interface PaymentReceiptSubmittedEvent {
+  orderId: string;
+  receiptId: string;
+}
+
+export interface SubscriptionDecidedEvent {
+  orderId: string;
+  userId: string;
+  approved: boolean;
+  accountType: string;
+  expireAt?: string;
+  reason?: string;
+}

@@ -1,11 +1,14 @@
 import { SubscriptionPlanController } from 'src/presentation/controllers/admin/subscription-plan.controller';
 import { SubscriptionPolicyController } from 'src/presentation/controllers/admin/subscription-policy.controller';
+import { SubscriptionController } from 'src/presentation/controllers/subscription/subscription.controller';
 import { AppSetting } from '../../domain/entities/setting/AppSetting';
 import { RedisModule } from './RedisModule';
 import { SubscriptionPolicyService } from '../../services/subscription/subscriptionPolicy.service';
 import { AccountProvisioningService } from '../../services/subscription/accountprovisioning.service';
 import { SubscriptionTools } from '../../services/subscription/subscriptionTools';
 import { SubscriptionStatusService } from '../../services/subscription/subscriptionStatus.service';
+import { SubscriptionAccessService } from '../../services/subscription/subscriptionAccess.service';
+import { User } from '../../domain/entities/auth/User';
 import { UserModule } from './UserModule';
 import { Subscription } from '../../domain/entities/subscription/Subscription';
 import { SubscriptionRepository } from '../../infrastructure/repositories/subscription/subscription.repository';
@@ -35,7 +38,7 @@ import {
 } from '../../domain/repositories/repository.tokens';
 
 @Module({
-  controllers: [SubscriptionPlanController, SubscriptionPolicyController],
+  controllers: [SubscriptionPlanController, SubscriptionPolicyController, SubscriptionController],
   imports: [
     TypeOrmModule.forFeature([
       Subscription,
@@ -43,6 +46,7 @@ import {
       SubscriptionOrder,
       PaymentReceipt,
       AppSetting,
+      User,
     ]),
     UserModule,
     RedisModule,
@@ -64,6 +68,7 @@ import {
     SubscriptionPolicyService,
     AccountProvisioningService,
     SubscriptionStatusService,
+    SubscriptionAccessService,
     SubscriptionTools,
 
     {
@@ -89,6 +94,7 @@ import {
 
   exports: [
     SUBSCRIPTION_REPOSITORY,
+    SubscriptionAccessService,
     SubscriptionPolicyService,
     AccountProvisioningService,
     SubscriptionStatusService,

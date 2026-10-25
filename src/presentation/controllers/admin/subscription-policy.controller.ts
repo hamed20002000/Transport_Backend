@@ -1,5 +1,5 @@
 import { Body, Controller, ForbiddenException, Get, Put, Req, UseGuards } from '@nestjs/common';
-import { IsBoolean, IsISO8601, IsOptional, ValidateIf } from 'class-validator';
+import { IsBoolean, IsISO8601, IsInt, IsOptional, Max, Min, ValidateIf } from 'class-validator';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { SubscriptionPolicyService } from 'src/services/subscription/subscriptionPolicy.service';
 
@@ -22,6 +22,18 @@ export class UpdateSubscriptionPolicyDto {
   @ValidateIf((_, value) => value !== null)
   @IsISO8601({ strict: true })
   freeUntil?: string | null;
+
+  /** راننده بعد از دوره‌ی رایگانش بدون اشتراک کاری جز خرید ندارد؛ false = راننده هم آزاد. نیامده = بدون تغییر. */
+  @IsOptional()
+  @IsBoolean()
+  driversEnforced?: boolean;
+
+  /** روزهای رایگان هر راننده (از ثبت‌نام، یا از شروع این قاعده برای رانندگان قدیمی). */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(365)
+  driverTrialDays?: number;
 }
 
 /**
@@ -42,9 +54,16 @@ export class SubscriptionPolicyController {
   }
 
   @Put()
-  update(@Req() request: AdminRequest, @Body() dto: UpdateSubscriptionPolicyDto) {
+  async update(@Req() request: AdminRequest, @Body() dto: UpdateSubscriptionPolicyDto) {
     const adminUserId = requireAdmin(request);
     const freeUntil = dto.freeUntil ? new Date(dto.freeUntil).toISOString() : null;
-    return this.policy.update({ enforced: dto.enforced, freeUntil }, adminUserId);
+    const current = await this.policy.getStatus();
+    return this.policy.update({
+      enforced: dto.enforced,
+      freeUntil,
+      driversEnforced: dto.driversEnforced ?? current.driversEnforced,
+      driverTrialDays: dto.driverTrialDays ?? current.driverTrialDays,
+      driverTrialStartedAt: current.driverTrialStartedAt,
+    }, adminUserId);
   }
 }

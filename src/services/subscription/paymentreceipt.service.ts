@@ -4,7 +4,11 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
+
+import { RedisService } from '../redis/redis.service';
+import { PaymentReceiptSubmittedEvent, REDIS_CHANNELS } from '../redis/redis.keys';
 
 import { ConfigService } from '@nestjs/config';
 
@@ -77,6 +81,10 @@ export class PaymentReceiptService {
 
     private readonly orderService:
       SubscriptionOrderService,
+
+    // the admins hear about every new receipt (SubscriptionNotifier)
+    @Optional()
+    private readonly redis?: RedisService,
   ) {}
 
   private readonly logger =
@@ -167,6 +175,12 @@ export class PaymentReceiptService {
     void this.processReceipt(
       savedReceipt.id,
     );
+
+    // a buyer must not wait on an admin who does not know: tell them now (a failed notice never fails the payment)
+    const event: PaymentReceiptSubmittedEvent = { orderId: savedReceipt.orderId, receiptId: savedReceipt.id };
+    void this.redis
+      ?.publish(REDIS_CHANNELS.paymentReceiptSubmitted, JSON.stringify(event))
+      .catch((error: unknown) => this.logger.warn(`Could not announce receipt ${savedReceipt.id}: ${this.errorMessage(error)}`));
 
     return savedReceipt;
   }

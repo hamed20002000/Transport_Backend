@@ -11,13 +11,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import { MultiBot } from './multiBot';
 import { BotKeyboardService } from './botKeyboard';
 
-import {
-  mkdir,
-} from 'node:fs/promises';
-
-import {
-  join,
-} from 'node:path';
+import { receiptDir, storeUnderRandomName } from '../../subscription/receiptStorage';
 
 import { AccountType } from 'src/domain/enums/subscription';
 
@@ -821,25 +815,13 @@ export class BotAccountHandler {
        * generic receipt information.
        */
 
-      const uploadDirectory =
-        join(
-          process.cwd(),
-          'uploads',
-          'payment-receipts',
-          'telegram',
-        );
-
-      await mkdir(
-        uploadDirectory,
-        {
-          recursive: true,
-        },
-      );
-
+      // private store (not publicly served), one folder per messenger, a random name per receipt
       const downloadedFilePath =
-        await this.bot.downloadFile(
-          fileId,
-          uploadDirectory,
+        storeUnderRandomName(
+          await this.bot.downloadFile(
+            fileId,
+            receiptDir(communicationProviderOf(externalUserId)),
+          ),
         );
 
       /*

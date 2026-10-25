@@ -1,11 +1,10 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { SUBSCRIPTION_REPOSITORY } from '../../../domain/repositories/repository.tokens';
-import { ISubscriptionRepository } from '../../../domain/repositories/subscription/ISubscriptionRepository';
+import { Injectable } from '@nestjs/common';
 import { AccountType } from '../../../domain/enums/subscription';
 import { BotSessionState } from '../../../domain/enums/botSession';
 import { BotCallback, BotCallbackBuilder } from '../../../domain/constants/bot/BotCallback';
 import { SubscriptionPlanService } from '../../subscription/subscriptionPlan.service';
 import { SubscriptionPolicyService } from '../../subscription/subscriptionPolicy.service';
+import { SubscriptionAccessService } from '../../subscription/subscriptionAccess.service';
 import { BotIdentityService } from './botIdentity.service';
 import { BotSessionService } from './botSession.service';
 import { BotMessagesService } from './botMessages.service';
@@ -14,13 +13,13 @@ import { BotKeyboardService } from './botKeyboard';
 @Injectable()
 export class BotSubscriptionService {
   constructor(
-    @Inject(SUBSCRIPTION_REPOSITORY) private readonly subscriptions: ISubscriptionRepository,
     private readonly plans: SubscriptionPlanService,
     private readonly identity: BotIdentityService,
     private readonly sessions: BotSessionService,
     private readonly messages: BotMessagesService,
     private readonly keyboard: BotKeyboardService,
     private readonly policy: SubscriptionPolicyService,
+    private readonly access: SubscriptionAccessService,
   ) {}
 
   /** Show available plans and return false when a subscription is required. */
@@ -38,9 +37,10 @@ export class BotSubscriptionService {
 
   //#region ---------------------------- بررسی وضعیت سابسکریپشن -----------------------------------
   async ensureActiveSubscription(chatId: string, externalUserId: string): Promise<boolean> {
-    if (!(await this.policy.isRequired())) return true;
     const userId = await this.identity.getUserId(externalUserId);
-    if (userId && await this.subscriptions.findActiveByUserId(userId)) return true;
+    // linked user: subscription, a driver's own free period, or the general policy (SubscriptionAccessService)
+    const access = userId ? await this.access.check(userId) : null;
+    if (access ? access.allowed : !(await this.policy.isRequired())) return true;
     
     const accountType = accountTypeForRoles(await this.identity.getMenuRoles(externalUserId));
     const plans = accountType ? await this.plans.findActiveByAccountType(accountType) : [];
@@ -54,7 +54,7 @@ export class BotSubscriptionService {
       }
     }
     await this.keyboard.sendMainMenu(chatId,
-      this.messages.get(plans.length ? 'account.selectPlan' : 'account.noActivePlan'), {
+      this.messages.get(!plans.length ? 'account.noActivePlan' : access?.isDriver ? 'account.trialEnded' : 'account.selectPlan'), {
         reply_markup: { inline_keyboard: [
           ...plans.map(plan => [{
             text: `${plan.title} — ${new Intl.NumberFormat('fa-IR').format(Number(plan.price))} ${plan.currency}`,

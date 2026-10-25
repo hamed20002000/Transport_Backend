@@ -1,4 +1,4 @@
-import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
+import { forwardRef, Inject, Injectable, Logger, OnModuleDestroy, Optional } from '@nestjs/common';
 
 import { CargoDetectedEvent } from '../../domain/constants/cargoEvents';
 import { CargoListing } from '../../domain/entities/notification/CargoListing';
@@ -29,6 +29,7 @@ import { CargoTripTypeService } from './cargoTripType';
 import { CARGO_NOTIFICATION_SOCKET_EVENT, NotificationsGateway } from './notifications.gateway';
 import { TripAction } from '../../domain/constants/bot/TripAction';
 import { RedisService } from '../redis/redis.service';
+import { WebPushService } from './webPush.service';
 
 const BOT_PLATFORM_LABEL_EN: Record<BotPlatform, string> = { telegram: 'Telegram', bale: 'Bale', rubika: 'Rubika' };
 
@@ -55,6 +56,10 @@ const WHATSAPP_SUGGESTIONS_HINT = 'برای دیدن جزئیات، «بارها
 // تا یک دقیقه از آخرین بار، اعلان در جای خودش تازه می‌شود.
 const SUGGESTION_BURST_MS = 60 * 1000;
 const WHATSAPP_EDIT_WINDOW_MS = 14 * 60 * 1000;
+// اعلان گوشی پیشنهادها: اولی همان لحظه با صدا، بقیه‌ی همان دقیقه یکجا و بی‌صدا جای همان را می‌گیرند.
+const SUGGESTION_PUSH_WINDOW_SECONDS = 60;
+const SUGGESTION_PUSH_TAG = 'cargo-suggestions';
+const SUGGESTION_PUSH_URL = '/account/company/cargo';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -66,11 +71,14 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
  *  - بار منتشرشده برای راننده: شرکت آن را به نام خودش فرستاده (CargoListingService).
  */
 @Injectable()
-export class CargoNotificationService {
+export class CargoNotificationService implements OnModuleDestroy {
   private readonly logger = new Logger(CargoNotificationService.name);
 
   // مثل صف منوها: حذف و ارسال اعلان‌های هم‌زمان یک شرکت پشت‌سرهم انجام می‌شود.
   private readonly suggestionDeliveries = new Map<string, Promise<void>>();
+
+  // پایان پنجره‌ی اعلان گوشی هر شرکت (فقط در همین پروسه؛ با ریستارت فقط به‌روزرسانی آخر گم می‌شود)
+  private readonly suggestionPushTimers = new Map<string, NodeJS.Timeout>();
 
   constructor(
     private readonly notifications: CargoNotificationRepository,
@@ -90,7 +98,13 @@ export class CargoNotificationService {
     private readonly audience: CargoAudienceRepository,
     private readonly redis: RedisService,
     private readonly tripTypes: CargoTripTypeService,
+    @Optional() private readonly push?: WebPushService,
   ) {}
+
+  onModuleDestroy(): void {
+    for (const timer of this.suggestionPushTimers.values()) clearTimeout(timer);
+    this.suggestionPushTimers.clear();
+  }
 
   /**
    * پیشنهاد بار به شرکت‌ها. هنوز چیزی در CargoListing ثبت نمی‌شود؛ فقط اگر
@@ -134,6 +148,8 @@ export class CargoNotificationService {
     for (const row of rows) {
       if (createdIds.has(row.id)) {
         this.gateway.sendToUser(row.userId, CARGO_NOTIFICATION_SOCKET_EVENT, this.toView(row));
+        // منتظرش نمی‌مانیم و خطایش بالا نمی‌رود: پیام nack نشود و ربات‌ها دوباره ارسال نکنند
+        void this.pushSuggestions(row.userId);
       }
       await this.deliver(row);
     }
@@ -377,6 +393,57 @@ export class CargoNotificationService {
       notificationId: row.id,
       at: Date.now(),
     }, SUGGESTION_BURST_MS / 1000);
+  }
+
+  /**
+   * اعلان گوشی پیشنهاد بار. ده‌ها بار ممکن است در یک لحظه برسند؛ گوشی فقط یک اعلان می‌بیند:
+   *  - اولین بار پنجره: همان لحظه، با صدا (renotify تا جای اعلان قدیمیِ مانده را هم با صدا بگیرد).
+   *  - بقیه‌ی پنجره: فقط علامت می‌خورد؛ آخر پنجره یک اعلان بی‌صدا با همان tag عدد را درست می‌کند
+   *    و اگر بار باز هم آمد پنجره‌ی بعدی بی‌صدا ادامه می‌دهد.
+   * خطا فقط لاگ می‌شود.
+   */
+  private async pushSuggestions(userId: string): Promise<void> {
+    if (!this.push?.enabled) return;
+    try {
+      const windowKey = RedisService.key('cargoSuggestionPushWindow', userId);
+      if (await this.redis.setIfAbsent(windowKey, '1', SUGGESTION_PUSH_WINDOW_SECONDS)) {
+        await this.sendSuggestionPush(userId, true);
+        this.scheduleSuggestionPush(userId);
+      } else {
+        await this.redis.set(RedisService.key('cargoSuggestionPushPending', userId), '1', SUGGESTION_PUSH_WINDOW_SECONDS * 2);
+      }
+    } catch (error) {
+      this.logger.warn(`Cargo suggestion web push to ${userId} failed: ${(error as Error).message}`);
+    }
+  }
+
+  private scheduleSuggestionPush(userId: string): void {
+    clearTimeout(this.suggestionPushTimers.get(userId));
+    const timer = setTimeout(() => void this.flushSuggestionPush(userId), SUGGESTION_PUSH_WINDOW_SECONDS * 1000);
+    timer.unref?.();
+    this.suggestionPushTimers.set(userId, timer);
+  }
+
+  private async flushSuggestionPush(userId: string): Promise<void> {
+    this.suggestionPushTimers.delete(userId);
+    try {
+      if (!(await this.redis.take(RedisService.key('cargoSuggestionPushPending', userId)))) return;
+      await this.redis.set(RedisService.key('cargoSuggestionPushWindow', userId), '1', SUGGESTION_PUSH_WINDOW_SECONDS);
+      await this.sendSuggestionPush(userId, false);
+      this.scheduleSuggestionPush(userId);
+    } catch (error) {
+      this.logger.warn(`Cargo suggestion web push to ${userId} failed: ${(error as Error).message}`);
+    }
+  }
+
+  private async sendSuggestionPush(userId: string, renotify: boolean): Promise<void> {
+    await this.push!.sendToUser(userId, {
+      title: 'ترابوت · بار پیشنهادی',
+      body: await this.suggestionNoticeText(userId),
+      url: SUGGESTION_PUSH_URL,
+      tag: SUGGESTION_PUSH_TAG,
+      renotify,
+    });
   }
 
   private async suggestionNoticeText(userId: string, openHint?: string): Promise<string> {

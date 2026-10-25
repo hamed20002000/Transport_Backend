@@ -81,6 +81,9 @@ export class SubscriptionOrderRepository
         { userId },
       )
       .orWhere('order.createdUserId = :userId', { userId })
+      // خرید از داخل برنامه: شناسه‌ی خریدار خود userId است
+      // providerUserId is text; the same uuid parameter would make Postgres compare text = uuid
+      .orWhere('(order.provider = :web AND order.providerUserId = :webUserId)', { web: CommunicationProvider.Web, webUserId: userId })
       .orderBy('order.createdAt', 'DESC')
       .addOrderBy('receipt.createdAt', 'DESC')
       .getOne();

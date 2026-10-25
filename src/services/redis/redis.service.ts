@@ -13,7 +13,7 @@ export class RedisService implements OnModuleDestroy {
       throw new Error('Redis key parts must be non-empty.');
     }
     // توکن‌های راز (refresh و ثبت‌نام) فقط به‌صورت هش در کلید می‌آیند
-    const identifiers = kind === 'refreshToken' || kind === 'registrationToken'
+    const identifiers = kind === 'refreshToken' || kind === 'registrationToken' || kind === 'receiptViewToken'
       ? [createHash('sha256').update((parts as RedisKeyParts['refreshToken'])[0]).digest('hex')]
       : parts.map(RedisService.escapePart);
     return [KEY_PREFIXES[kind], ...identifiers].join(':');
@@ -162,6 +162,14 @@ export class RedisService implements OnModuleDestroy {
 
   async hashGetAll(key: string): Promise<Record<string, string>> {
     return this.client.hgetall(key);
+  }
+
+  /** Counts within a window: the first increment starts the TTL, later ones keep it. */
+  async increment(key: string, ttlSeconds: number): Promise<number> {
+    this.validateTtl(ttlSeconds);
+    const count = await this.client.incr(key);
+    if (count === 1) await this.client.expire(key, ttlSeconds);
+    return count;
   }
 
   async setIfAbsent(key: string, value: string, ttlSeconds: number): Promise<boolean> {

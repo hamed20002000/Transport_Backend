@@ -467,7 +467,7 @@ export class FunctionCallService {
             const request = result.value;
             this.agentGateway.sendToolResult(userId, {
                 result: "confirm_required",
-                // generatorها سؤالشان را در label می‌گذارند (الگوی setash)
+                // generatorها سؤالشان را در label می‌گذارند
                 message: request.message ?? request.label,
                 data: request,
                 continuePrompt: "",

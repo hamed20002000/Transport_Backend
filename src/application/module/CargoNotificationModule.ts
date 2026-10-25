@@ -42,6 +42,7 @@ import { CargoEventConsumer } from '../../services/notification/cargoEventConsum
 import { CargoListingService } from '../../services/notification/cargoListing.service';
 import { CargoNotificationService } from '../../services/notification/cargoNotification.service';
 import { NotificationsGateway } from '../../services/notification/notifications.gateway';
+import { SubscriptionNotifier } from '../../services/notification/subscriptionNotifier.service';
 import { ChannelMembershipNotifier } from '../../services/notification/channelMembership.service';
 import { ChannelMembershipConsumer } from '../../services/notification/channelMembershipConsumer.service';
 import { WhatsappModule } from '../services/agent/appModule/whatsapp.module';
@@ -131,6 +132,8 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
     DriverCargoTools,
     AppSectionTools,
     WebPushService,
+    // خبر رسید پرداخت تازه به ادمین‌ها و نتیجه‌ی بررسی به خریدار
+    SubscriptionNotifier,
     DriverProfileTools,
     // دکمه‌های بار در ربات‌ها؛ خودش را در BotDialogRegistry ثبت می‌کند
     CargoDialog,

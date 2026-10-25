@@ -15,10 +15,18 @@ const LOCAL_TTL_MS = 5_000;
 const REDIS_TTL_SECONDS = 86_400;
 
 export interface SubscriptionPolicy {
-  /** خاموش = هیچ‌جا اشتراک لازم نیست (منوی ربات، ثبت گروه/کانال، اعلان بار). */
+  /** خاموش = برای شرکت‌ها و بقیه‌ی نقش‌ها اشتراک لازم نیست (منوی ربات، ثبت گروه/کانال، پیشنهاد بار). */
   enforced: boolean;
   /** تا این زمان استفاده رایگان است و بعد از آن (اگر enforced باشد) خودکار اجباری می‌شود. */
   freeUntil: string | null;
+  /**
+   * راننده‌ها قاعده‌ی خودشان را دارند: هر راننده driverTrialDays روز رایگان، از ثبت‌نامش یا از
+   * driverTrialStartedAt (هر کدام دیرتر، تا رانندگانی که قبل از این قاعده بودند هم دوره‌ی کامل بگیرند)،
+   * و بعد از آن بدون اشتراک هیچ کاری جز خرید ندارد. driversEnforced خاموش = راننده هم آزاد.
+   */
+  driversEnforced: boolean;
+  driverTrialDays: number;
+  driverTrialStartedAt: string;
 }
 
 export interface SubscriptionPolicyStatus extends SubscriptionPolicy {
@@ -26,8 +34,20 @@ export interface SubscriptionPolicyStatus extends SubscriptionPolicy {
   required: boolean;
 }
 
-/** پیش‌فرض تا وقتی ادمین چیزی تنظیم نکرده: اشتراک لازم نیست. */
-const DEFAULT_POLICY: SubscriptionPolicy = { enforced: false, freeUntil: null };
+/** روزی که قاعده‌ی دوره‌ی رایگان راننده اعمال شد؛ رانندگان قبل از آن از همین روز یک ماه رایگان دارند. */
+const DRIVER_TRIAL_ROLLOUT = '2026-10-25T00:00:00.000Z';
+const DEFAULT_DRIVER_TRIAL_DAYS = 30;
+
+/**
+ * پیش‌فرض تا وقتی ادمین چیزی تنظیم نکرده: برای شرکت‌ها اشتراک لازم نیست؛ راننده یک ماه رایگان و بعد اجباری.
+ */
+const DEFAULT_POLICY: SubscriptionPolicy = {
+  enforced: false,
+  freeUntil: null,
+  driversEnforced: true,
+  driverTrialDays: DEFAULT_DRIVER_TRIAL_DAYS,
+  driverTrialStartedAt: DRIVER_TRIAL_ROLLOUT,
+};
 
 /**
  * اجباری بودن اشتراک، قابل تغییر در زمان اجرا از پنل ادمین
@@ -73,6 +93,12 @@ export class SubscriptionPolicyService implements OnModuleInit {
    * @returns 
    */
   //#region ---------------------------- به دست اوردن وضعیت سابسکریپشن پلن ---------------
+  /** قاعده‌ی راننده (SubscriptionAccessService و فهرست رانندگانی که اعلان بار می‌گیرند). */
+  async getDriverRule(): Promise<Pick<SubscriptionPolicy, 'driversEnforced' | 'driverTrialDays' | 'driverTrialStartedAt'>> {
+    const { driversEnforced, driverTrialDays, driverTrialStartedAt } = await this.getPolicy();
+    return { driversEnforced, driverTrialDays, driverTrialStartedAt };
+  }
+
   async getStatus(now = new Date()): Promise<SubscriptionPolicyStatus> {
     const policy = await this.getPolicy();
     const free = policy.freeUntil !== null && now < new Date(policy.freeUntil);
@@ -105,7 +131,10 @@ export class SubscriptionPolicyService implements OnModuleInit {
       await this.redis.delete(RedisService.key('subscriptionPolicy')).catch(() => undefined);
       this.logger.warn(`Could not share subscription policy through Redis: ${(error as Error).message}`);
     }
-    this.logger.log(`Subscription policy changed: enforced=${policy.enforced}, freeUntil=${policy.freeUntil ?? '-'}`);
+    this.logger.log(
+      `Subscription policy changed: enforced=${policy.enforced}, freeUntil=${policy.freeUntil ?? '-'}, ` +
+        `drivers=${policy.driversEnforced} (${policy.driverTrialDays} free days from ${policy.driverTrialStartedAt})`,
+    );
     return this.getStatus();
   }
   //#endregion --------------------------------------------------------------------------------
@@ -170,8 +199,16 @@ export class SubscriptionPolicyService implements OnModuleInit {
 
 /** مقدار jsonb یا Redis از بیرون می‌آید؛ فقط شکل معتبر پذیرفته می‌شود. */
 function normalize(value: Record<string, unknown>): SubscriptionPolicy {
+  const days = Number(value.driverTrialDays);
+  const startedAt = typeof value.driverTrialStartedAt === 'string' && !Number.isNaN(Date.parse(value.driverTrialStartedAt))
+    ? value.driverTrialStartedAt
+    : DRIVER_TRIAL_ROLLOUT;
   return {
     enforced: value.enforced === true,
     freeUntil: typeof value.freeUntil === 'string' ? value.freeUntil : null,
+    // ردیف‌های قدیمی این فیلدها را ندارند: همان پیش‌فرض (راننده اجباری بعد از یک ماه)
+    driversEnforced: value.driversEnforced !== false,
+    driverTrialDays: Number.isSafeInteger(days) && days >= 0 ? days : DEFAULT_DRIVER_TRIAL_DAYS,
+    driverTrialStartedAt: startedAt,
   };
 }

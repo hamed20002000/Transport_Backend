@@ -16,6 +16,8 @@ interface ErrorResponse {
   statusCode: number;
   statusCodeName: string;
   message: string | string[];
+  /** a machine-readable reason the client acts on, e.g. SUBSCRIPTION_REQUIRED (SubscriptionGuard) */
+  code?: string;
   path: string;
   timestamp: string;
 }
@@ -42,6 +44,8 @@ export class GlobalExceptionFilter
     let message: string | string[] =
       'Internal server error';
 
+    let code: string | undefined;
+
     if (exception instanceof HttpException) {
       statusCode = exception.getStatus();
 
@@ -57,11 +61,16 @@ export class GlobalExceptionFilter
         const responseObject =
           exceptionResponse as {
             message?: string | string[];
+            code?: unknown;
           };
 
         message =
           responseObject.message ??
           exception.message;
+
+        if (typeof responseObject.code === 'string') {
+          code = responseObject.code;
+        }
       }
     } else if (exception instanceof Error) {
       message = exception.message;
@@ -77,6 +86,8 @@ export class GlobalExceptionFilter
         String(statusCode),
 
       message,
+
+      ...(code ? { code } : {}),
 
       path: request.url,
 

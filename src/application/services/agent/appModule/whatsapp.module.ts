@@ -11,6 +11,7 @@ import { AgentModule } from './agent.module';
 import { AuthModule } from 'src/auth/auth.module';
 import { ChannelModule } from 'src/application/module/ChannelModule';
 import { RedisModule } from 'src/application/module/RedisModule';
+import { SubscriptionModule } from 'src/application/module/SubscriptionModule';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { RedisModule } from 'src/application/module/RedisModule';
     forwardRef(() => AgentModule),
     AuthModule,
     RedisModule,
+    SubscriptionModule,
     forwardRef(() => ChannelModule),
   ],
   providers: [WhatsappService, WhatsappPollService, WhatsappMenuMessages],

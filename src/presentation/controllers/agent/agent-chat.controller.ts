@@ -33,6 +33,7 @@ import { VOICE_IDENTIFIER_NOTICE } from 'src/application/services/agent/services
 import { VoiceCodeResolverService } from 'src/application/services/agent/services/voiceCodeResolver.service';
 import { AgentRequest } from 'src/application/services/agent/types';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
+import { SubscriptionGuard } from 'src/auth/guards/subscription.guard';
 import { ConversationSession } from 'src/domain/entities/agent/ConversationSession';
 import { JwtPayload } from 'src/domain/entities/auth/jwt-payload.dto';
 import { AgentConfirmActionDto, AgentTextMessageDto, AgentVoiceMessageDto } from 'src/dto/agent/agent-chat.dto';
@@ -56,7 +57,7 @@ type AuthRequest = { user: JwtPayload };
 @Controller('api/agent/chat')
 @ApiTags('Agent Chat')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, SubscriptionGuard)
 export class AgentChatController {
   private readonly logger = new Logger(AgentChatController.name);
 

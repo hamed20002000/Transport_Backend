@@ -11,6 +11,10 @@ export interface PushMessage {
   body: string;
   /** page of the app the notification opens */
   url: string;
+  /** a later notification with the same tag replaces this one on the phone instead of piling up */
+  tag?: string;
+  /** with a tag: whether the replacement sounds/vibrates again (false = silent update) */
+  renotify?: boolean;
 }
 
 // a notification nobody sees within a day is not worth showing late
@@ -31,9 +35,13 @@ export class WebPushService {
   ) {
     const publicKey = config.get<string>('VAPID_PUBLIC_KEY');
     const privateKey = config.get<string>('VAPID_PRIVATE_KEY');
-    this.publicKey = publicKey && privateKey ? publicKey : null;
-    if (publicKey && privateKey) {
-      webpush.setVapidDetails(config.get<string>('VAPID_SUBJECT', 'mailto:support@setasportal.com'), publicKey, privateKey);
+    // the push services' contact for us: our own mailto: or https: address (Apple refuses one that is missing or fake)
+    const subject = config.get<string>('VAPID_SUBJECT')?.trim();
+    this.publicKey = publicKey && privateKey && subject ? publicKey : null;
+    if (publicKey && privateKey && subject) {
+      webpush.setVapidDetails(subject, publicKey, privateKey);
+    } else if (publicKey && privateKey) {
+      this.logger.warn('VAPID_SUBJECT is not set: phone notifications are off.');
     }
   }
 
