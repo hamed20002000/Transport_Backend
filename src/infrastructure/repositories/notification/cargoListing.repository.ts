@@ -21,6 +21,16 @@ export class CargoListingRepository {
     return this.repository.save(listing);
   }
 
+  /** بارهای این ناشر که هنوز یکی از این شماره‌ها یا یکی از این نام‌ها را نشان می‌دهند. */
+  findByPublisherContact(publisherUserId: string, phones: string[], companyNames: string[]): Promise<CargoListing[]> {
+    const query = this.repository.createQueryBuilder('listing').where('listing.publisherUserId = :publisherUserId', { publisherUserId });
+    const matches: string[] = [];
+    if (phones.length) matches.push('listing.contactPhones && CAST(:phones AS text[])');
+    if (companyNames.length) matches.push('listing.companyName IN (:...companyNames)');
+    if (!matches.length) return Promise.resolve([]);
+    return query.andWhere(`(${matches.join(' OR ')})`, { phones, companyNames }).getMany();
+  }
+
   /** نام شرکت‌هایی که بار اعلام کرده‌اند؛ آن‌که اخیراً بار داده اول. */
   async findPublisherCompanyNames(limit: number): Promise<string[]> {
     const rows: { name: string }[] = await this.repository

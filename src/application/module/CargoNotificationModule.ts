@@ -69,6 +69,7 @@ import { CompanyCargoTools } from '../../services/notification/companyCargoTools
 import { CompanyFilterTools } from '../../services/notification/companyFilterTools';
 import { DriverCargoTools } from '../../services/notification/driverCargoTools';
 import { AppSectionTools } from '../../services/notification/appSectionTools';
+import { CargoContactSync } from '../../services/notification/cargoContactSync.service';
 import { DriverProfileTools } from '../../services/driver/driverProfileTools';
 
 /**
@@ -131,6 +132,7 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
     // ابزارهای agent برای بارها و پروفایل راننده
     DriverCargoTools,
     AppSectionTools,
+    CargoContactSync,
     WebPushService,
     // خبر رسید پرداخت تازه به ادمین‌ها و نتیجه‌ی بررسی به خریدار
     SubscriptionNotifier,

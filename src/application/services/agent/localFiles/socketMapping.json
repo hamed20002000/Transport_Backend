@@ -50,5 +50,7 @@
   "get_border_status": "در حال دریافت وضعیت مرزها",
   "get_border_status_end": "وضعیت مرزها آماده است.",
   "open_app_section": "در حال باز کردن صفحه",
-  "open_app_section_end": "صفحه باز شد."
+  "open_app_section_end": "صفحه باز شد.",
+  "import_company_cargo_excel": "در حال بررسی فایل اکسل بارها",
+  "import_company_cargo_excel_end": "بارهای فایل اکسل اعلام شد."
 }

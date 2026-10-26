@@ -108,7 +108,25 @@ export const REDIS_CHANNELS = {
   paymentReceiptSubmitted: 'subscription:receipt-submitted:v1',
   /** ادمین رسید را تأیید یا رد کرد: به خریدار در برنامه و واتساپ خبر داده می‌شود. */
   subscriptionDecided: 'subscription:decided:v1',
+  /** نام یا شماره‌ای که روی بارهای اعلام‌شده نوشته می‌شود عوض شد: بارهای قبلی هم مقدار تازه را می‌گیرند. */
+  profileContactChanged: 'profile:contact-changed:v1',
 } as const;
+
+/** the profile fields a cargo's company name and phones are made of, as they were before the change */
+export interface ProfileContactFields {
+  profileType?: number | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  companyName?: string | null;
+  domesticCompanyName?: string | null;
+  internationalCompanyName?: string | null;
+  phone?: string | null;
+}
+
+export interface ProfileContactChangedEvent {
+  userId: string;
+  before: ProfileContactFields;
+}
 
 export interface PaymentReceiptSubmittedEvent {
   orderId: string;
@@ -122,4 +140,7 @@ export interface SubscriptionDecidedEvent {
   accountType: string;
   expireAt?: string;
   reason?: string;
+  /** free days the payment earned as a purchase reward (SubscriptionRewardService), and until when */
+  bonusDays?: number;
+  bonusUntil?: string;
 }

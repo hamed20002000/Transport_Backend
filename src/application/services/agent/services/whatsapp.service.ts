@@ -1014,7 +1014,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       // خودش برای whisper تبدیل می‌کند و OpenAI صدای اصلی را می‌گیرد.
       const menuLabels = await this.dialogHandler?.menuLabels?.(mapping.userid) ?? null;
       const heard = await this.speechToTextService
-        .transcribeFile(oggPath, menuLabels ? { promptPrefix: voiceMenuPrompt(menuLabels) } : {})
+        .transcribeFile(oggPath, menuLabels ? { promptPrefix: voiceMenuPrompt(menuLabels) } : {}, { channel: 'whatsapp', userId: mapping.userid })
         .finally(() => unlink(oggPath).catch(() => undefined));
       // Misheard words («کار تهران…» → «بار تهران…»): the user confirms and runs the corrected text.
       const text = heard ? await this.corrector.correct(heard) : heard;

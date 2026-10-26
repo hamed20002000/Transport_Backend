@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { applyResolvedCode, CodeCandidate, matchSpokenCode, spokenNumbers } from './spokenCodes';
-import { hasVoiceIdentifier } from './voiceIdentifiers';
+import { hasVoiceIdentifier, mentionsVehiclePlate } from './voiceIdentifiers';
 
 // فقط بارهای اخیر -- راننده درباره‌ی بار ماه‌های قبل دستور نمی‌ده و کاندیدای کمتر یعنی تطبیق مطمئن‌تر.
 const CANDIDATE_DAYS = 30;
@@ -35,8 +35,8 @@ export class VoiceCodeResolverService {
     // عدد بلند بدون کلمه‌ی «کد/TRB» هم احتمالاً کده («ده هزار نه رو اعلام کن»).
     const hasLongNumber = spokenNumbers(text).some((number) => number.readings.some((reading) => reading.length >= 4));
     if (!mentionsIdentifier && !hasLongNumber) return { kind: 'none' };
-    // پلاک با کد بار جور نمی‌شه و حدس زدنش خطرناکه.
-    if (/پلاک/.test(text)) return { kind: 'unresolved' };
+    // پلاک ماشین با کد بار جور نمی‌شه و حدس زدنش خطرناکه (پلاکِ نشانی، شماره‌ی خانه است و مانعی نیست).
+    if (mentionsVehiclePlate(text)) return { kind: 'unresolved' };
 
     let candidates: CodeCandidate[];
     try {

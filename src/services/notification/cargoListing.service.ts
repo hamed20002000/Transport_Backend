@@ -7,7 +7,7 @@ import { CargoListing } from '../../domain/entities/notification/CargoListing';
 import { CargoNotification } from '../../domain/entities/notification/CargoNotification';
 import { CargoListingStatus, CargoTripType } from '../../domain/enums/notification';
 import { CargoSearch, matchesCargoSearch, prepareCargoSearch } from './cargoSearch';
-import { CargoAudienceRepository } from '../../infrastructure/repositories/notification/cargoAudience.repository';
+import { CargoAudienceRepository, type PublisherContact } from '../../infrastructure/repositories/notification/cargoAudience.repository';
 import { CargoListingRepository, type ListingStage } from '../../infrastructure/repositories/notification/cargoListing.repository';
 import { CargoNotificationRepository } from '../../infrastructure/repositories/notification/cargoNotification.repository';
 import { CargoRequestRepository } from '../../infrastructure/repositories/notification/cargoRequest.repository';
@@ -18,7 +18,7 @@ import { CargoNotificationService } from './cargoNotification.service';
 import { SubscriptionPolicyService } from '../subscription/subscriptionPolicy.service';
 import { buildCargoListingText, buildCargoTakenText, cargoTextWithCard, CargoListingFields } from './cargoNotificationText';
 import { whatsappCards } from '../messengerBot/core/botCard';
-import { CargoTripTypeService, parseTripType } from './cargoTripType';
+import { CargoTripTypeService, driverKindForLoad, parseTripType } from './cargoTripType';
 import { CompanyAnnounceService } from './companyAnnounce.service';
 import { WebPushService } from './webPush.service';
 import { NoCargoRecipientsException } from './cargoAnnouncementError';
@@ -34,6 +34,46 @@ import {
 } from './notifications.gateway';
 
 // واتساپ ویرایش را تا ۱۵ دقیقه قبول می‌کند؛ با کمی حاشیه‌ی اطمینان.
+/** The phones a load gets from the publisher's profile when none are typed for it: the mobile, then the office phone. */
+export function publisherPhones(contact: PublisherContact): string[] {
+  return [...new Set([contact.mobile, contact.company?.phone].filter((p): p is string => !!p?.trim()))];
+}
+
+/**
+ * The company name a load shows: its name for international work on an export or import load, its name for
+ * domestic work on a domestic one, the company's own name when that one is not set.
+ */
+export function companyNameFor(contact: PublisherContact, tripType: CargoTripType | null | undefined): string | null {
+  const company = contact.company;
+  if (!company) return null;
+  const kindName = driverKindForLoad(tripType) === 'INTERNATIONAL' ? company.internationalName : company.domesticName;
+  return kindName || company.name || null;
+}
+
+/**
+ * A load's phones after the profile phones changed. A load that carried all the old profile phones (it was
+ * published with them) gets the new ones instead. A load that carried only some, next to phones typed for it,
+ * gets each removed one swapped for an added one in order (dropped when none is left); nothing else is added.
+ * A typed phone always stays, and a load left with no phone keeps its old ones.
+ */
+export function replaceContactPhones(phones: string[], from: string[], to: string[]): string[] {
+  if (!phones.some((phone) => from.includes(phone))) return phones;
+  const next: string[] = [];
+  const push = (phone: string) => !next.includes(phone) && next.push(phone);
+  if (from.every((phone) => phones.includes(phone))) {
+    for (const phone of phones) (from.includes(phone) ? to : [phone]).forEach(push);
+    // the new profile phones it did not have yet (the old list was shorter)
+    to.forEach(push);
+  } else {
+    const added = to.filter((phone) => !from.includes(phone));
+    for (const phone of phones) {
+      if (!from.includes(phone) || to.includes(phone)) push(phone);
+      else if (added.length) push(added.shift()!);
+    }
+  }
+  return next.length ? next : phones;
+}
+
 const WHATSAPP_EDIT_WINDOW_MS = 14 * 60 * 1000;
 
 const TAKEN_REACTION = '❌';
@@ -103,10 +143,50 @@ export class CargoListingService {
   /** نام شرکت و شماره‌های تماس پیش‌فرض برای فرم ثبت بار دستی. */
   async buildManualDraft(userId: string): Promise<Pick<CargoListingFields, 'companyName' | 'contactPhones'>> {
     const contact = await this.audience.findPublisherContact(userId);
-    return {
-      companyName: contact.company?.name || null,
-      contactPhones: [...new Set([contact.mobile, contact.company?.phone].filter((p): p is string => !!p?.trim()))],
-    };
+    return { companyName: contact.company?.name || null, contactPhones: publisherPhones(contact) };
+  }
+
+  /**
+   * The publisher changed the name or phones its loads show: every load of its still showing the old ones gets the
+   * new ones (a phone typed for a single load stays), text included, so drivers do not call an old number. The
+   * messages already sent for an open load are edited too, in the background. Returns the loads changed.
+   */
+  async refreshPublisherContact(userId: string, before: PublisherContact, after: PublisherContact): Promise<CargoListing[]> {
+    const from = { phones: publisherPhones(before) };
+    const to = { phones: publisherPhones(after) };
+    const samePhones = from.phones.length === to.phones.length && from.phones.every((phone) => to.phones.includes(phone));
+    // the name each kind of load showed and shows now (CargoTripType: domestic, export, import)
+    const loadTypes = Object.values(CargoTripType);
+    const renamed = loadTypes.filter((type) => companyNameFor(before, type) !== companyNameFor(after, type));
+    if (samePhones && !renamed.length) return [];
+    const oldNames = [...new Set(renamed.map((type) => companyNameFor(before, type)).filter((name): name is string => !!name))];
+
+    const changed: CargoListing[] = [];
+    for (const listing of await this.listings.findByPublisherContact(userId, samePhones ? [] : from.phones, oldNames)) {
+      const contactPhones = replaceContactPhones(listing.contactPhones, from.phones, to.phones);
+      // only a load still showing the name of its kind; a name typed for that one load stays
+      const companyName =
+        listing.companyName && listing.companyName === companyNameFor(before, listing.tripType) ? companyNameFor(after, listing.tripType) : listing.companyName;
+      if (companyName === listing.companyName && contactPhones === listing.contactPhones) continue;
+      listing.contactPhones = contactPhones;
+      listing.companyName = companyName;
+      listing.text = buildCargoListingText(listing as CargoListingFields);
+      changed.push(await this.listings.save(listing));
+    }
+    void this.propagateText(changed.filter((listing) => listing.status === CargoListingStatus.Open));
+    return changed;
+  }
+
+  /** The drivers' copies of these loads (web list and the messages already sent) get the loads' new text. */
+  private async propagateText(listings: CargoListing[]): Promise<void> {
+    for (const listing of listings) {
+      try {
+        await this.notifications.updateTextByListing(listing.id, listing.text);
+        for (const row of await this.notifications.findByListing(listing.id)) await this.editSent(row, cargoTextWithCard(listing.text));
+      } catch (error) {
+        this.logger.warn(`Contact update of listing ${listing.id} failed: ${(error as Error).message}`);
+      }
+    }
   }
 
   async publish(userId: string, notificationId: string, fields: CargoListingFields, pushBatch?: PushBatch) {
@@ -210,11 +290,15 @@ export class CargoListingService {
       }
     }
     const willAnnounce = announce && driverIds.length > 0;
+    // the profile's name (or none) becomes the name for this kind of load; a name typed for this load stays
+    const typedName = fields.companyName?.trim();
+    const companyName = !typedName || typedName === contact.company?.name ? companyNameFor(contact, tripType) : typedName;
     const listing = await this.saveListing(
       this.listings.create({
         ...fields,
+        companyName,
         tripType,
-        text: buildCargoListingText({ ...fields, tripType }),
+        text: buildCargoListingText({ ...fields, companyName, tripType }),
         sourceMessageId,
         sourceNotificationId,
         publisherUserId: userId,
@@ -474,31 +558,34 @@ export class CargoListingService {
       });
 
       const text = cargoTextWithCard(taken ? buildCargoTakenText(row.text) : row.text);
-
-      // پیام‌های ربات‌ها (تلگرام، بله، روبیکا) -- chatId پیشونددار مسیر را تعیین می‌کند.
-      const botMessages: [string, string | null | undefined, number | string | null | undefined][] = [
-        ['Telegram', row.telegramChatId, row.telegramMessageId],
-        ['Bale', row.baleChatId, row.baleMessageId],
-        ['Rubika', row.rubikaChatId, row.rubikaMessageId],
-      ];
-      for (const [channel, chatId, messageId] of botMessages) {
-        if (!chatId || !messageId) continue;
-        await this.tryUpdate(`${channel} edit`, row, () => this.bots.editNotification(chatId, messageId, text));
-      }
-
-      if (row.whatsappMessageKey?.remoteJid) {
-        const key = row.whatsappMessageKey;
-        const canEdit = row.whatsappSentAt && Date.now() - row.whatsappSentAt.getTime() < WHATSAPP_EDIT_WINDOW_MS;
-
-        await this.tryUpdate('WhatsApp update', row, () =>
-          canEdit
-            ? this.whatsapp.editNotification(key, whatsappCards(text))
-            : this.whatsapp.reactToNotification(key, taken ? TAKEN_REACTION : ''),
-        );
-      }
+      await this.editSent(row, text, taken ? TAKEN_REACTION : '');
     }
 
     this.logger.log(`Listing ${listing.id} is now ${listing.status}; updated ${rows.length} driver notification(s)`);
+  }
+
+  /**
+   * The messages already sent to one driver get this text. A WhatsApp message past its edit window cannot change:
+   * it gets `reaction` instead when there is one (❌ for a taken load).
+   */
+  private async editSent(row: CargoNotification, text: string, reaction?: string): Promise<void> {
+    // پیام‌های ربات‌ها (تلگرام، بله، روبیکا) -- chatId پیشونددار مسیر را تعیین می‌کند.
+    const botMessages: [string, string | null | undefined, number | string | null | undefined][] = [
+      ['Telegram', row.telegramChatId, row.telegramMessageId],
+      ['Bale', row.baleChatId, row.baleMessageId],
+      ['Rubika', row.rubikaChatId, row.rubikaMessageId],
+    ];
+    for (const [channel, chatId, messageId] of botMessages) {
+      if (!chatId || !messageId) continue;
+      await this.tryUpdate(`${channel} edit`, row, () => this.bots.editNotification(chatId, messageId, text));
+    }
+
+    if (row.whatsappMessageKey?.remoteJid) {
+      const key = row.whatsappMessageKey;
+      const canEdit = row.whatsappSentAt && Date.now() - row.whatsappSentAt.getTime() < WHATSAPP_EDIT_WINDOW_MS;
+      if (canEdit) await this.tryUpdate('WhatsApp update', row, () => this.whatsapp.editNotification(key, whatsappCards(text)));
+      else if (reaction !== undefined) await this.tryUpdate('WhatsApp update', row, () => this.whatsapp.reactToNotification(key, reaction));
+    }
   }
 
   /** ویرایش پیام قبلی؛ خطا فقط لاگ می‌شود تا بقیه‌ی راننده‌ها به‌روز شوند. */

@@ -3,7 +3,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { ArrayMaxSize, ArrayNotEmpty, ArrayUnique, IsArray, IsBoolean, IsEnum, IsNumber, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateIf } from 'class-validator';
 
-import { trimToNull } from 'src/dto/user/update-user-profile.dto';
+import { digitsToNull, trimToNull } from 'src/dto/user/update-user-profile.dto';
 
 const toNumberOrNull = ({ value }: { value: unknown }) => (value === '' || value === null ? null : typeof value === 'string' ? Number(value) : value);
 
@@ -21,15 +21,15 @@ export class UpdateDriverProfileDto {
   lastName?: string | null;
 
   @ApiPropertyOptional({ example: '0012345678', nullable: true })
-  @Transform(trimToNull) @IsOptional() @Matches(/^[0-9]{10}$/, { message: 'nationalCode must be 10 digits' })
+  @Transform(digitsToNull) @IsOptional() @Matches(/^[0-9]{10}$/, { message: 'nationalCode must be 10 digits' })
   nationalCode?: string | null;
 
   @ApiPropertyOptional({ example: '1234567', nullable: true })
-  @Transform(trimToNull) @IsOptional() @Matches(/^[0-9]{5,20}$/, { message: 'smartCardNumber must be digits' })
+  @Transform(digitsToNull) @IsOptional() @Matches(/^[0-9]{5,20}$/, { message: 'smartCardNumber must be digits' })
   smartCardNumber?: string | null;
 
   @ApiPropertyOptional({ nullable: true })
-  @Transform(trimToNull) @IsOptional() @Matches(/^[0-9]{5,20}$/, { message: 'licenseNumber must be digits' })
+  @Transform(digitsToNull) @IsOptional() @Matches(/^[0-9]{5,20}$/, { message: 'licenseNumber must be digits' })
   licenseNumber?: string | null;
 
   // شمسی برای استعلام ثبت احوال
@@ -59,7 +59,7 @@ export class UpdateDriverProfileDto {
   capacityTons?: number | null;
 
   @ApiPropertyOptional({ nullable: true })
-  @Transform(trimToNull) @IsOptional() @Matches(/^[0-9]{5,20}$/, { message: 'fleetCardNumber must be digits' })
+  @Transform(digitsToNull) @IsOptional() @Matches(/^[0-9]{5,20}$/, { message: 'fleetCardNumber must be digits' })
   fleetCardNumber?: string | null;
 
   // خواندن صوتی بارهای اعلام‌شده در پیام‌رسان‌ها

@@ -64,6 +64,14 @@ export class User {
   @Column({ type: 'varchar', length: 200, nullable: true })
   companyName?: string | null;
 
+  // the company's names for domestic and for international (export/import) work, each optional: a driver picks
+  // the company under the matching kind (DriverKind) when choosing whose loads to receive
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  domesticCompanyName?: string | null;
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  internationalCompanyName?: string | null;
+
   @Column({ type: 'varchar', length: 11, nullable: true })
   companyNationalId?: string | null;
 

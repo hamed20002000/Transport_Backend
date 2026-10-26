@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { execFile } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { copyFile, mkdir, unlink, writeFile } from 'node:fs/promises';
 import { cpus } from 'node:os';
@@ -89,6 +90,12 @@ export function loadCorrections(path = CORRECTIONS_PATH): TranscriptCorrection[]
   }
 }
 
+/** Where a voice came from, kept with its training sample. */
+export interface SpeechSampleSource {
+  channel: 'web' | 'telegram' | 'bale' | 'rubika' | 'whatsapp' | 'test';
+  userId?: string;
+}
+
 @Injectable()
 export class SpeechToTextService {
   private readonly logger = new Logger(SpeechToTextService.name);
@@ -110,14 +117,19 @@ export class SpeechToTextService {
     ? this.vadModelPath
     : null;
   private readonly corrections = loadCorrections();
-  // اختیاری: هر ویس (بعد از فیلتر) و متن تشخیص‌داده‌شده اینجا می‌ماند تا نمونه‌ی eval شود
+  // اختیاری: هر ویس (صدای اصلی و نسخه‌ی 16kHz) با متن تشخیص‌داده‌شده اینجا می‌ماند برای آموزش و eval مدل فارسی.
+  // باید پوشه‌ای خصوصی باشد (private-uploads)، نه uploads که عمومی سرو می‌شود: صدای کاربرهاست.
   private readonly sampleDir = process.env.STT_SAMPLE_DIR || null;
 
   get vadAvailable(): boolean {
     return this.vadModel !== null;
   }
 
-  async transcribeFile(audioFilePath: string, overrides: Partial<WhisperOptions> = {}): Promise<string> {
+  /**
+   * source: where the voice came from (app, a bot, WhatsApp) and whose it is, kept with the sample (STT_SAMPLE_DIR)
+   * so a training set can be split by speaker and by channel.
+   */
+  async transcribeFile(audioFilePath: string, overrides: Partial<WhisperOptions> = {}, source?: SpeechSampleSource): Promise<string> {
     const merged = { ...this.defaults, ...overrides };
     const options = { ...merged, prompt: [merged.promptPrefix, merged.prompt].filter(Boolean).join(' ') };
     if (overrides.vad === true && !this.vadModel) {
@@ -156,7 +168,7 @@ export class SpeechToTextService {
       const corrected = applyCorrections(cleanTranscript(heard.text, options.prompt, options.language), this.corrections);
       // عدد به حروف («شصت تن») به رقم، مثل whisper محلی؛ OpenAI گاهی رقمی، گاهی به حروف می‌نویسد
       const text = numbersToDigits(fixMisheardPlaces(fixMisheardNumbers(corrected)));
-      if (this.sampleDir) await this.keepSample(wavPath, heard.text.trim(), text, heard.model);
+      if (this.sampleDir) await this.keepSample(audioFilePath, wavPath, heard.text.trim(), text, heard.model, source);
       return text;
     } finally {
       await unlink(wavPath).catch(() => undefined);
@@ -175,12 +187,34 @@ export class SpeechToTextService {
   }
 
   /** متن درست را با npm run stt:label در X.txt بنویسید؛ model: مدلی که این متن را ساخت، برای مقایسه‌ی مدل‌ها. */
-  private async keepSample(wavPath: string, raw: string, text: string, model: string): Promise<void> {
+  /**
+   * One training sample: the voice as it arrived (name.orig.<ext>, what a model is best trained on), the 16 kHz
+   * mono WAV whisper and the labelling tool use (name.wav), what was heard (name.got.txt, the format
+   * `npm run stt:label` reads) and where it came from (name.json). The speaker is a hash, never a phone number.
+   * A failure here never fails the voice message itself.
+   */
+  private async keepSample(originalPath: string, wavPath: string, raw: string, text: string, model: string, source?: SpeechSampleSource): Promise<void> {
     try {
       await mkdir(this.sampleDir!, { recursive: true });
-      const name = join(this.sampleDir!, new Date().toISOString().replace(/[:.]/g, '-'));
+      const at = new Date();
+      // time first so the folder reads in order; the random part keeps two voices of one moment apart
+      const id = `${at.toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`;
+      const name = join(this.sampleDir!, id);
+      const originalExt = extname(originalPath).toLowerCase() || '.audio';
+      await copyFile(originalPath, `${name}.orig${originalExt}`);
       await copyFile(wavPath, `${name}.wav`);
       await writeFile(`${name}.got.txt`, `raw: ${raw}\nfinal: ${text}\nmodel: ${model}\n`);
+      await writeFile(`${name}.json`, JSON.stringify({
+        id,
+        at: at.toISOString(),
+        channel: source?.channel ?? 'unknown',
+        speaker: source?.userId ? createHash('sha256').update(`stt-speaker:${source.userId}`).digest('hex').slice(0, 16) : null,
+        original: `${id}.orig${originalExt}`,
+        wav: `${id}.wav`,
+        model,
+        heard: raw,
+        text,
+      }, null, 2));
     } catch (error) {
       this.logger.warn(`Could not keep STT sample: ${(error as Error).message}`);
     }

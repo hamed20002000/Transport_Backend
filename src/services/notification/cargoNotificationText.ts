@@ -3,10 +3,14 @@ import { TRIP_TYPE_LABELS } from './cargoTripType';
 import { CargoDetectedEvent } from '../../domain/constants/cargoEvents';
 import { card } from '../messengerBot/core/botCard';
 
+// messengers have no text colour: the orange mark makes the code (what drivers quote on the phone) stand out,
+// like the orange code chip on the web cards
+const CODE_TITLE = '🟠 کد بار';
+
 /** متن ساده‌ی اعلان بار؛ برای تلگرام و واتساپ یکسان است (بدون Markdown/HTML). */
 export function buildCargoNotificationText(event: CargoDetectedEvent): string {
   const rows: [string, string | null | undefined][] = [
-    ['کد بار', event.code],
+    [CODE_TITLE, event.code],
     ['مبدا', event.origin],
     ['مقصد', event.destination],
     ['نوع بار', event.cargoType],
@@ -81,7 +85,7 @@ export interface CargoListingFields {
 /** متن باری که شرکت برای راننده‌ها منتشر می‌کند (فیلد: مقدار). */
 export function buildCargoListingText(fields: CargoListingFields): string {
   const rows: [string, string | null | undefined][] = [
-    ['کد بار', fields.code],
+    [CODE_TITLE, fields.code],
     ['شرکت', fields.companyName],
     ['مبدا', fields.origin],
     ['مقصد', fields.destination],

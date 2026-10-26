@@ -65,7 +65,9 @@ export class AccountProvisioningService {
         const order = await manager
           .getRepository(SubscriptionOrder)
           .createQueryBuilder('order')
-          .setLock('pessimistic_write')
+          // only the order row: Postgres refuses FOR UPDATE on the nullable side of the plan's LEFT JOIN.
+          // TypeORM writes these names as given, and «order» is an SQL keyword, so it goes in quoted.
+          .setLock('pessimistic_write', undefined, ['"order"'])
           .leftJoinAndSelect(
             'order.subscriptionPlan',
             'subscriptionPlan',

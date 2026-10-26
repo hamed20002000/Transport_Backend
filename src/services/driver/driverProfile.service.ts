@@ -17,6 +17,7 @@ import { COMPANY_ROLES } from 'src/infrastructure/repositories/notification/carg
 import { UserProfile, UserService } from '../UserService';
 import { DRIVERS_CHANGED_SOCKET_EVENT, NotificationsGateway } from '../notification/notifications.gateway';
 import { evaluateVerification } from './driverVerification.service';
+import { DRIVER_KIND_TRIP_TYPES, driverKindForLoad, driverKindOf, driverTripTypes } from '../notification/cargoTripType';
 
 // خارج از پوشه‌ی uploads که به‌صورت عمومی سرو می‌شود؛ فقط از راه API با توکن.
 export const DRIVER_PHOTO_DIR = join(process.cwd(), 'private-uploads', 'driver-photos');
@@ -81,6 +82,17 @@ export const driverPhotoUploadOptions: MulterOptions = {
 };
 
 /**
+ * A company a driver can join, with the name it uses for each kind of work; null where it does not do that kind.
+ * The driver's panel lists domestic companies under «داخلی» and international ones under «بین‌المللی».
+ */
+export interface DriverCompanyOption {
+  userId: string;
+  name: string;
+  domesticName: string | null;
+  internationalName: string | null;
+}
+
+/**
  * پروفایل راننده: نام و کد ملی روی User (همان که شرکت‌ها در درخواست می‌بینند)،
  * مدارک، ناوگان و عکس‌های اختیاری روی DriverProfile.
  */
@@ -120,12 +132,10 @@ export class DriverProfileService {
       if (dto[field] !== undefined) Object.assign(driver, { [field]: dto[field] });
     }
     if (dto.cargoVoice !== undefined) driver.cargoVoice = dto.cargoVoice;
-    if (dto.tripTypes !== undefined) {
-      driver.tripTypes = dto.tripTypes;
-      driver.tripType = dto.tripTypes[0];
-    } else if (dto.tripType !== undefined) {
-      driver.tripType = dto.tripType;
-      driver.tripTypes = [dto.tripType];
+    // domestic or international: whatever load types were sent, the driver takes all the types of its kind
+    if (dto.tripTypes !== undefined || dto.tripType !== undefined) {
+      driver.tripTypes = driverTripTypes(dto.tripTypes ?? [dto.tripType]);
+      driver.tripType = driver.tripTypes[0];
     }
     if (dto.companyUserIds !== undefined) driver.companyUserIds = dto.companyUserIds;
     const saved = await this.profiles.save(driver);
@@ -231,19 +241,21 @@ export class DriverProfileService {
 
   async tripTypesOf(userId: string): Promise<CargoTripType[]> {
     const driver = await this.profiles.findOne({ where: { userId }, select: { userId: true, tripType: true, tripTypes: true } });
-    return driver?.tripTypes?.length ? driver.tripTypes : [driver?.tripType ?? CargoTripType.Domestic];
+    return driverTripTypes(driver?.tripTypes?.length ? driver.tripTypes : [driver?.tripType]);
   }
 
   async canReceiveAnnouncement(userId: string, publisherUserId: string, tripType: CargoTripType): Promise<boolean> {
     const driver = await this.profiles.findOne({ where: { userId } });
-    return !!driver?.companyUserIds?.includes(publisherUserId) && !!driver.tripTypes?.includes(tripType);
+    return !!driver?.companyUserIds?.includes(publisherUserId) && driverKindOf(driver.tripTypes ?? [driver.tripType]) === driverKindForLoad(tripType);
   }
 
-  async availableCompanies(ids?: string[]): Promise<Array<{ userId: string; name: string }>> {
+  async availableCompanies(ids?: string[]): Promise<DriverCompanyOption[]> {
     if (ids && !ids.length) return [];
-    return this.dataSource.query(
+    const rows: Array<{ userId: string; name: string; domesticName: string | null; internationalName: string | null }> = await this.dataSource.query(
       `SELECT DISTINCT u.id AS "userId",
-         COALESCE(NULLIF(u."companyName", ''), linked.name, NULLIF(concat_ws(' ', u."firstName", u."lastName"), ''), u.username) AS name
+         COALESCE(NULLIF(u."companyName", ''), linked.name, NULLIF(concat_ws(' ', u."firstName", u."lastName"), ''), u.username) AS name,
+         NULLIF(trim(u."domesticCompanyName"), '') AS "domesticName",
+         NULLIF(trim(u."internationalCompanyName"), '') AS "internationalName"
        FROM "User" u
        JOIN "UserRole" ur ON ur."userId" = u.id
        JOIN "Role" r ON r.id = ur."roleId"
@@ -258,22 +270,28 @@ export class DriverProfileService {
        ORDER BY name, "userId"`,
       ids ? [RecordStatus.Active, ids] : [RecordStatus.Active],
     );
+    // a company that named neither kind is under both, by its own name (as before the kinds had names)
+    return rows.map((row) =>
+      row.domesticName || row.internationalName ? row : { ...row, domesticName: row.name, internationalName: row.name },
+    );
   }
 
   async setTripType(userId: string, tripType: CargoTripType): Promise<void> {
-    await this.profiles.upsert({ userId, tripType, tripTypes: [tripType] }, ['userId']);
+    const tripTypes = driverTripTypes([tripType]);
+    await this.profiles.upsert({ userId, tripType: tripTypes[0], tripTypes }, ['userId']);
     this.changed(userId);
   }
 
   async setTripTypes(userId: string, tripTypes: CargoTripType[]): Promise<void> {
-    if (!tripTypes.length) throw new BadRequestException('حداقل یک نوع حمل را انتخاب کنید.');
-    await this.profiles.upsert({ userId, tripTypes, tripType: tripTypes[0] }, ['userId']);
+    if (!tripTypes.length) throw new BadRequestException('داخلی یا بین‌المللی بودن را انتخاب کنید.');
+    const types = driverTripTypes(tripTypes);
+    await this.profiles.upsert({ userId, tripTypes: types, tripType: types[0] }, ['userId']);
     this.changed(userId);
   }
 
   /**
    * راننده‌های فعال یک نوع (صفحه‌ی «رانندگان» شرکت)، به ترتیب نام؛ search در نام، موبایل
-   * یا پلاک. راننده‌ی بدون پروفایل داخلی است.
+   * یا پلاک. راننده‌ی بدون پروفایل داخلی است. صادراتی یا وارداتی یعنی راننده‌های بین‌المللی.
    */
   async listByType(tripType: CargoTripType, page: number, pageSize: number, search?: string) {
     const term = search ? `%${toLatinDigits(search).trim().replace(/[\s-]/g, '')}%` : null;
@@ -282,16 +300,16 @@ export class DriverProfileService {
          JOIN "UserRole" ur ON ur."userId" = u.id
          JOIN "Role" r ON r.id = ur."roleId" AND r.name = 'DRIVER' AND r."recordStatus" = $1
          LEFT JOIN "DriverProfile" p ON p."userId" = u.id
-        WHERE u."recordStatus" = $1 AND $2 = ANY(COALESCE(p."tripTypes", ARRAY[COALESCE(p."tripType", '${CargoTripType.Domestic}')]::varchar[]))
+        WHERE u."recordStatus" = $1 AND $2::varchar[] && COALESCE(p."tripTypes", ARRAY[COALESCE(p."tripType", '${CargoTripType.Domestic}')]::varchar[])
           AND ($3::text IS NULL
                OR replace(concat_ws('', u."firstName", u."lastName", u.username), ' ', '') ILIKE $3
                OR u.mobile ILIKE $3
                OR regexp_replace(coalesce(p.plate, ''), '[\s-]', '', 'g') ILIKE $3)`;
-    const [{ total }] = await this.dataSource.query(`SELECT COUNT(DISTINCT u.id)::int AS total ${where}`, [RecordStatus.Active, tripType, term]);
+    const [{ total }] = await this.dataSource.query(`SELECT COUNT(DISTINCT u.id)::int AS total ${where}`, [RecordStatus.Active, DRIVER_KIND_TRIP_TYPES[driverKindForLoad(tripType)], term]);
     const rows: Array<{ id: string }> = await this.dataSource.query(
       `SELECT u.id, MIN(concat_ws(' ', u."firstName", u."lastName", u.username)) AS name ${where}
         GROUP BY u.id ORDER BY name LIMIT $4 OFFSET $5`,
-      [RecordStatus.Active, tripType, term, pageSize, (page - 1) * pageSize],
+      [RecordStatus.Active, DRIVER_KIND_TRIP_TYPES[driverKindForLoad(tripType)], term, pageSize, (page - 1) * pageSize],
     );
     return { items: await this.cards(rows.map((row) => row.id)), total: Number(total), page, pageSize };
   }
@@ -326,7 +344,8 @@ export class DriverProfileService {
       ...Object.fromEntries(DRIVER_FIELDS.map((f) => [f, driver?.[f] ?? null])),
       cargoVoice: driver?.cargoVoice ?? true,
       tripType: driver?.tripType ?? CargoTripType.Domestic,
-      tripTypes: driver?.tripTypes?.length ? driver.tripTypes : [driver?.tripType ?? CargoTripType.Domestic],
+      tripTypes: driverTripTypes(driver?.tripTypes?.length ? driver.tripTypes : [driver?.tripType]),
+      driverKind: driverKindOf(driver?.tripTypes?.length ? driver.tripTypes : [driver?.tripType]),
       companyUserIds: driver?.companyUserIds ?? [],
       // فقط وجود عکس (و نسخه برای کش مرورگر)؛ خود فایل از GET profile/photos/:kind با توکن
       photos: {

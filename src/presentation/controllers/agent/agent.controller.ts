@@ -342,7 +342,7 @@ export class AgentController {
     try {
       const text =
         await this.speechToTextService
-          .transcribeFile(file.path);
+          .transcribeFile(file.path, {}, { channel: 'test' });
 
       return {
         text,

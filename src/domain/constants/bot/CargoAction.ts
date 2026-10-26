@@ -6,4 +6,5 @@ export const CargoAction = {
   Suggestions: 'cg:sg:', // + a|u (همه/خوانده‌نشده):page
   MyCargo: 'cg:mine:', // + a|o|t (وضعیت):page
   OpenCargo: 'cg:find:', // + page (پیدا کردن بار راننده)
+  ExcelStart: 'cg:xs', // ثبت چند بار با فایل اکسل: فایل نمونه و منتظر فایل
 } as const;

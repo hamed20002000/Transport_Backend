@@ -130,7 +130,7 @@ export class AgentChatController {
       // تبدیل صدا چند ثانیه طول می‌کشد و تا run() هیچ مرحله‌ای به socket نمی‌رود؛
       // بدون این پیام کاربر در این فاصله چیزی نمی‌بیند.
       void this.agentGateway.sendCurrentTool(req.user.userId, { currentOp: 'در حال تبدیل صدا به متن' });
-      text = await this.transcribe(file.path);
+      text = await this.transcribe(file.path, req.user.userId);
     } finally {
       await removeVoiceFiles(file.path);
     }
@@ -227,9 +227,9 @@ export class AgentChatController {
     }
   }
 
-  private async transcribe(path: string): Promise<string> {
+  private async transcribe(path: string, userId: string): Promise<string> {
     try {
-      return (await this.speechToText.transcribeFile(path)).trim();
+      return (await this.speechToText.transcribeFile(path, {}, { channel: 'web', userId })).trim();
     } catch (error) {
       this.logger.error('Voice transcription failed', error as Error);
       if (error instanceof LlmUnavailableError) throw new ServiceUnavailableException(error.message);

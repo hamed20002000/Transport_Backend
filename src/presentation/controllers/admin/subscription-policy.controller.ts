@@ -1,7 +1,9 @@
-import { Body, Controller, ForbiddenException, Get, Put, Req, UseGuards } from '@nestjs/common';
-import { IsBoolean, IsISO8601, IsInt, IsOptional, Max, Min, ValidateIf } from 'class-validator';
+import { Body, Controller, ForbiddenException, Get, Logger, Put, Req, UseGuards } from '@nestjs/common';
+import { Type } from 'class-transformer';
+import { ArrayMaxSize, IsArray, IsBoolean, IsISO8601, IsInt, IsOptional, Max, Min, ValidateIf, ValidateNested } from 'class-validator';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { SubscriptionPolicyService } from 'src/services/subscription/subscriptionPolicy.service';
+import { SubscriptionRewardService } from 'src/services/subscription/subscriptionReward.service';
 
 type AdminRequest = { user?: { userId?: string; roles?: string[]; isActive?: boolean } };
 
@@ -10,6 +12,15 @@ export function requireAdmin(request: AdminRequest): string | undefined {
     throw new ForbiddenException('Administrator access required.');
   }
   return request.user.userId;
+}
+
+export class DriverRewardDto {
+  /** جمع خرید تأییدشده‌ی راننده (تومان) که هدیه را می‌دهد */
+  @IsInt() @Min(1) @Max(1_000_000_000_000)
+  minTomans!: number;
+
+  @IsInt() @Min(1) @Max(365)
+  freeDays!: number;
 }
 
 export class UpdateSubscriptionPolicyDto {
@@ -34,6 +45,14 @@ export class UpdateSubscriptionPolicyDto {
   @Min(0)
   @Max(365)
   driverTrialDays?: number;
+
+  /** پله‌های هدیه‌ی رانندگان پرخرید؛ نیامده = بدون تغییر، [] = بدون هدیه. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => DriverRewardDto)
+  driverRewards?: DriverRewardDto[];
 }
 
 /**
@@ -45,7 +64,12 @@ export class UpdateSubscriptionPolicyDto {
 @Controller('api/admin/subscription-policy')
 @UseGuards(JwtAuthGuard)
 export class SubscriptionPolicyController {
-  constructor(private readonly policy: SubscriptionPolicyService) {}
+  private readonly logger = new Logger(SubscriptionPolicyController.name);
+
+  constructor(
+    private readonly policy: SubscriptionPolicyService,
+    private readonly rewards: SubscriptionRewardService,
+  ) {}
 
   @Get()
   get(@Req() request: AdminRequest) {
@@ -58,12 +82,20 @@ export class SubscriptionPolicyController {
     const adminUserId = requireAdmin(request);
     const freeUntil = dto.freeUntil ? new Date(dto.freeUntil).toISOString() : null;
     const current = await this.policy.getStatus();
-    return this.policy.update({
+    const saved = await this.policy.update({
       enforced: dto.enforced,
       freeUntil,
       driversEnforced: dto.driversEnforced ?? current.driversEnforced,
       driverTrialDays: dto.driverTrialDays ?? current.driverTrialDays,
       driverTrialStartedAt: current.driverTrialStartedAt,
+      driverRewards: dto.driverRewards ?? current.driverRewards,
     }, adminUserId);
+    // a new or lower tier: drivers who already paid that much get it now, in the background
+    if (dto.driverRewards) {
+      void this.rewards.grantEarnedForAll()
+        .then((count) => count && this.logger.log(`Gave ${count} purchase reward(s) after the tiers changed`))
+        .catch((error: Error) => this.logger.warn(`Could not give purchase rewards: ${error.message}`));
+    }
+    return saved;
   }
 }

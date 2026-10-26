@@ -13,6 +13,44 @@ export const TRIP_TYPE_LABELS: Record<CargoTripType, string> = {
   [CargoTripType.Import]: 'وارداتی',
 };
 
+/**
+ * A driver is either domestic or international: an international driver takes both export and import loads.
+ * The load keeps its own type (export / import / domestic) for its label and the statistics; the driver keeps
+ * the load types it takes in DriverProfile.tripTypes, so matching a load to drivers stays one array test.
+ */
+export type DriverKind = 'DOMESTIC' | 'INTERNATIONAL';
+
+export const DRIVER_KIND_TRIP_TYPES: Record<DriverKind, CargoTripType[]> = {
+  DOMESTIC: [CargoTripType.Domestic],
+  INTERNATIONAL: [CargoTripType.Export, CargoTripType.Import],
+};
+
+export const DRIVER_KIND_LABELS: Record<DriverKind, string> = { DOMESTIC: 'داخلی', INTERNATIONAL: 'بین‌المللی' };
+
+/** The kind of driver a load goes to: an export or import load goes to international drivers. */
+export function driverKindForLoad(tripType: CargoTripType | null | undefined): DriverKind {
+  return tripType === CargoTripType.Export || tripType === CargoTripType.Import ? 'INTERNATIONAL' : 'DOMESTIC';
+}
+
+/** A driver's kind from the load types it had: any export or import makes it international. */
+export function driverKindOf(tripTypes: readonly (CargoTripType | null | undefined)[]): DriverKind {
+  return tripTypes.some((type) => driverKindForLoad(type) === 'INTERNATIONAL') ? 'INTERNATIONAL' : 'DOMESTIC';
+}
+
+/** What a driver profile stores for these load types: all the types of its kind. */
+export function driverTripTypes(tripTypes: readonly (CargoTripType | null | undefined)[]): CargoTripType[] {
+  return DRIVER_KIND_TRIP_TYPES[driverKindOf(tripTypes)];
+}
+
+/** «بین‌المللی»، «خارجی»، «صادرات/واردات» → INTERNATIONAL؛ «داخلی» → DOMESTIC (agent، ربات). */
+export function parseDriverKind(value: unknown): DriverKind | null {
+  const text = String(value ?? '').trim().toLowerCase();
+  if (!text) return null;
+  if (text === 'international' || /بین.?الملل|خارج|ترانزیت/.test(text)) return 'INTERNATIONAL';
+  const type = parseTripType(text);
+  return type ? driverKindForLoad(type) : null;
+}
+
 /** «صادراتی» → EXPORT؛ متن آزاد (اکسل، agent) هم: «صادرات»، «export»، «داخل». */
 export function parseTripType(value: unknown): CargoTripType | null {
   const text = String(value ?? '').trim().toLowerCase();

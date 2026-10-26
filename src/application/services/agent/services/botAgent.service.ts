@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { botNamespace } from 'src/services/messengerBot/core/botPlatform';
+import { botNamespace, botPlatformOf } from 'src/services/messengerBot/core/botPlatform';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -143,7 +143,7 @@ export class BotAgentService implements BotAgentHandler, AgentChannelRelay, OnMo
     let text: string;
     try {
       await this.telegram.downloadAgentFile(voice.fileId, path);
-      text = (await this.speechToText.transcribeFile(path)).trim();
+      text = (await this.speechToText.transcribeFile(path, {}, { channel: botPlatformOf(ctx.externalUserId), userId: ctx.userId })).trim();
     } catch (error) {
       this.logger.error(`Bot voice transcription failed for ${ctx.userId}`, error as Error);
       // مدل ویس در دسترس نیست (OpenAI قطع و مدل محلی خاموش) -- «دوباره بفرست» کمکی نمی‌کند

@@ -2,7 +2,7 @@
  * برچسب‌زنی ویس‌های ذخیره‌شده برای آموزش whisper:
  *
  *   npm run stt:label            (پوشه: STT_SAMPLE_DIR)
- *   npm run stt:label -- --dir uploads/stt-dataset --port 3999
+ *   npm run stt:label -- --dir private-uploads/stt-dataset --port 3999
  *
  * SpeechToTextService با STT_SAMPLE_DIR هر ویس را به‌صورت name.wav و name.got.txt (متن whisper) نگه می‌دارد.
  * این صفحه (فقط روی 127.0.0.1) ویس‌ها را پخش می‌کند تا متن درست نوشته شود؛ متن درست در name.txt ذخیره
@@ -22,7 +22,8 @@ function arg(name: string): string | undefined {
   return index >= 0 ? process.argv[index + 1] : undefined;
 }
 
-const DIR = resolve(arg('dir') ?? process.env.STT_SAMPLE_DIR ?? 'uploads/stt-dataset');
+// users' voices: a private folder, never the publicly served uploads
+const DIR = resolve(arg('dir') ?? process.env.STT_SAMPLE_DIR ?? 'private-uploads/stt-dataset');
 const PORT = Number(arg('port') ?? 3999);
 // نام‌ها همان timestamp های SpeechToTextService است؛ هر چیز دیگری (مثل ../) پذیرفته نمی‌شود
 const SAFE_NAME = /^[\w-]+$/;

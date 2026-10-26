@@ -16,6 +16,7 @@ import { MessengerBotService } from 'src/services/messengerBot/core/messengerBot
 import { BotIdentityService } from 'src/services/messengerBot/core/botIdentity.service';
 import { requireAdmin } from './subscription-policy.controller';
 import { ReceiptAccessService } from 'src/services/subscription/receiptAccess.service';
+import { SubscriptionRewardService } from 'src/services/subscription/subscriptionReward.service';
 import { isStoredReceipt } from 'src/services/subscription/receiptStorage';
 import { RedisService } from 'src/services/redis/redis.service';
 import { REDIS_CHANNELS, SubscriptionDecidedEvent } from 'src/services/redis/redis.keys';
@@ -48,6 +49,7 @@ export class SubscriptionOrderController {
     private readonly provisioning: AccountProvisioningService,
     private readonly bots: MessengerBotService,
     private readonly identity: BotIdentityService,
+    private readonly rewards: SubscriptionRewardService,
   ) {}
 
   /** پیش‌فرض: سفارش‌هایی که رسیدشان رسیده و منتظر بررسی‌اند. */
@@ -129,12 +131,21 @@ export class SubscriptionOrderController {
       }
     }
 
+    // this payment may take the driver past a reward tier: the free days are given now and announced with it
+    const bonuses = await this.rewards.grantEarned(result.userId).catch((error: Error) => {
+      this.logger.warn(`Could not check purchase rewards for ${result.userId}: ${error.message}`);
+      return [];
+    });
     await this.announceDecision({
       orderId,
       userId: result.userId,
       approved: true,
       accountType: result.accountType,
       expireAt: result.expireAt.toISOString(),
+      ...(bonuses.length && {
+        bonusDays: bonuses.reduce((sum, bonus) => sum + bonus.days, 0),
+        bonusUntil: bonuses[bonuses.length - 1].expireAt.toISOString(),
+      }),
     });
 
     return {
@@ -144,6 +155,7 @@ export class SubscriptionOrderController {
       expireAt: result.expireAt,
       newUser: result.newUser,
       notified,
+      rewardDays: bonuses.reduce((sum, bonus) => sum + bonus.days, 0),
     };
   }
 

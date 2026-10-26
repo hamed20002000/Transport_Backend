@@ -1,6 +1,6 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { CargoTripType } from 'src/domain/enums/notification';
-import { parseTripType, TRIP_TYPE_LABELS } from '../notification/cargoTripType';
+import { DRIVER_KIND_LABELS, DRIVER_KIND_TRIP_TYPES, driverKindForLoad, parseDriverKind } from '../notification/cargoTripType';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 
@@ -82,8 +82,12 @@ export class DriverProfileTools implements OnModuleInit {
           if (value === undefined) continue;
           // ظرفیت عدد است (DTO رقم فارسی و «تن» را نمی‌فهمد): «۲۴ تن» → «24»
           if (key === 'capacityTons') changes[key] = toLatinDigits(value).match(/\d+(\.\d+)?/)?.[0] ?? value;
-          // «صادراتی» → EXPORT؛ ناشناخته همان می‌ماند تا اعتبارسنجی DTO ردش کند
-          else if (key === 'tripType') changes[key] = parseTripType(value) ?? value;
+          // «بین‌المللی»/«صادراتی» → international, «داخلی» → domestic; the profile keeps all the load types of
+          // that kind. An unknown value stays for the DTO validation to reject.
+          else if (key === 'tripType') {
+            const kind = parseDriverKind(value);
+            changes[key] = kind ? DRIVER_KIND_TRIP_TYPES[kind][0] : value;
+          }
           else changes[key] = value;
         }
         if (Object.keys(changes).length === 0) ctx.fail(messages.profile.nothingToChange);
@@ -131,6 +135,6 @@ export class DriverProfileTools implements OnModuleInit {
   private lines(values: Record<string, unknown>, keys: string[]): string[] {
     return keys
       .filter((key) => values[key] !== undefined && values[key] !== null && values[key] !== '')
-      .map((key) => `${FIELD_LABELS[key]}: ${key === 'tripType' ? (TRIP_TYPE_LABELS[values[key] as CargoTripType] ?? String(values[key])) : String(values[key])}`);
+      .map((key) => `${FIELD_LABELS[key]}: ${key === 'tripType' ? DRIVER_KIND_LABELS[driverKindForLoad(values[key] as CargoTripType)] : String(values[key])}`);
   }
 }

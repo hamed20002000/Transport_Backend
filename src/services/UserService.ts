@@ -10,6 +10,8 @@ import { RecordStatus } from 'src/domain/enums/RecordStatus';
 import { UpdateUserProfileDto } from 'src/dto/user/update-user-profile.dto';
 import { IUserRepository } from 'src/domain/repositories/IUserRepopsitory';
 import { USER_REPOSITORY } from 'src/domain/repositories/repository.tokens';
+import { RedisService } from 'src/services/redis/redis.service';
+import { ProfileContactChangedEvent, REDIS_CHANNELS } from 'src/services/redis/redis.keys';
 
 const PROFILE_FIELDS = [
   'profileType',
@@ -17,6 +19,8 @@ const PROFILE_FIELDS = [
   'lastName',
   'nationalCode',
   'companyName',
+  'domesticCompanyName',
+  'internationalCompanyName',
   'companyNationalId',
   'economicCode',
   'registrationNo',
@@ -25,6 +29,9 @@ const PROFILE_FIELDS = [
   'address',
 ] as const;
 
+// what a published cargo shows of its company (CargoAudienceRepository.findPublisherContact)
+const CONTACT_FIELDS = ['profileType', 'firstName', 'lastName', 'companyName', 'domesticCompanyName', 'internationalCompanyName', 'phone'] as const;
+
 export type UserProfile = Pick<User, 'id' | 'username' | 'email' | 'mobile' | (typeof PROFILE_FIELDS)[number]>;
 
 @Injectable()
@@ -32,6 +39,7 @@ export class UserService {
   constructor(
     @Inject(USER_REPOSITORY)
     private readonly userRepository: IUserRepository,
+    private readonly redis: RedisService,
   ) {}
 
   async getByUserId(
@@ -106,9 +114,16 @@ export class UserService {
     for (const field of PROFILE_FIELDS) {
       if (dto[field] !== undefined) Object.assign(changes, { [field]: dto[field] });
     }
+    const before = Object.fromEntries(CONTACT_FIELDS.map((field) => [field, user[field] ?? null]));
     Object.assign(user, changes);
 
-    return this.toProfile(await this.userRepository.update(user));
+    const saved = await this.userRepository.update(user);
+    // the company's loads already announced carry the old name and phone; CargoContactSync updates them
+    if (CONTACT_FIELDS.some((field) => (saved[field] ?? null) !== before[field])) {
+      const event: ProfileContactChangedEvent = { userId, before };
+      await this.redis.publish(REDIS_CHANNELS.profileContactChanged, JSON.stringify(event)).catch(() => undefined);
+    }
+    return this.toProfile(saved);
   }
 
   private toProfile(user: User): UserProfile {

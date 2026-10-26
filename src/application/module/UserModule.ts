@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { User } from 'src/domain/entities/auth/User';
 
 import { UserService } from 'src/services/UserService';
+import { RedisModule } from './RedisModule';
 
 import { UserProfileController } from 'src/presentation/controllers/user/user-profile.controller';
 import { UserRepository } from 'src/infrastructure/repositories/UserRepository';
@@ -16,6 +17,7 @@ import { CompanyProfileTools } from 'src/services/companyProfileTools';
     TypeOrmModule.forFeature([
       User,
     ]),
+    RedisModule,
   ],
 
   controllers: [UserProfileController],

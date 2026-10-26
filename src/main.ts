@@ -41,8 +41,10 @@ async function bootstrap() {
   // Payment receipts once lived in the public uploads folder; they are private now (receiptStorage) and that
   // old address must never serve a file, even before `npm run move:receipts` has moved them. Registered before
   // the static files, which are added when the app starts.
-  app.use('/uploads/payment-receipts', (_request: unknown, response: { status: (code: number) => { end: () => void } }) =>
-    response.status(404).end());
+  // Users' voices kept for training the Persian speech model (STT_SAMPLE_DIR) once lay in that public folder too.
+  for (const path of ['/uploads/payment-receipts', '/uploads/stt-dataset']) {
+    app.use(path, (_request: unknown, response: { status: (code: number) => { end: () => void } }) => response.status(404).end());
+  }
 
   // Enable CORS using environment variables
   app.enableCors({

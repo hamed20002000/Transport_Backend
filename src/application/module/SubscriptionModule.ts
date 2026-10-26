@@ -8,6 +8,8 @@ import { AccountProvisioningService } from '../../services/subscription/accountp
 import { SubscriptionTools } from '../../services/subscription/subscriptionTools';
 import { SubscriptionStatusService } from '../../services/subscription/subscriptionStatus.service';
 import { SubscriptionAccessService } from '../../services/subscription/subscriptionAccess.service';
+import { SubscriptionRewardService } from '../../services/subscription/subscriptionReward.service';
+import { SubscriptionBonus } from '../../domain/entities/subscription/SubscriptionBonus';
 import { User } from '../../domain/entities/auth/User';
 import { UserModule } from './UserModule';
 import { Subscription } from '../../domain/entities/subscription/Subscription';
@@ -47,6 +49,7 @@ import {
       PaymentReceipt,
       AppSetting,
       User,
+      SubscriptionBonus,
     ]),
     UserModule,
     RedisModule,
@@ -69,6 +72,7 @@ import {
     AccountProvisioningService,
     SubscriptionStatusService,
     SubscriptionAccessService,
+    SubscriptionRewardService,
     SubscriptionTools,
 
     {
@@ -95,6 +99,7 @@ import {
   exports: [
     SUBSCRIPTION_REPOSITORY,
     SubscriptionAccessService,
+    SubscriptionRewardService,
     SubscriptionPolicyService,
     AccountProvisioningService,
     SubscriptionStatusService,

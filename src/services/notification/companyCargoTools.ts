@@ -1,7 +1,8 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, Injectable, OnModuleInit } from '@nestjs/common';
+import { readFile } from 'node:fs/promises';
 
 import { persianTime } from 'src/domain/helper/persianDate';
-import { TRIP_TYPE_LABELS } from './cargoTripType';
+import { DRIVER_KIND_LABELS, driverKindForLoad, TRIP_TYPE_LABELS } from './cargoTripType';
 import { NoCargoRecipientsException } from './cargoAnnouncementError';
 import { ContextManager } from 'src/application/services/agent/contextManager';
 import messages from 'src/application/services/agent/localFiles/messages.json';
@@ -11,6 +12,7 @@ import {
   cargoLine,
   codeParam,
   COMPANY_ROLES,
+  fa,
   findMatches,
   format,
   listParam,
@@ -30,10 +32,23 @@ import { CargoTripService, OFFER_TTL_MINUTES } from './cargoTrip.service';
 import { DriverCard } from '../driver/driverProfile.service';
 import { cargoSearchText, searchFromParams } from './cargoSearch';
 import { CargoNotificationService } from './cargoNotification.service';
+import { CargoExcelService, ExcelCargoRow, MAX_EXCEL_BYTES } from './cargoExcel.service';
 
 const PAGE_SIZE = 10;
 // بین این تعداد مورد آخر دنبال بار موردنظر کاربر می‌گردیم
 const SEARCH_WINDOW = 50;
+// ردیف‌های پیش‌نمایش و خطاهای فایل اکسل که در جواب نوشته می‌شوند
+const EXCEL_SHOWN = 10;
+
+/**
+ * اولین فایل اکسلی که کاربر پیوست کرد (وب: «📎»، واتساپ: فایل با کپشن). نام فایل وب UUID.xlsx است و
+ * پسوند فایل واتساپ از mimetype («…spreadsheetml.sheet»، «vnd.ms-excel»).
+ */
+export function attachedExcel(files: unknown): string | undefined {
+  return (Array.isArray(files) ? files : []).find(
+    (file): file is string => typeof file === 'string' && /\.xlsx?$|spreadsheet|ms-excel/i.test(file),
+  );
+}
 
 type ListingView = Awaited<ReturnType<CargoListingService['listMine']>>['items'][number];
 type SuggestionView = Awaited<ReturnType<CargoNotificationService['list']>>['items'][number];
@@ -51,6 +66,7 @@ export class CompanyCargoTools implements OnModuleInit {
     private readonly notifications: CargoNotificationService,
     private readonly listings: CargoListingService,
     private readonly trips: CargoTripService,
+    private readonly excel: CargoExcelService,
   ) {}
 
   onModuleInit() {
@@ -189,6 +205,9 @@ export class CompanyCargoTools implements OnModuleInit {
         if (code) return await self.publishByCode(ctx, code, textParam(param.fare), phones);
 
         const origin = textParam(param.origin);
+        // «این بارها رو اعلام کن» همراه فایل اکسل: بارهای فایل، نه یک بار تازه
+        const excelFile = attachedExcel(param.files);
+        if (!origin && excelFile) return yield* self.importExcel(ctx, excelFile);
         if (!origin) ctx.fail(messages.cargo.originRequired);
         const destination = textParam(param.destination);
         if (!destination) ctx.fail(messages.cargo.destinationRequired);
@@ -228,8 +247,23 @@ export class CompanyCargoTools implements OnModuleInit {
                 code: created.code ?? '',
                 recipients: created.recipients,
                 type: TRIP_TYPE_LABELS[created.tripType],
+                drivers: DRIVER_KIND_LABELS[driverKindForLoad(created.tripType)],
               }),
         );
+      },
+    });
+
+    // چند بار با یک فایل اکسل؛ همان بررسی و انتشار صفحه‌ی «ثبت بار» وب و گفتگوی اکسل ربات‌ها (CargoExcelService)
+    this.toolRegister.register({
+      functionName: 'import_company_cargo_excel',
+      handler: async function* (param: ToolParam): ToolGenerator {
+        const ctx: ToolContext = new ToolContext(self.history, 'import_company_cargo_excel', param);
+        ctx.requireRole(COMPANY_ROLES);
+
+        const file = attachedExcel(param.files);
+        // بدون فایل: ربات‌ها گفتگوی اکسل را باز می‌کنند (فایل نمونه را می‌فرستد)، وب راهنما را می‌گوید
+        if (!file) return ctx.done({ attached: 'false' }, messages.excel.attach, { menuAction: CargoAction.ExcelStart });
+        return yield* self.importExcel(ctx, file);
       },
     });
     //#endregion
@@ -420,6 +454,72 @@ export class CompanyCargoTools implements OnModuleInit {
         recipients: published.recipients,
       }),
     );
+  }
+
+  /**
+   * بارهای فایل اکسل: بررسی همه‌ی ردیف‌ها، پیش‌نمایش و سؤال، و بعد از «بله» انتشار. اگر ردیفی ایراد
+   * داشته باشد هیچ باری ثبت نمی‌شود تا فرستادن دوباره‌ی فایل اصلاح‌شده بار تکراری نسازد.
+   */
+  private async *importExcel(ctx: ToolContext, path: string): ToolGenerator {
+    const file = await readFile(path).catch(() => ctx.fail(messages.excel.unreadable));
+    if (file.length > MAX_EXCEL_BYTES) ctx.fail(messages.excel.tooBig);
+
+    let checked: Awaited<ReturnType<CargoExcelService['check']>>;
+    try {
+      checked = await this.excel.check(ctx.userId, file);
+    } catch (error) {
+      // پیام فارسی خود بررسی (ستون مبدأ نیست، فایل خالی، بیش از حد ردیف)
+      if (error instanceof BadRequestException) ctx.fail(error.message);
+      throw error;
+    }
+
+    const { rows, errors } = checked;
+    if (errors.length) {
+      const lines = errors
+        .slice(0, EXCEL_SHOWN)
+        .map((error) => `${format(messages.excel.errorRow, { row: fa(error.row) })}${error.column ? ` · ${error.column}` : ''}: ${error.message}`);
+      ctx.fail([messages.excel.hasErrors, lines.join('\n'), this.more(errors.length), messages.excel.sendAgain].filter(Boolean).join('\n\n'));
+    }
+
+    const answer = yield {
+      type: 'selection',
+      label: [format(messages.excel.confirm, { count: fa(rows.length) }), numbered(rows.slice(0, EXCEL_SHOWN).map((row) => this.excelRowTitle(row))), this.more(rows.length)]
+        .filter(Boolean)
+        .join('\n'),
+      data: [
+        { id: 'yes', title: format(messages.excel.confirmYes, { count: fa(rows.length) }) },
+        { id: 'no', title: messages.excel.confirmNo },
+      ],
+    };
+    if (answer !== 'yes') return ctx.done({ published: '0' }, messages.excel.notPublished);
+
+    const created = await ctx.call(
+      this.excel.publish(ctx.userId, rows).catch((error) => {
+        if (error instanceof NoCargoRecipientsException) ctx.fail(error.message);
+        throw error;
+      }),
+      messages.excel.publishFailed,
+    );
+    const codes = created.slice(0, EXCEL_SHOWN).map((item) => `${item.code ?? ''} · ${item.origin} ⬅️ ${item.destination}`);
+    return ctx.done(
+      { published: String(created.length), codes: created.map((item) => item.code ?? '').join(',') },
+      [
+        format(created.some((item) => item.pending) ? messages.excel.queued : messages.excel.done, { count: fa(created.length) }),
+        codes.join('\n'),
+        this.more(created.length),
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+    );
+  }
+
+  private excelRowTitle(row: ExcelCargoRow): string {
+    return `${cargoLine(row.fields)}${row.tripType ? ` · ${TRIP_TYPE_LABELS[row.tripType]}` : ''}`;
+  }
+
+  /** «… و ۵ مورد دیگر» وقتی فقط EXCEL_SHOWN مورد اول نوشته شده */
+  private more(total: number): string {
+    return total > EXCEL_SHOWN ? format(messages.excel.more, { count: fa(total - EXCEL_SHOWN) }) : '';
   }
 
   private suggestionTitle(item: SuggestionView): string {

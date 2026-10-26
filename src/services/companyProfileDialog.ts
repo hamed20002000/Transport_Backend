@@ -17,7 +17,8 @@ const EDIT = 'cp:edit:';
 const TYPE = 'cp:type:';
 const fields = {
   firstName: 'نام', lastName: 'نام خانوادگی', nationalCode: 'کد ملی',
-  companyName: 'نام شرکت', companyNationalId: 'شناسه ملی شرکت',
+  companyName: 'نام شرکت', domesticCompanyName: 'نام شرکت داخلی', internationalCompanyName: 'نام شرکت بین‌المللی',
+  companyNationalId: 'شناسه ملی شرکت',
   economicCode: 'کد اقتصادی', registrationNo: 'شماره ثبت',
   phone: 'تلفن ثابت', postalCode: 'کد پستی', address: 'نشانی',
 };

@@ -24,6 +24,8 @@ const FIELD_LABELS: Record<string, string> = {
   lastName: 'نام خانوادگی',
   nationalCode: 'کد ملی',
   companyName: 'نام شرکت',
+  domesticCompanyName: 'نام شرکت داخلی',
+  internationalCompanyName: 'نام شرکت بین‌المللی',
   companyNationalId: 'شناسه ملی شرکت',
   economicCode: 'کد اقتصادی',
   registrationNo: 'شماره ثبت',

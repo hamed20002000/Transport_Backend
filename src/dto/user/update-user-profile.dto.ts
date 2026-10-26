@@ -15,6 +15,18 @@ export const trimToNull = ({ value }: { value: unknown }) => {
 };
 
 /**
+ * A number that identifies something (national code, card number, postal code): typed or spoken, it often comes
+ * in groups — «۱۵۸ ۳۲۴ ۵۶۴۲», «0012-345-678», or from speech «۱۵۸، ۳۲، ۴۵، ۶۴۲». When the value is only digits and
+ * separators (space, comma, «،», dash, dot, slash) the separators go; anything with a letter stays as it is,
+ * so the field's own rule still refuses it.
+ */
+export const digitsToNull = (params: { value: unknown }) => {
+  const value = trimToNull(params);
+  if (typeof value !== 'string' || !/^[\d\s,،.\-–_/]+$/.test(value)) return value;
+  return value.replace(/\D/g, '') || null;
+};
+
+/**
  * همه فیلدها اختیاری‌اند. فیلدی که ارسال نشود دست نمی‌خورد و فیلدی که null
  * یا رشته خالی باشد پاک می‌شود.
  */
@@ -39,7 +51,7 @@ export class UpdateUserProfileDto {
   lastName?: string | null;
 
   @ApiPropertyOptional({ example: '0012345678', nullable: true })
-  @Transform(trimToNull)
+  @Transform(digitsToNull)
   @IsOptional()
   @Matches(/^[0-9]{10}$/, { message: 'nationalCode must be 10 digits' })
   nationalCode?: string | null;
@@ -51,8 +63,22 @@ export class UpdateUserProfileDto {
   @MaxLength(200)
   companyName?: string | null;
 
-  @ApiPropertyOptional({ example: '10101234567', description: 'شناسه ملی شرکت', nullable: true })
+  @ApiPropertyOptional({ maxLength: 200, nullable: true, description: 'نام شرکت برای کار داخلی (اختیاری)' })
   @Transform(trimToNull)
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  domesticCompanyName?: string | null;
+
+  @ApiPropertyOptional({ maxLength: 200, nullable: true, description: 'نام شرکت برای کار بین‌المللی، صادرات و واردات (اختیاری)' })
+  @Transform(trimToNull)
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  internationalCompanyName?: string | null;
+
+  @ApiPropertyOptional({ example: '10101234567', description: 'شناسه ملی شرکت', nullable: true })
+  @Transform(digitsToNull)
   @IsOptional()
   @Matches(/^[0-9]{11}$/, { message: 'companyNationalId must be 11 digits' })
   companyNationalId?: string | null;
@@ -78,7 +104,7 @@ export class UpdateUserProfileDto {
   phone?: string | null;
 
   @ApiPropertyOptional({ example: '1234567890', nullable: true })
-  @Transform(trimToNull)
+  @Transform(digitsToNull)
   @IsOptional()
   @Matches(/^[0-9]{10}$/, { message: 'postalCode must be 10 digits' })
   postalCode?: string | null;

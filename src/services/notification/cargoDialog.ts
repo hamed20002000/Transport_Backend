@@ -8,7 +8,7 @@ import { BotCallback } from 'src/domain/constants/bot/BotCallback';
 import { CargoAlertFilter } from 'src/domain/entities/notification/CargoAlertFilter';
 import { CargoListingStatus, CargoRequestStatus, CargoTripType } from 'src/domain/enums/notification';
 import { persianTime } from 'src/domain/helper/persianDate';
-import { TRIP_TYPE_LABELS } from './cargoTripType';
+import { DRIVER_KIND_LABELS, DRIVER_KIND_TRIP_TYPES, DriverKind, driverKindForLoad, driverKindOf, TRIP_TYPE_LABELS } from './cargoTripType';
 import { parsePriceToman } from 'src/domain/helper/price';
 import { IUserRepository } from 'src/domain/repositories/IUserRepopsitory';
 import { USER_REPOSITORY } from 'src/domain/repositories/repository.tokens';
@@ -66,14 +66,13 @@ const Action = {
   FilterCancel: `${PREFIX}fx`,
   // راننده: روشن/خاموش کردن خواندن صوتی بارهای اعلام‌شده
   CargoVoice: `${PREFIX}fs`,
-  // راننده: نوع خودش (داخلی/صادراتی/وارداتی)
-  DriverTripType: `${PREFIX}fk:`, // + CargoTripType
+  // راننده: داخلی یا بین‌المللی (دکمه‌های قدیمی صادراتی/وارداتی هم بین‌المللی می‌شوند)
+  DriverTripType: `${PREFIX}fk:`, // + DriverKind (or an old CargoTripType)
   // شرکت: «📣 اعلام همین الان» برای بار در صف اعلام خودکار
   AnnounceNow: `${PREFIX}nw:`, // + listingId:status:page (status x = back to Unannounced)
   // بارهای ثبت‌شده‌ی خود شرکت که هنوز اعلام نشده‌اند (نه در «بارهای من»، نه در پیشنهادها)
   Unannounced: `${PREFIX}ua`,
-  // ثبت چند بار با فایل اکسل
-  ExcelStart: `${PREFIX}xs`,
+  // ثبت چند بار با فایل اکسل (شروعش، ExcelStart، در CargoAction است)
   ExcelConfirm: `${PREFIX}xok`,
   ExcelCancel: `${PREFIX}xx`,
 } as const;
@@ -807,11 +806,12 @@ export class CargoDialog implements BotDialog, OnModuleInit {
       .grid(open)
       .add({ id: Action.FilterNew, label: this.t('actions.newFilter') })
       .add({ id: Action.FilterTemplate, label: this.t('actions.filterTemplate') });
-    if (tripTypes) {
+    const kind = tripTypes ? driverKindOf(tripTypes) : null;
+    if (kind) {
       rows.add(
-        ...Object.values(CargoTripType).map((type) => ({
-          id: `${Action.DriverTripType}${type}`,
-          label: this.selected(TRIP_TYPE_LABELS[type], tripTypes.includes(type)),
+        ...(Object.keys(DRIVER_KIND_LABELS) as DriverKind[]).map((value) => ({
+          id: `${Action.DriverTripType}${value}`,
+          label: this.selected(DRIVER_KIND_LABELS[value], value === kind),
         })),
       );
     }
@@ -829,7 +829,7 @@ export class CargoDialog implements BotDialog, OnModuleInit {
         this.t('filters.title'),
         this.t(driver ? 'filters.driverHint' : 'filters.hint'),
         body,
-        tripTypes ? this.t('filters.tripType', { type: tripTypes.map((type) => TRIP_TYPE_LABELS[type]).join('، ') }) : null,
+        kind ? this.t('filters.tripType', { type: DRIVER_KIND_LABELS[kind], loads: this.kindLoads(kind) }) : null,
         voice === null ? null : this.t(voice ? 'filters.cargoVoiceOn' : 'filters.cargoVoiceOff'),
       ]
         .filter(Boolean)
@@ -839,14 +839,18 @@ export class CargoDialog implements BotDialog, OnModuleInit {
   }
 
   /** نوع راننده؛ بار اعلام‌شده فقط به راننده‌های همان نوع می‌رسد. */
+  /** «داخلی» یا «بین‌المللی»؛ یکی از این دو، نه هر دو. */
   private async setDriverTripType(ctx: BotContext, value: string): Promise<BotReply> {
-    const type = Object.values(CargoTripType).find((item) => item === value);
-    if (!type || !(await this.isDriver(ctx))) return this.filtersView(ctx);
-    const current = await this.profiles.tripTypesOf(ctx.userId);
-    const selected = current.includes(type) ? current.filter((item) => item !== type) : [...current, type];
-    if (!selected.length) return this.filtersView(ctx, 'حداقل یک نوع حمل را انتخاب کنید.');
-    await this.profiles.setTripTypes(ctx.userId, selected);
-    return this.filtersView(ctx, this.t('filters.tripTypeSaved', { type: selected.map((item) => TRIP_TYPE_LABELS[item]).join('، ') }));
+    const loadType = Object.values(CargoTripType).find((item) => item === value);
+    const kind = value in DRIVER_KIND_LABELS ? (value as DriverKind) : loadType ? driverKindForLoad(loadType) : null;
+    if (!kind || !(await this.isDriver(ctx))) return this.filtersView(ctx);
+    await this.profiles.setTripTypes(ctx.userId, DRIVER_KIND_TRIP_TYPES[kind]);
+    return this.filtersView(ctx, this.t('filters.tripTypeSaved', { type: DRIVER_KIND_LABELS[kind] }));
+  }
+
+  /** «داخلی» / «صادراتی و وارداتی»: بارهایی که این نوع راننده می‌گیرد */
+  private kindLoads(kind: DriverKind): string {
+    return DRIVER_KIND_TRIP_TYPES[kind].map((type) => TRIP_TYPE_LABELS[type]).join(' و ');
   }
 
   /** فقط راننده بار اعلام‌شده را با صدا می‌گیرد؛ شرکت این دکمه را نمی‌بیند. */
@@ -1231,7 +1235,10 @@ export class CargoDialog implements BotDialog, OnModuleInit {
 
   async handleDocument(ctx: BotContext, document: BotDocument): Promise<BotReply | null> {
     const session = await this.getSession(ctx);
-    if (session?.kind !== 'excel') return null;
+    if (session?.kind !== 'excel') {
+      // a company's spreadsheet sent outside any form is the Excel import too (as the agent does with an attached one)
+      if (session || !/\.(xlsx|xls)$/i.test(document.fileName) || (await this.denied(ctx, COMPANY_ROLES))) return null;
+    }
     const retry = new Rows().add({ id: Action.ExcelCancel, label: this.t('actions.cancel') }).actions;
     if (!/\.(xlsx|xls)$/i.test(document.fileName)) return { text: this.t('excel.notExcel'), actions: retry };
     if ((document.size ?? 0) > MAX_EXCEL_BYTES) return { text: this.t('excel.tooBig'), actions: retry };
@@ -1437,7 +1444,7 @@ export class CargoDialog implements BotDialog, OnModuleInit {
         : this.t(session.notificationId ? 'announce.done' : 'create.created', {
             code: created.code ?? '',
             recipients: fa(created.recipients),
-          }) + (created.tripType ? `\n${this.t('create.tripType', { type: TRIP_TYPE_LABELS[created.tripType] })}` : ''),
+          }) + (created.tripType ? `\n${this.t('create.tripType', { type: TRIP_TYPE_LABELS[created.tripType], drivers: DRIVER_KIND_LABELS[driverKindForLoad(created.tripType)] })}` : ''),
       actions: new Rows()
         .add(
           { id: `${Action.Suggestions}a:1`, label: this.t('tabs.suggestions') },

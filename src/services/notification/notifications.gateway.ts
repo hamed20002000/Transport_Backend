@@ -19,6 +19,10 @@ export const CARGO_LISTING_CHANGED_SOCKET_EVENT = 'cargo-listing-changed';
 // تغییر وضعیت عضویت گروه/کانال ثبت‌شده (عضو شد، منتظر تأیید، ناموفق، حذف شد).
 export const CHANNEL_STATUS_SOCKET_EVENT = 'channel-status';
 
+// شرکت نام یا شماره‌ی پروفایلش را عوض کرد: { items: [{ id, companyName, contactPhones }] } بارهایی که عوض شدند،
+// تا صفحه‌های باز همان کارت‌ها را بی‌درخواست دوباره اصلاح کنند (CargoContactSync).
+export const CARGO_LISTING_CONTACT_SOCKET_EVENT = 'cargo-listing-contact';
+
 // پروفایل یک راننده (نام، ناوگان، عکس، نوع حمل) عوض شد -- برای شرکت‌ها، تا صفحه‌ی «رانندگان» بی‌رفرش بروز شود.
 export const DRIVERS_CHANGED_SOCKET_EVENT = 'drivers-changed';
 

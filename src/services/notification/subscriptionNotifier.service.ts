@@ -99,8 +99,12 @@ export class SubscriptionNotifier implements OnModuleInit {
     const order = await this.order(event.orderId);
     const plan = order?.planTitle ?? 'اشتراک';
     const title = event.approved ? 'اشتراک شما فعال شد ✅' : 'رسید پرداخت شما تأیید نشد';
+    // a purchase reward earned with this payment (SubscriptionRewardService)
+    const gift = event.approved && event.bonusDays
+      ? `🎁 به خاطر خریدهای شما ${fa(event.bonusDays)} روز استفاده‌ی رایگان هدیه گرفتید${event.bonusUntil ? ` (تا ${faDate(event.bonusUntil)})` : ''}.`
+      : '';
     const body = event.approved
-      ? `${plan}${event.expireAt ? ` تا ${faDate(event.expireAt)}` : ''} فعال است.`
+      ? `${plan}${event.expireAt ? ` تا ${faDate(event.expireAt)}` : ''} فعال است.${gift ? `\n${gift}` : ''}`
       : `دلیل: ${event.reason ?? '—'}. لطفاً دوباره پرداخت کنید یا رسید درست را بفرستید.`;
 
     this.gateway.sendToUser(event.userId, SUBSCRIPTION_CHANGED_SOCKET_EVENT, { approved: event.approved });
@@ -110,10 +114,20 @@ export class SubscriptionNotifier implements OnModuleInit {
         body,
         url: event.accountType === 'DRIVER' ? '/account/driver/subscription' : '/',
       }).catch((error: Error) => this.logger.warn(`Decision push to ${event.userId} failed: ${error.message}`)),
-      // the bots already heard it from the admin endpoint; WhatsApp only from here
+      // the bots already heard the decision from the admin endpoint; WhatsApp only from here
       this.whatsapp.notify(event.userId, `${title}\n${body}`)
         .catch((error: Error) => this.logger.warn(`Decision to ${event.userId} on WhatsApp failed: ${error.message}`)),
+      // …but not the reward: that goes to the bots too
+      gift ? this.botsOnly(event.userId, gift) : Promise.resolve(),
     ]);
+  }
+
+  private async botsOnly(userId: string, text: string): Promise<void> {
+    const links = await this.botLinks.findAllByUserId(userId);
+    await Promise.all(links
+      .filter((link) => link.chatId && this.bots.hasPlatform(link.platform))
+      .map((link) => this.bots.sendNotification(link.chatId!, text)
+        .catch((error: Error) => this.logger.warn(`Reward notice to ${userId} on ${link.platform} failed: ${error.message}`))));
   }
 
   /** An admin's own linked bots and WhatsApp, like any other notice (messengers behave alike). */

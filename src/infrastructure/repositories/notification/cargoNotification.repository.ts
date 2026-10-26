@@ -66,6 +66,11 @@ export class CargoNotificationRepository {
     return this.repository.find({ where: { listingId }, relations: { listing: true } });
   }
 
+  /** متن ذخیره‌شده‌ی اعلان‌های یک بار (پنل وب و ویرایش پیام‌ها از همین متن است). */
+  async updateTextByListing(listingId: string, text: string): Promise<void> {
+    await this.repository.update({ listingId }, { text });
+  }
+
   /** پیشنهاد (نه بار منتشرشده) همین کاربر که کد بارش در payload این است. */
   findSuggestionByCode(userId: string, code: string): Promise<CargoNotification | null> {
     const match = cargoCodeMatch("notification.payload->>'code'", code);

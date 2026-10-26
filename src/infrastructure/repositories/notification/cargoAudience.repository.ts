@@ -8,6 +8,7 @@ import { RecordStatus } from '../../../domain/enums/RecordStatus';
 import { CustomerType } from '../../../domain/enums/company.enum';
 import { SubscriptionStatus } from '../../../domain/enums/subscription';
 import { CargoTripType } from '../../../domain/enums/notification';
+import { DRIVER_KIND_TRIP_TYPES, driverKindForLoad } from '../../../services/notification/cargoTripType';
 
 export const DRIVER_ROLE = 'DRIVER';
 export const COMPANY_ROLES = ['COMPANY', 'COMPANY_ADMIN'];
@@ -15,7 +16,14 @@ export const COMPANY_ROLES = ['COMPANY', 'COMPANY_ADMIN'];
 export interface PublisherContact {
   mobile: string | null;
   // id is null when the name/phone come only from the user's profile and no TransportCompany is linked.
-  company: { id: string | null; name: string; phone: string | null } | null;
+  company: {
+    id: string | null;
+    name: string;
+    phone: string | null;
+    // the names for domestic and for international (export/import) loads, when the company set them
+    domesticName?: string | null;
+    internationalName?: string | null;
+  } | null;
 }
 
 /** کوئری‌هایی که مشخص می‌کنند بار منتشرشده به چه کسانی برسد و از طرف چه کسی. */
@@ -49,12 +57,15 @@ export class CargoAudienceRepository {
             'AND subscription.startAt <= :now AND subscription.expireAt > :now',
         )
         .andWhere(
-          '(subscription.id IS NOT NULL OR GREATEST(user.createdAt, :trialStartedAt) + make_interval(days => :trialDays) > :now)',
+          '(subscription.id IS NOT NULL OR GREATEST(user.createdAt, :trialStartedAt) + make_interval(days => :trialDays) > :now ' +
+            // free days given as a reward count like a subscription (SubscriptionRewardService)
+            'OR EXISTS (SELECT 1 FROM "SubscriptionBonus" bonus WHERE bonus."userId" = user.id AND bonus."startAt" <= :now AND bonus."expireAt" > :now))',
           { trialStartedAt: new Date(driverRule.driverTrialStartedAt), trialDays: driverRule.driverTrialDays },
         );
     }
     if (tripType || publisherUserId) query.innerJoin('DriverProfile', 'profile', 'profile.userId = user.id');
-    if (tripType) query.andWhere(':tripType = ANY(profile.tripTypes)', { tripType });
+    // an export or import load reaches every international driver (DriverKind), even one saved with only one of them
+    if (tripType) query.andWhere('profile.tripTypes && CAST(:driverTripTypes AS varchar[])', { driverTripTypes: DRIVER_KIND_TRIP_TYPES[driverKindForLoad(tripType)] });
     if (publisherUserId) query.andWhere('profile.companyUserIds @> ARRAY[:publisherUserId]::uuid[]', { publisherUserId });
     const rows = await query
       .andWhere('user.recordStatus = :active')
@@ -85,9 +96,16 @@ export class CargoAudienceRepository {
     return userIds.filter((id) => companies.has(id));
   }
 
-  /** موبایل ثبت‌نام کاربر و شرکت حمل‌ونقلی که به آن وصل است (اگر باشد). */
-  async findPublisherContact(userId: string): Promise<PublisherContact> {
-    const user = await this.dataSource.getRepository(User).findOne({ where: { id: userId } });
+  /**
+   * موبایل ثبت‌نام کاربر و شرکت حمل‌ونقلی که به آن وصل است (اگر باشد).
+   * profile: فیلدهای پروفایل به‌جای مقدار فعلی (مخاطب پیش از تغییر پروفایل، ProfileContactChangedEvent).
+   */
+  async findPublisherContact(
+    userId: string,
+    profile?: Partial<Pick<User, 'profileType' | 'firstName' | 'lastName' | 'companyName' | 'phone' | 'domesticCompanyName' | 'internationalCompanyName'>>,
+  ): Promise<PublisherContact> {
+    const stored = await this.dataSource.getRepository(User).findOne({ where: { id: userId } });
+    const user = stored && profile ? { ...stored, ...profile } : stored;
 
     const companyUser = await this.dataSource.getRepository(CompanyUser).findOne({
       where: { userId, recordStatus: RecordStatus.Active },
@@ -107,7 +125,15 @@ export class CargoAudienceRepository {
 
     return {
       mobile: user?.mobile ?? null,
-      company: name || company ? { id: company?.id ?? null, name: name ?? '', phone } : null,
+      company: name || company
+        ? {
+            id: company?.id ?? null,
+            name: name ?? '',
+            phone,
+            domesticName: user?.domesticCompanyName?.trim() || null,
+            internationalName: user?.internationalCompanyName?.trim() || null,
+          }
+        : null,
     };
   }
 }
