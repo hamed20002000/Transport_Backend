@@ -19,6 +19,8 @@ import { PendingConfirmationService } from './PendingConfirmationService';
 import { In } from 'typeorm';
 import { User } from 'src/domain/entities/auth/User';
 import { RecordStatus } from 'src/domain/enums/RecordStatus';
+import { CompanyFeatureService, isCompanyRole } from 'src/services/company/companyFeature.service';
+import { COMPANY_FEATURE_TITLES, CompanyFeature } from 'src/domain/enums/companyFeature';
 
 
 
@@ -39,6 +41,7 @@ export class FunctionCallService {
         private readonly history: ContextManager,
         private readonly cancellation: CancellationService,
         private readonly pendingConfirmationService: PendingConfirmationService,
+        private readonly companyFeatures: CompanyFeatureService,
 
         @InjectDataSource() private readonly dataSource: DataSource
     ) {
@@ -112,6 +115,21 @@ export class FunctionCallService {
         // نقش‌ها هر بار از دیتابیس خوانده می‌شوند و روی req می‌مانند تا مراحل
         // بعدی (تأیید، generator) هم با همین نقش‌ها ادامه دهند.
         req.user.roles = await this.activeRoles(userId);
+
+        // دستیار برای شرکت غیرمادر منوی پولی است (وب، ربات‌ها و واتساپ همه از اینجا رد می‌شوند)
+        if (isCompanyRole(req.user.roles) && !(await this.companyFeatures.hasFeature(userId, CompanyFeature.Agent))) {
+            this.agentGateway.sendToolResult(userId, {
+                result: "error",
+                message: `🔒 بخش «${COMPANY_FEATURE_TITLES[CompanyFeature.Agent]}» برای شرکت شما فعال نیست؛ برای استفاده آن را از «💎 خرید امکانات» در منو (یا پنل وب) بخرید.`,
+                prompt: prompt,
+                continuePrompt: undefined,
+                toolName: undefined,
+                lastsegment: true,
+                isSpecial: false,
+                list: []
+            });
+            return;
+        }
 
 
 

@@ -20,6 +20,7 @@ import { FunctionCallService } from './functioncall.service';
 import { AgentRequest } from '../types';
 import { PhoneAccountService } from 'src/services/auth/phoneAccount.service';
 import { AccountType } from 'src/domain/enums/subscription';
+import { FactoryInviteHandler, FactoryInviteResult, inviteIn, MessengerInvite } from 'src/services/messengerBot/core/factoryInvite';
 import { SubscriptionAccessService } from 'src/services/subscription/subscriptionAccess.service';
 import { RecordStatus } from 'src/domain/enums/RecordStatus';
 import { normalizePhoneNumber } from 'src/dto/auth/phone-number';
@@ -54,6 +55,7 @@ const CANCEL_WORDS = ['لغو', 'انصراف', 'نه', 'iptal', 'vazgeç', 'hay
 const ONBOARDING_ACCOUNT_TYPES = [
   { type: AccountType.Driver, label: 'راننده' },
   { type: AccountType.Company, label: 'شرکت حمل‌ونقل' },
+  { type: AccountType.Factory, label: 'کارخانه' },
 ] as const;
 const ACCOUNT_TYPE_WELCOME = 'به سامانه خوش آمدید! برای این شماره هنوز حسابی ساخته نشده است.';
 const ACCOUNT_TYPE_PROMPT =
@@ -65,6 +67,23 @@ const MENU_POLL_QUESTION = '👇 یکی را انتخاب کنید';
 const UNKNOWN_PHONE_MESSAGE =
   'شماره‌ی موبایل این حساب واتساپ قابل تشخیص نیست یا شماره‌ی ایران نیست.\n' +
   'حساب‌ها با شماره‌ی موبایل ایران ساخته می‌شوند؛ لطفاً از واتساپی که با شماره‌ی ایران فعال شده پیام بدهید.';
+// پاسخ دعوت کارخانه (کد inv_… که از لینک wa.me شرکت حمل‌ونقل در پیام آمده)؛ همان متن ربات‌ها
+const FACTORY_INVITE_TEXT: Record<FactoryInviteResult['status'], string> = {
+  joined: '✅ «{company}» شما را دعوت کرده است.\n\nاز این به بعد بارتان را با «ثبت بار» مستقیم برای این شرکت بفرستید؛ لازم نیست تماس بگیرید.',
+  invalid: 'این لینک (کد) دعوت باطل شده است. لینک تازه را از شرکت حمل‌ونقل بگیرید.',
+  otherNumber: 'این دعوت برای شماره‌ی دیگری است. از واتساپی پیام بدهید که با همان شماره‌ای است که به شرکت حمل‌ونقل داده‌اید.',
+}
+// پاسخ دعوت شخصی شرکت مادر برای شرکت حمل‌ونقل (کد cmp_…)؛ همان متن ربات‌ها
+const COMPANY_INVITE_TEXT = {
+  invalid: 'این لینک (کد) دعوت باطل شده است. لینک تازه را از شرکت مادر بگیرید.',
+  otherNumber: 'این دعوت برای شماره‌ی دیگری است. از واتساپی پیام بدهید که با همان شماره‌ای است که به شرکت مادر داده‌اید.',
+};
+// پاسخ دعوت شخصی راننده از طرف شرکت حمل‌ونقل (کد drv_…)؛ همان متن ربات‌ها
+const DRIVER_INVITE_TEXT: Record<FactoryInviteResult['status'], string> = {
+  joined: '✅ «{company}» شما را به رانندگانش اضافه کرده است.\n\nاز این به بعد بارهای این شرکت برایتان اعلام می‌شود.',
+  invalid: 'این لینک (کد) دعوت باطل شده است. لینک تازه را از شرکت حمل‌ونقل بگیرید.',
+  otherNumber: 'این دعوت برای شماره‌ی دیگری است. از واتساپی پیام بدهید که با همان شماره‌ای است که به شرکت حمل‌ونقل داده‌اید.',
+};
 const NEW_CHAT_WORDS = ['گفتگوی جدید', 'گفتگو جدید', 'yeni sohbet'];
 const NEXT_PAGE_WORDS = ['بعدی', 'ادامه', 'devam'];
 const PREVIOUS_PAGE_WORDS = ['قبلی', 'برگشت', 'geri'];
@@ -160,6 +179,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private static readonly SELECTION_PAGE_SIZE = 10;
 
   private dialogHandler?: WhatsappDialogHandler;
+  // FactoryDialog (cargo module) at start-up, like dialogHandler
+  private factoryInvites?: FactoryInviteHandler;
 
   //Voice-recognized transcripts that are still waiting for user approval -- 
   // exactly equivalent to pendingTranscriptions in MessengerBotService
@@ -536,6 +557,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     // Look up which system user (if any) this WhatsApp number belongs to.
     const mapping = await this.resolveUserFromJid(jid);
 
+    // a factory invite code: the number becomes (or stays) a factory and the inviting company joins its list
+    const invite = this.factoryInvites ? inviteIn(text) : null;
+    if (invite && (await this.handleInvite(jid, invite, mapping?.userid ?? null))) return;
+
     // ---- ONBOARDING: this number isn't registered yet ----
     // If there's no mapping, we can't know which system user this is, so we
     // can't do anything else -- hand off entirely to the onboarding flow
@@ -658,6 +683,52 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
   setDialogHandler(handler: WhatsappDialogHandler): void {
     this.dialogHandler = handler;
+  }
+
+  setFactoryInviteHandler(handler: FactoryInviteHandler): void {
+    this.factoryInvites = handler;
+  }
+
+  /**
+   * An invite code, as the bots handle it; the number is WhatsApp's own. Both invites are personal: the inviter
+   * made the account with the invited number beforehand (a transport company, cmp_, by the parent company; a factory,
+   * inv_, and a driver, drv_, by a transport company). This number is that account (welcome, its menu) or not (another number); no
+   * account or role is ever made from the code.
+   * false: another number with no account, so the usual sign-up follows.
+   */
+  private async handleInvite(jid: string, invite: MessengerInvite, mappedUserId: string | null): Promise<boolean> {
+    const handler = this.factoryInvites!;
+    const texts = invite.kind === 'driver' ? DRIVER_INVITE_TEXT : FACTORY_INVITE_TEXT;
+    const otherNumber = invite.kind === 'company' ? COMPANY_INVITE_TEXT.otherNumber : texts.otherNumber;
+    let userId = mappedUserId;
+    if (!userId) {
+      const phone = await this.phoneOfJid(jid);
+      if (!phone) {
+        await this.sendMessage(jid, UNKNOWN_PHONE_MESSAGE);
+        return true;
+      }
+      const user = await this.accounts.findByPhone(phone);
+      if (user && user.recordStatus !== RecordStatus.Active) {
+        await this.sendMessage(jid, 'حساب این شماره غیرفعال است. با پشتیبانی تماس بگیرید.');
+        return true;
+      }
+      if (!user || !(await this.accounts.hasRole(user.id))) {
+        // the invited account exists with its number: this number has none, so it is not the invited one
+        await this.sendMessage(jid, otherNumber);
+        return false;
+      }
+      await this.userMappingRepo.upsert({ userid: user.id, username: user.username, jid }, ['jid']);
+      userId = user.id;
+    }
+    if (invite.kind === 'company') {
+      const result = await handler.companyWelcome(userId, invite.token);
+      await this.sendMessage(jid, result.status === 'joined' ? result.welcome : COMPANY_INVITE_TEXT[result.status]);
+    } else {
+      const result = invite.kind === 'driver' ? await handler.driverWelcome(userId, invite.token) : await handler.factoryWelcome(userId, invite.token);
+      await this.sendMessage(jid, texts[result.status].replace('{company}', result.status === 'joined' ? result.companyName : ''));
+    }
+    await this.dialogHandler?.handleText(jid, userId, 'منو');
+    return true;
   }
 
   /** لوکیشن (یا Live Location) کاربر ثبت‌شده به گفتگوهای ربات می‌رود. */
@@ -1110,14 +1181,16 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     }
     if (await this.blockedBySubscription(jid, mapping.userid)) return;
 
-    // فایلی که یکی از گفتگوها منتظرش است (مثل اکسل «ثبت چند بار»)؛ کپشن لازم ندارد
+    // فایل یا عکسی که یکی از گفتگوها منتظرش است (اکسل «ثبت چند بار»، رسید خرید امکانات)؛ کپشن لازم ندارد
     const document = msg.message?.documentMessage;
-    if (document && this.dialogHandler && this.sock) {
+    const image = msg.message?.imageMessage;
+    if ((document || image) && this.dialogHandler && this.sock) {
       const sock = this.sock;
       const { downloadMediaMessage } = await import('@whiskeysockets/baileys');
+      const length = (document ?? image)?.fileLength;
       const handled = await this.dialogHandler.handleDocument(jid, mapping.userid, {
-        fileName: document.fileName ?? 'file',
-        size: document.fileLength ? Number(document.fileLength) : undefined,
+        fileName: document?.fileName ?? (image ? `photo.${image.mimetype?.split('/')[1]?.split(';')[0] || 'jpg'}` : 'file'),
+        size: length ? Number(length) : undefined,
         download: async () =>
           (await downloadMediaMessage(msg, 'buffer', {}, { logger: this.logger as any, reuploadRequest: sock.updateMediaMessage })) as Buffer,
       });

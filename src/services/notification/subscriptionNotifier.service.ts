@@ -7,16 +7,29 @@ import { IBotLinkRepository } from '../../domain/repositories/messengerBot/IBotL
 import { RecordStatus } from '../../domain/enums/RecordStatus';
 import { MessengerBotService } from '../messengerBot/core/messengerBot.service';
 import { RedisService } from '../redis/redis.service';
-import { PaymentReceiptSubmittedEvent, REDIS_CHANNELS, SubscriptionDecidedEvent } from '../redis/redis.keys';
+import { VERIFICATION_PROFILE_PATH, VerifiedKind } from '../company/accountVerification.service';
+import { AccountVerificationEvent, CompanyFeatureOrderEvent, PaymentReceiptSubmittedEvent, REDIS_CHANNELS, SubscriptionDecidedEvent } from '../redis/redis.keys';
 import { NotificationsGateway } from './notifications.gateway';
 import { WebPushService } from './webPush.service';
 import { WhatsappDialogBridge } from './whatsappDialogBridge';
 
 export const PAYMENT_RECEIPT_SOCKET_EVENT = 'payment-receipt';
 export const SUBSCRIPTION_CHANGED_SOCKET_EVENT = 'subscription-changed';
+// a company menu's receipt arrived (admins) / was decided (the company): the pages reload
+export const COMPANY_FEATURE_RECEIPT_SOCKET_EVENT = 'company-feature-receipt';
+export const COMPANY_FEATURES_CHANGED_SOCKET_EVENT = 'company-features-changed';
+// a self-signed-up company or factory asked to be checked (parent companies) / was decided (the account)
+export const VERIFICATION_REQUESTED_SOCKET_EVENT = 'verification-requested';
+export const VERIFICATION_CHANGED_SOCKET_EVENT = 'verification-changed';
 
 // one notice per event, however many server instances listen on the channel
 const NOTICE_ONCE_SECONDS = 60 * 60;
+// what an approved account does next
+const APPROVED_NEXT: Record<VerifiedKind, string> = {
+  COMPANY: 'برای استفاده از هر بخش پنل، آن را از «💎 خرید امکانات» بخرید.',
+  FACTORY: 'حالا می‌توانید بارتان را ثبت کنید.',
+  BROKER: 'حالا می‌توانید بارها را ببینید و روی آن‌ها درخواست بدهید.',
+};
 const currencyNames: Record<string, string> = { IRR: 'ریال', IRT: 'تومان' };
 const fa = (value: number | string) => Number(value).toLocaleString('fa-IR');
 const faDate = (iso: string) => new Date(iso).toLocaleDateString('fa-IR', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -57,6 +70,15 @@ export class SubscriptionNotifier implements OnModuleInit {
         void this.handle('receipt', message, (event: PaymentReceiptSubmittedEvent) => this.receiptSubmitted(event)));
       await this.redis.subscribe(REDIS_CHANNELS.subscriptionDecided, (message) =>
         void this.handle('decision', message, (event: SubscriptionDecidedEvent) => this.decided(event)));
+      await this.redis.subscribe(REDIS_CHANNELS.companyFeatureReceipt, (message) =>
+        void this.handle('feature-receipt', message, (event: CompanyFeatureOrderEvent) => this.featureReceipt(event)));
+      await this.redis.subscribe(REDIS_CHANNELS.companyFeatureDecided, (message) =>
+        void this.handle('feature-decision', message, (event: CompanyFeatureOrderEvent) => this.featureDecided(event)));
+      // a request or decision has no order: the user and the time make it one notice
+      await this.redis.subscribe(REDIS_CHANNELS.accountVerificationRequested, (message) =>
+        void this.handle('verification-request', this.withNoticeId(message), (event: AccountVerificationEvent & { orderId: string }) => this.verificationRequested(event)));
+      await this.redis.subscribe(REDIS_CHANNELS.accountVerificationDecided, (message) =>
+        void this.handle('verification-decision', this.withNoticeId(message), (event: AccountVerificationEvent & { orderId: string }) => this.verificationDecided(event)));
     } catch (error) {
       this.logger.warn(`Could not listen for payment events: ${(error as Error).message}`);
     }
@@ -122,6 +144,69 @@ export class SubscriptionNotifier implements OnModuleInit {
     ]);
   }
 
+  /** A company sent a receipt for a menu (web, bots or WhatsApp): every admin hears of it, like a subscription receipt. */
+  async featureReceipt(event: CompanyFeatureOrderEvent): Promise<void> {
+    const price = `${fa(event.amount)} ${currencyNames[event.currency] ?? event.currency}`;
+    const text = `🧾 رسید خرید بخش «${event.title}» · ${price}\nبرای بررسی به «امکانات شرکت‌ها ← رسیدها» در پنل ادمین بروید.`;
+    this.gateway.sendToRoles(['ADMIN'], COMPANY_FEATURE_RECEIPT_SOCKET_EVENT, { orderId: event.orderId });
+    for (const adminId of await this.adminIds()) {
+      await Promise.all([
+        this.push.sendToUser(adminId, { title: 'ترابوت · رسید خرید امکانات', body: `${event.title} · ${price}`, url: '/admin/company-features', tag: 'payment-receipts', renotify: true })
+          .catch((error: Error) => this.logger.warn(`Feature receipt push to admin ${adminId} failed: ${error.message}`)),
+        this.messengers(adminId, text),
+      ]);
+    }
+  }
+
+  /**
+   * The admin decided on a menu's receipt: the company hears of it in the app (page live, phone notification),
+   * its bots and WhatsApp (the admin endpoint tells no messenger about menus).
+   */
+  async featureDecided(event: CompanyFeatureOrderEvent): Promise<void> {
+    const text = event.approved
+      ? `✅ بخش «${event.title}» فعال شد${event.expireAt ? ` و تا ${faDate(event.expireAt)} باز است` : ''}.`
+      : `رسید خرید بخش «${event.title}» تأیید نشد.\nدلیل: ${event.reason ?? '—'}\nلطفاً دوباره پرداخت کنید یا رسید درست را بفرستید («💎 خرید امکانات»).`;
+    this.gateway.sendToUser(event.userId, COMPANY_FEATURES_CHANGED_SOCKET_EVENT, { feature: event.feature, approved: event.approved });
+    await Promise.all([
+      this.push.sendToUser(event.userId, { title: `ترابوت · ${event.approved ? 'بخش تازه فعال شد' : 'رسید تأیید نشد'}`, body: text, url: '/account/company/features' })
+        .catch((error: Error) => this.logger.warn(`Feature decision push to ${event.userId} failed: ${error.message}`)),
+      this.messengers(event.userId, text),
+    ]);
+  }
+
+  /** The dedupe key of handle() is orderId: a verification event gets the user and the minute instead. */
+  private withNoticeId(message: string): string {
+    const event = JSON.parse(message) as AccountVerificationEvent;
+    return JSON.stringify({ ...event, orderId: `${event.userId}:${event.approved ?? 'request'}:${Math.floor(Date.now() / 60_000)}` });
+  }
+
+  /** A self-signed-up company or factory asked to be checked: every parent company hears of it. */
+  async verificationRequested(event: AccountVerificationEvent): Promise<void> {
+    const text = `🔎 درخواست بررسی اعتبار تازه از «${event.name}».\nبرای بررسی و تأیید به «بررسی اعتبار» در پنل شرکت بروید.`;
+    const parents: { id: string }[] = await this.dataSource.query(`SELECT id FROM "User" WHERE "isParentCompany" = true AND "recordStatus" = $1`, [RecordStatus.Active]);
+    for (const { id } of parents) {
+      this.gateway.sendToUser(id, VERIFICATION_REQUESTED_SOCKET_EVENT, { userId: event.userId });
+      await Promise.all([
+        this.push.sendToUser(id, { title: 'ترابوت · درخواست بررسی اعتبار', body: event.name, url: '/account/company/verifications', tag: 'verifications', renotify: true })
+          .catch((error: Error) => this.logger.warn(`Verification request push to ${id} failed: ${error.message}`)),
+        this.messengers(id, text),
+      ]);
+    }
+  }
+
+  /** The parent company decided: the account hears of it in the app, its bots and WhatsApp. */
+  async verificationDecided(event: AccountVerificationEvent): Promise<void> {
+    const text = event.approved
+      ? `✅ حساب شما تأیید شد.\n${APPROVED_NEXT[event.kind ?? 'COMPANY']}\nبرای دیدن منو، «منو» را بفرستید.`
+      : `❌ درخواست بررسی اعتبار شما تأیید نشد.\nدلیل: ${event.reason ?? '—'}\n${event.remaining ? `اطلاعات را اصلاح کنید و دوباره درخواست بدهید (${fa(event.remaining)} بار دیگر).` : 'دفعات درخواست تمام شده است؛ با پشتیبانی تماس بگیرید.'}`;
+    this.gateway.sendToUser(event.userId, VERIFICATION_CHANGED_SOCKET_EVENT, { approved: event.approved });
+    await Promise.all([
+      this.push.sendToUser(event.userId, { title: `ترابوت · ${event.approved ? 'حساب شما تأیید شد' : 'درخواست تأیید نشد'}`, body: text, url: VERIFICATION_PROFILE_PATH[event.kind ?? 'COMPANY'] })
+        .catch((error: Error) => this.logger.warn(`Verification decision push to ${event.userId} failed: ${error.message}`)),
+      this.messengers(event.userId, text),
+    ]);
+  }
+
   private async botsOnly(userId: string, text: string): Promise<void> {
     const links = await this.botLinks.findAllByUserId(userId);
     await Promise.all(links
@@ -130,16 +215,16 @@ export class SubscriptionNotifier implements OnModuleInit {
         .catch((error: Error) => this.logger.warn(`Reward notice to ${userId} on ${link.platform} failed: ${error.message}`))));
   }
 
-  /** An admin's own linked bots and WhatsApp, like any other notice (messengers behave alike). */
+  /** A user's linked bots and WhatsApp, like any other notice (messengers behave alike). */
   private async messengers(userId: string, text: string): Promise<void> {
     const links = await this.botLinks.findAllByUserId(userId);
     await Promise.all([
       ...links
         .filter((link) => link.chatId && this.bots.hasPlatform(link.platform))
         .map((link) => this.bots.sendNotification(link.chatId!, text)
-          .catch((error: Error) => this.logger.warn(`Receipt notice to admin ${userId} on ${link.platform} failed: ${error.message}`))),
+          .catch((error: Error) => this.logger.warn(`Notice to ${userId} on ${link.platform} failed: ${error.message}`))),
       this.whatsapp.notify(userId, text)
-        .catch((error: Error) => this.logger.warn(`Receipt notice to admin ${userId} on WhatsApp failed: ${error.message}`)),
+        .catch((error: Error) => this.logger.warn(`Notice to ${userId} on WhatsApp failed: ${error.message}`)),
     ]);
   }
 

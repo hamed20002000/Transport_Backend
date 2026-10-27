@@ -12,6 +12,7 @@ import {
 } from '../../../domain/constants/bot/BotCallback';
 
 import { AccountType } from 'src/domain/enums/subscription';
+import { AccountVerificationService } from '../../company/accountVerification.service';
 
 @Injectable()
 export class BotMenuService {
@@ -23,6 +24,7 @@ export class BotMenuService {
       BotMessagesService,
     private readonly keyboard: BotKeyboardService,
     private readonly botSubscriptionService: BotSubscriptionService,
+    private readonly verification: AccountVerificationService,
   ) {}
 
   /*
@@ -52,6 +54,7 @@ export class BotMenuService {
     roles: string[],
   ): Promise<void> {
     if (!(await this.ensureActiveSubscription(chatId, externalUserId))) return;
+    if (await this.sendIfUnverified(chatId, externalUserId)) return;
 
     /*
      * Driver
@@ -99,6 +102,16 @@ export class BotMenuService {
     }
 
     /*
+     * Factory: only sending loads to the transport companies that invited it
+     */
+
+    if (roles.includes('FACTORY')) {
+      await this.showFactoryMenu(chatId);
+
+      return;
+    }
+
+    /*
      * Registered User
      * without supported role
      */
@@ -118,6 +131,20 @@ export class BotMenuService {
    * @param externalUserId 
    * @returns 
    */
+
+  /**
+   * شرکت یا کارخانه‌ای که خودش ثبت‌نام کرده و هنوز تأیید شرکت مادر را ندارد: به‌جای منو وضعیتش و راه ادامه
+   * (پروفایل و درخواست بررسی در پنل وب). true یعنی همین پیام فرستاده شد و منو نباید باز شود.
+   */
+  async sendIfUnverified(chatId: string, externalUserId: string): Promise<boolean> {
+    const userId = await this.botIdentityService.getUserId(externalUserId);
+    const notice = userId ? await this.verification.messengerNotice(userId) : null;
+    if (!notice) return false;
+    await this.keyboard.sendMainMenu(chatId, notice, {
+      reply_markup: { inline_keyboard: [[{ text: this.messages.get('menu.common.support'), callback_data: BotCallback.Support }]] },
+    });
+    return true;
+  }
 
   //#region ---------------------------- ایا کاربر سابسکرپشن دارد؟ -----------------------
       ensureActiveSubscription(chatId: string, externalUserId: string): Promise<boolean> {
@@ -362,6 +389,8 @@ export class BotMenuService {
               },
             ],
 
+            [{ text: this.messages.get('menu.driver.cargoDisplay'), callback_data: BotCallback.CargoDisplay }],
+
             [
               {
                 text:
@@ -458,6 +487,8 @@ export class BotMenuService {
             ],
 
             [{ text: this.messages.get('menu.company.profile'), callback_data: BotCallback.CompanyProfile }],
+
+            [{ text: this.messages.get('menu.company.features'), callback_data: BotCallback.CompanyFeatures }],
 
             [
               {
@@ -558,18 +589,6 @@ export class BotMenuService {
               {
                 text:
                   this.messages.get(
-                    'menu.broker.drivers',
-                  ),
-
-                callback_data:
-                  BotCallback.BrokerDrivers,
-              },
-            ],
-
-            [
-              {
-                text:
-                  this.messages.get(
                     'menu.broker.subscription',
                   ),
 
@@ -593,6 +612,25 @@ export class BotMenuService {
         },
       },
     );
+  }
+
+  /*
+   * =====================================================
+   * Factory
+   * =====================================================
+   */
+
+  private async showFactoryMenu(chatId: string): Promise<void> {
+    await this.keyboard.sendMainMenu(chatId, this.messages.get('menu.factory.title'), {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: this.messages.get('menu.factory.createLoad'), callback_data: BotCallback.FactoryCreateLoad }],
+          [{ text: this.messages.get('menu.factory.excel'), callback_data: BotCallback.FactoryExcel }],
+          [{ text: this.messages.get('menu.factory.loads'), callback_data: BotCallback.FactoryLoads }],
+          [{ text: this.messages.get('menu.common.support'), callback_data: BotCallback.Support }],
+        ],
+      },
+    });
   }
 
   /*

@@ -17,16 +17,24 @@ export const BotCallback = {
   DriverSendLocation: 'driver_send_location',
   // وضعیت صف مرزهای زمینی (BorderDialog)
   Borders: 'borders',
+  // متنی یا تصویری بودن اعلان بارها (CargoDisplayDialog)
+  CargoDisplay: 'cargo_display',
 
   CompanyCreateLoad: 'company_create_load',
   CompanyLoads: 'company_loads',
   CompanyDriverRequests: 'company_driver_requests',
   CompanyActiveTrips: 'company_active_trips',
   CompanyChannels: 'company_channels',
+  // خرید بخش‌های پنل شرکت (CompanyFeatureDialog)
+  CompanyFeatures: 'company_features',
 
   BrokerSearchLoads: 'broker_search_loads',
   BrokerLoads: 'broker_loads',
-  BrokerDrivers: 'broker_drivers',
+
+  // کارخانه (FactoryDialog): فقط ثبت بار برای شرکت‌هایی که دعوتش کرده‌اند
+  FactoryCreateLoad: 'factory_create_load',
+  FactoryExcel: 'factory_excel',
+  FactoryLoads: 'factory_loads',
 
   RegisterAccountTypePrefix: 'register_account_type:',
   AccountTypePrefix: 'account_type:',

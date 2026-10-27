@@ -8,6 +8,8 @@ export const KEY_PREFIXES = {
   telegramIdentity: 'telegram:identity:v1',
   telegramIdentityRoles: 'telegram:identity-roles:v1',
   telegramAccessLock: 'telegram:onboarding-lock:v1',
+  // a factory invite code sent to a bot, kept until the user's phone number is known
+  factoryInvite: 'bot:factory-invite:v1',
   telegramSession: 'telegram:session:v1',
   telegramReceiptLock: 'telegram:receipt-lock:v1',
   telegramKeyboard: 'telegram:keyboard:v1',
@@ -19,6 +21,8 @@ export const KEY_PREFIXES = {
   cargoSuggestionPushWindow: 'push:cargo-suggestion-window:v1',
   cargoSuggestionPushPending: 'push:cargo-suggestion-pending:v1',
   cargoDialog: 'messenger:cargo-flow:v1',
+  factoryDialog: 'messenger:factory-flow:v1',
+  companyFeatureDialog: 'messenger:company-feature-flow:v1',
   tripDialog: 'messenger:trip-flow:v1',
   locationRequest: 'messenger:location-request:v1',
   whatsappMenu: 'whatsapp:menu:v1',
@@ -64,6 +68,7 @@ export type RedisKeyParts = {
   telegramIdentity: [namespace: string, userId: string];
   telegramIdentityRoles: [namespace: string, userId: string];
   telegramAccessLock: [namespace: string, userId: string];
+  factoryInvite: [namespace: string, userId: string];
   telegramSession: [namespace: string, userId: string];
   telegramReceiptLock: [namespace: string, userId: string];
   telegramKeyboard: [namespace: string, chatId: string];
@@ -74,6 +79,8 @@ export type RedisKeyParts = {
   cargoSuggestionPushWindow: [userId: string];
   cargoSuggestionPushPending: [userId: string];
   cargoDialog: [platform: string, externalUserId: string];
+  factoryDialog: [platform: string, externalUserId: string];
+  companyFeatureDialog: [platform: string, externalUserId: string];
   tripDialog: [platform: string, externalUserId: string];
   locationRequest: [driverUserId: string];
   whatsappMenu: [userId: string];
@@ -108,6 +115,14 @@ export const REDIS_CHANNELS = {
   paymentReceiptSubmitted: 'subscription:receipt-submitted:v1',
   /** ادمین رسید را تأیید یا رد کرد: به خریدار در برنامه و واتساپ خبر داده می‌شود. */
   subscriptionDecided: 'subscription:decided:v1',
+  /** a company sent a receipt for a menu (CompanyFeatureService): the admins hear of it */
+  companyFeatureReceipt: 'company-feature:receipt:v1',
+  /** the admin approved or rejected a menu's receipt: the company hears of it everywhere */
+  companyFeatureDecided: 'company-feature:decided:v1',
+  /** a self-signed-up transport company or factory asked to be checked: the parent companies hear of it */
+  accountVerificationRequested: 'account-verification:requested:v1',
+  /** a parent company approved or rejected it: the account hears of it everywhere */
+  accountVerificationDecided: 'account-verification:decided:v1',
   /** نام یا شماره‌ای که روی بارهای اعلام‌شده نوشته می‌شود عوض شد: بارهای قبلی هم مقدار تازه را می‌گیرند. */
   profileContactChanged: 'profile:contact-changed:v1',
 } as const;
@@ -131,6 +146,32 @@ export interface ProfileContactChangedEvent {
 export interface PaymentReceiptSubmittedEvent {
   orderId: string;
   receiptId: string;
+}
+
+/** AccountVerificationService → SubscriptionNotifier */
+export interface AccountVerificationEvent {
+  userId: string;
+  name: string;
+  /** a decision; absent for a new request */
+  approved?: boolean;
+  kind?: 'COMPANY' | 'FACTORY' | 'BROKER';
+  reason?: string;
+  /** requests left after a rejection */
+  remaining?: number;
+}
+
+/** CompanyFeatureService → SubscriptionNotifier */
+export interface CompanyFeatureOrderEvent {
+  orderId: string;
+  userId: string;
+  feature: string;
+  title: string;
+  amount: string;
+  currency: string;
+  /** a decision; absent for a new receipt */
+  approved?: boolean;
+  expireAt?: string;
+  reason?: string;
 }
 
 export interface SubscriptionDecidedEvent {

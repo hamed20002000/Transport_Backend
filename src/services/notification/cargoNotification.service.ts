@@ -1,3 +1,4 @@
+import { CargoImageService } from './cargoImage.service';
 import { forwardRef, Inject, Injectable, Logger, OnModuleDestroy, Optional } from '@nestjs/common';
 
 import { CargoDetectedEvent } from '../../domain/constants/cargoEvents';
@@ -98,6 +99,7 @@ export class CargoNotificationService implements OnModuleDestroy {
     private readonly audience: CargoAudienceRepository,
     private readonly redis: RedisService,
     private readonly tripTypes: CargoTripTypeService,
+    private readonly images: CargoImageService,
     @Optional() private readonly push?: WebPushService,
   ) {}
 
@@ -157,6 +159,36 @@ export class CargoNotificationService implements OnModuleDestroy {
     this.logger.log(
       `Cargo message ${event.messageId}: ${createdIds.size} new suggestion(s) for ${recipients.length} company user(s)`,
     );
+  }
+
+  /**
+   * بار کارخانه برای یک شرکت حمل‌ونقل (FactoryService): مثل بار کانال‌ها در «پیشنهادها»ی همان شرکت می‌نشیند و
+   * در وب، ربات‌ها و واتساپ خبر داده می‌شود. شرکت خودش کارخانه را دعوت کرده، پس اشتراک و فیلتر نمایش بار
+   * جلوی رسیدنش را نمی‌گیرند (فیلتر فقط در لیست اعمال می‌شود).
+   */
+  async suggestFactoryCargo(
+    companyUserId: string,
+    event: CargoDetectedEvent,
+    factory: { userId: string; name: string; phones: string[] },
+  ): Promise<void> {
+    const header = [`🏭 کارخانه: ${factory.name}`, factory.phones.length ? `تماس کارخانه: ${factory.phones.join(' - ')}` : ''].filter(Boolean).join('\n');
+    const text = `${header}\n${buildCargoNotificationText(event)}`.slice(0, 3500);
+    const tripType = await this.tripTypes.classify(event.origin ?? '', event.destination ?? '').catch(() => null);
+    const createdIds = await this.notifications.insertIgnoringDuplicates([
+      {
+        userId: companyUserId,
+        sourceMessageId: event.messageId,
+        text,
+        payload: { ...event, tripType, source: 'FACTORY', factory } as Record<string, unknown>,
+      },
+    ]);
+    for (const row of await this.notifications.findSuggestions(event.messageId, [companyUserId])) {
+      if (createdIds.has(row.id)) {
+        this.gateway.sendToUser(row.userId, CARGO_NOTIFICATION_SOCKET_EVENT, this.toView(row));
+        void this.pushSuggestions(row.userId);
+      }
+      await this.deliver(row);
+    }
   }
 
   private async resolveRecipients(event: CargoDetectedEvent) {
@@ -233,6 +265,11 @@ export class CargoNotificationService implements OnModuleDestroy {
       } else if (!row.listingId) {
         await this.deleteSuggestionNotices(row.userId, platform);
       }
+      // نمایش تصویری: عکس بار پیش از پیام خودش (جدا، تا ویرایش‌های بعدی پیام دست نخورد)؛ فقط بار اول
+      if (row.listingId && row[columns.attempts] === 0) {
+        const chatId = link.chatId;
+        await this.sendListingImage(row, (image) => this.bots.sendPhotoNotification(chatId, image));
+      }
       // بار اعلام‌شده برای راننده: دکمه‌ی «درخواست این بار»؛ با «برداشته شد»
       // پیام ویرایش و دکمه برداشته می‌شود. پیشنهاد بار: فقط اعلان کوتاه.
       const messageId = previous ? previous[columns.messageId]! : row.listingId
@@ -269,6 +306,21 @@ export class CargoNotificationService implements OnModuleDestroy {
     await this.sendListingVoice(row, (audio) => this.bots.sendVoiceNotification(chatId, audio));
   }
 
+  /**
+   * A user who sees loads as pictures (User.cargoDisplay = IMAGE) gets the load's picture (its photo, or one of its
+   * kind) before its message. A failure only logs: the message itself still goes.
+   */
+  private async sendListingImage(row: CargoNotification, send: (image: Buffer) => Promise<unknown>): Promise<void> {
+    if (!row.listingId) return;
+    try {
+      if ((await this.audience.cargoDisplayOf(row.userId)) !== 'IMAGE') return;
+      const listing = row.listing ?? (await this.listings.findById(row.listingId));
+      if (listing) await send(await this.images.image(listing));
+    } catch (error) {
+      this.logger.warn(`Picture of listing ${row.listingId} to ${row.userId} failed: ${(error as Error).message}`);
+    }
+  }
+
   private async canDeliverListing(row: CargoNotification): Promise<boolean> {
     if (row.listing?.status === CargoListingStatus.Taken) return false;
     if (!row.listing) return true;
@@ -296,6 +348,7 @@ export class CargoNotificationService implements OnModuleDestroy {
       } else if (!row.listingId) {
         await this.deleteSuggestionNotices(row.userId, 'whatsapp');
       }
+      if (row.listingId && row.whatsappAttempts === 0) await this.sendListingImage(row, (image) => this.whatsapp.sendImage(jid, image));
       const key = previous ? previous.whatsappMessageKey! : await this.whatsapp.sendNotification(jid, text);
       await this.notifications.updateDelivery(row.id, {
         whatsappStatus: NotificationDeliveryStatus.Sent,

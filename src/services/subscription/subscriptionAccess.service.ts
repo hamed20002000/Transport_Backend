@@ -64,6 +64,10 @@ export class SubscriptionAccessService {
       ({ allowed, reason, isDriver, trialEndsAt, expireAt, bonusUntil });
 
     if (subscription) return result(true, 'subscribed');
+    // شرکت مادر به همه چیز دسترسی دارد (CompanyFeatureService)، اشتراک هم لازم ندارد
+    if (user?.isParentCompany) return result(true, 'free');
+    // کارخانه فقط بار برای شرکت‌هایی که دعوتش کرده‌اند می‌فرستد؛ اشتراک ندارد
+    if (user?.userRoles?.some((userRole) => userRole.role?.name === 'FACTORY' && userRole.role.recordStatus === RecordStatus.Active)) return result(true, 'free');
     if (bonusUntil) return result(true, 'bonus');
     if (isDriver) {
       const rule = await this.policy.getDriverRule();

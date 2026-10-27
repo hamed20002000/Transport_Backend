@@ -198,7 +198,9 @@ export class CargoListingService {
     }
     // رویدادهای قدیمی کد ندارند؛ آن‌ها مثل بار دستی کد می‌گیرند.
     const code = (suggestion.payload as Partial<CargoDetectedEvent>).code ?? await this.listings.nextManualCode();
-    return this.publishListing(userId, { ...fields, code }, suggestion.sourceMessageId, suggestion.id, true, pushBatch);
+    // a factory's load keeps the factory's photo unless the company puts its own
+    const photo = fields.photo ?? ((suggestion.payload as { photo?: string | null }).photo || null);
+    return this.publishListing(userId, { ...fields, code, photo }, suggestion.sourceMessageId, suggestion.id, true, pushBatch);
   }
 
   /**
@@ -629,6 +631,8 @@ export class CargoListingService {
       price: listing.price ?? null,
       extraNotes: listing.extraNotes ?? null,
       contactPhones: listing.contactPhones,
+      // the company's own photo; the picture of the load (photo or one of its kind) is /api/cargo-images/listing/:id
+      hasPhoto: !!listing.photo,
       text: listing.text,
       status: listing.status,
       takenAt: listing.takenAt ?? null,

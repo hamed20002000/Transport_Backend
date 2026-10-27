@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { llmJson } from 'src/services/common/llmClient';
 import { DataSource } from "typeorm";
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -6,6 +6,8 @@ import tools from 'src/application/services/agent/localFiles/tools.json';
 import { ExtracteToolsType } from '../types';
 import { ToolRegister } from '../toolRegister';
 import { RequestResult } from '../types';
+import { CompanyFeatureService, isCompanyRole } from 'src/services/company/companyFeature.service';
+import { COMPANY_FEATURE_BY_AGENT_TOOL, COMPANY_FEATURE_BY_APP_SECTION, COMPANY_FEATURE_TITLES, CompanyFeature } from 'src/domain/enums/companyFeature';
 
 
 /** extractSelectedTool وقتی پیام درخواست هیچ کاری نیست (سلام، تشکر، ...) */
@@ -15,7 +17,9 @@ export const NO_TOOL = "none";
 export class AgentToolsService {
     constructor(
         private readonly toolRegister: ToolRegister,
-        @InjectDataSource() private readonly dataSource: DataSource
+        @InjectDataSource() private readonly dataSource: DataSource,
+        // the eval scripts build this without Nest: no company menus to check there
+        @Optional() private readonly companyFeatures?: CompanyFeatureService,
     ) {
 
     }
@@ -348,6 +352,7 @@ ${JSON.stringify(selectedTool)}
         generator?: AsyncGenerator<any, any, any>;
         result?: RequestResult;
     }> {
+        await this.assertCompanyFeature(toolName, parameter, req);
         try {
             const currentDomain: { DomainName: string }[] = await this.dataSource.query(
                 `SELECT "DomainName" FROM "EmbeddingTool" WHERE "ToolName" = $1 LIMIT 1;`,
@@ -371,5 +376,18 @@ ${JSON.stringify(selectedTool)}
         catch (error: any) {
             throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
         }
+    }
+
+    /** ابزاری که کار یک منوی پولی را می‌کند، برای شرکتی که آن منو را ندارد اجرا نمی‌شود (همان قفل پنل و ربات‌ها). */
+    private async assertCompanyFeature(toolName: string, parameter: any, req: any): Promise<void> {
+        const feature: CompanyFeature | undefined = toolName === 'open_app_section'
+            ? COMPANY_FEATURE_BY_APP_SECTION[String(parameter?.section ?? '')]
+            : COMPANY_FEATURE_BY_AGENT_TOOL[toolName];
+        if (!feature || !this.companyFeatures || !isCompanyRole(req?.user?.roles)) return;
+        if (await this.companyFeatures.hasFeature(req.user.userId, feature)) return;
+        throw new HttpException(
+            `🔒 بخش «${COMPANY_FEATURE_TITLES[feature]}» برای شرکت شما فعال نیست؛ برای استفاده آن را از «💎 خرید امکانات» در منو (یا پنل وب) بخرید.`,
+            HttpStatus.PAYMENT_REQUIRED,
+        );
     }
 }

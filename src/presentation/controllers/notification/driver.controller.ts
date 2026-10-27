@@ -47,6 +47,8 @@ import { BorderStatusService } from 'src/services/border/borderStatus.service';
 import { CargoListingService } from 'src/services/notification/cargoListing.service';
 import { CargoVoiceService } from 'src/services/notification/cargoVoice.service';
 import { CargoTripService } from 'src/services/notification/cargoTrip.service';
+import { LOAD_REQUESTER_ROLES, isBrokerOnly } from 'src/services/notification/loadRequesters';
+import { AccountVerificationService } from 'src/services/company/accountVerification.service';
 import { FUEL_KINDS, FuelKind } from 'src/services/routing/fuelStation.service';
 import { GeoPoint } from 'src/services/routing/geo';
 import { RoutingService } from 'src/services/routing/routing.service';
@@ -63,6 +65,19 @@ function currentDriverId(request: AuthRequest): string {
   const user = request.user;
   if (!user?.userId) throw new UnauthorizedException();
   if (!user.roles?.includes('DRIVER')) throw new ForbiddenException('onlyDriver');
+  return user.userId;
+}
+
+/**
+ * A driver, or a broker (واسط) for what a broker does: seeing the open loads and requesting them. A broker that signed
+ * up on its own works only after the parent company approves it.
+ */
+async function currentRequesterId(request: AuthRequest, verification: AccountVerificationService): Promise<string> {
+  const user = request.user;
+  if (!user?.userId) throw new UnauthorizedException();
+  const roles = user.roles ?? [];
+  if (!roles.some((role) => LOAD_REQUESTER_ROLES.includes(role))) throw new ForbiddenException('onlyDriver');
+  if (isBrokerOnly(roles) && !(await verification.isApproved(user.userId))) throw new ForbiddenException('notVerified');
   return user.userId;
 }
 
@@ -103,7 +118,12 @@ export class DriverController {
     private readonly i18n: I18nService,
     private readonly cargoVoice: CargoVoiceService,
     private readonly borders: BorderStatusService,
+    private readonly accounts: AccountVerificationService,
   ) {}
+
+  private requester(request: AuthRequest): Promise<string> {
+    return currentRequesterId(request, this.accounts);
+  }
 
   @Get('profile')
   profile(@Req() request: AuthRequest) {
@@ -146,7 +166,7 @@ export class DriverController {
 
   // بارهای باز؛ matchFilters=true فقط آن‌هایی که با فیلترهای راننده جورند.
   @Get('loads')
-  loads(
+  async loads(
     @Req() request: AuthRequest,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('pageSize', new DefaultValuePipe(20), ParseIntPipe) pageSize: number,
@@ -154,7 +174,7 @@ export class DriverController {
     @Query('destination') destination?: string,
     @Query('matchFilters', new DefaultValuePipe(false), ParseBoolPipe) matchFilters?: boolean,
   ) {
-    return this.trips.listOpenForDriver(currentDriverId(request), {
+    return this.trips.listOpenForDriver(await this.requester(request), {
       ...pageOf(page, pageSize),
       matchFilters,
       origin: origin?.trim() || undefined,
@@ -165,7 +185,7 @@ export class DriverController {
   // مسیرها (مسافت، زمان، سوخت، ترافیک)، بار برگشتی و فاصله‌ی راننده تا مبدأ
   @Get('loads/:id/insight')
   async loadInsight(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string) {
-    const insight = await this.insight.build(id, currentDriverId(request));
+    const insight = await this.insight.build(id, await this.requester(request));
     if (!insight) throw new NotFoundException('Cargo listing not found.');
     return {
       listing: this.listings.toView(insight.listing),
@@ -185,7 +205,7 @@ export class DriverController {
     @Query('route', new DefaultValuePipe(0), ParseIntPipe) routeIndex: number,
     @Query('fuel') fuel?: string,
   ) {
-    const insight = await this.insight.build(id, currentDriverId(request));
+    const insight = await this.insight.build(id, await this.requester(request));
     const route = insight?.routes[routeIndex];
     if (!route) throw new NotFoundException('Route not found.');
     return this.insight.fuelAlong(route, fuelKinds(fuel));
@@ -198,7 +218,7 @@ export class DriverController {
     @Param('id', ParseUUIDPipe) id: string,
     @Query('route', new DefaultValuePipe(0), ParseIntPipe) routeIndex: number,
   ) {
-    const insight = await this.insight.build(id, currentDriverId(request));
+    const insight = await this.insight.build(id, await this.requester(request));
     const route = insight?.routes[routeIndex];
     if (!route) throw new NotFoundException('Route not found.');
     return this.borders.onRoute(route.points);
@@ -213,7 +233,7 @@ export class DriverController {
     @Query('fuel') fuel?: string,
   ) {
     if (!this.speech.available) throw new ServiceUnavailableException('Text to speech is not available.');
-    const insight = await this.insight.build(id, currentDriverId(request));
+    const insight = await this.insight.build(id, await this.requester(request));
     const route = insight?.routes[routeIndex];
     if (!route) throw new NotFoundException('Route not found.');
     // همان جایگاه‌هایی که فهرست وب با همان نوع‌های سوخت نشان می‌دهد
@@ -225,7 +245,7 @@ export class DriverController {
   // خود بار با صدا (mp3)، همان متنی که با اعلان بار در پیام‌رسان‌ها می‌رود
   @Get('loads/:id/voice')
   async loadVoice(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string) {
-    currentDriverId(request);
+    await this.requester(request);
     if (!this.cargoVoice.available) throw new ServiceUnavailableException('Text to speech is not available.');
     const listing = await this.listings.findById(id);
     if (!listing) throw new NotFoundException('Cargo listing not found.');
@@ -241,7 +261,7 @@ export class DriverController {
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('pageSize', new DefaultValuePipe(10), ParseIntPipe) pageSize: number,
   ) {
-    currentDriverId(request);
+    await this.requester(request);
     const listing = await this.listings.findById(id);
     if (!listing) throw new NotFoundException('Cargo listing not found.');
     const paging = pageOf(page, pageSize);
@@ -270,25 +290,25 @@ export class DriverController {
     @Query('status', new ParseEnumPipe(CargoRequestStatus, { optional: true })) status?: CargoRequestStatus,
   ) {
     const paging = pageOf(page, pageSize);
-    const [items, total] = await this.trips.driverRequests(currentDriverId(request), paging.page, paging.pageSize, status);
+    const [items, total] = await this.trips.driverRequests(await this.requester(request), paging.page, paging.pageSize, status);
     return { items: items.map((item) => this.requestView(item)), total, ...paging };
   }
 
   // خطاهای 409 با کلید: taken، own، already، rejected
   @Post('requests')
   async createRequest(@Req() request: AuthRequest, @Body() dto: CreateCargoRequestDto) {
-    return this.requestView(await this.trips.request(currentDriverId(request), dto.listingId));
+    return this.requestView(await this.trips.request(await this.requester(request), dto.listingId));
   }
 
   // بار سپرده‌شده توسط شرکت: تأیید (سفر شروع می‌شود و بار «برداشته شد») یا رد
   @Patch('requests/:id/offer')
   async respondOffer(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RespondOfferDto) {
-    return this.requestView(await this.trips.respondOffer(currentDriverId(request), id, dto.accept));
+    return this.requestView(await this.trips.respondOffer(await this.requester(request), id, dto.accept));
   }
 
   @Patch('requests/:id/cancel')
   async cancel(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string) {
-    return this.requestView(await this.trips.cancel(currentDriverId(request), id));
+    return this.requestView(await this.trips.cancel(await this.requester(request), id));
   }
 
   @Patch('requests/:id/deliver')

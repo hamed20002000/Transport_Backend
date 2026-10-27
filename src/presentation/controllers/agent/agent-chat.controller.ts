@@ -34,6 +34,8 @@ import { VoiceCodeResolverService } from 'src/application/services/agent/service
 import { AgentRequest } from 'src/application/services/agent/types';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { SubscriptionGuard } from 'src/auth/guards/subscription.guard';
+import { CompanyFeatureGuard, RequireCompanyFeature } from 'src/auth/guards/companyFeature.guard';
+import { CompanyFeature } from 'src/domain/enums/companyFeature';
 import { ConversationSession } from 'src/domain/entities/agent/ConversationSession';
 import { JwtPayload } from 'src/domain/entities/auth/jwt-payload.dto';
 import { AgentConfirmActionDto, AgentTextMessageDto, AgentVoiceMessageDto } from 'src/dto/agent/agent-chat.dto';
@@ -57,7 +59,9 @@ type AuthRequest = { user: JwtPayload };
 @Controller('api/agent/chat')
 @ApiTags('Agent Chat')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, SubscriptionGuard)
+@UseGuards(JwtAuthGuard, SubscriptionGuard, CompanyFeatureGuard)
+// a non-parent company that has not bought the assistant gets 402 COMPANY_FEATURE_REQUIRED
+@RequireCompanyFeature(CompanyFeature.Agent)
 export class AgentChatController {
   private readonly logger = new Logger(AgentChatController.name);
 

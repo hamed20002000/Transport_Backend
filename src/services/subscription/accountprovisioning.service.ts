@@ -565,6 +565,9 @@ export class AccountProvisioningService {
       case AccountType.Broker:
         return 'BROKER';
 
+      case AccountType.Factory:
+        return 'FACTORY';
+
       default: {
         const exhaustiveCheck: never =
           accountType;

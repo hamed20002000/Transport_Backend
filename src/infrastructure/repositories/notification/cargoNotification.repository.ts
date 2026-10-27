@@ -83,6 +83,11 @@ export class CargoNotificationRepository {
       .getOne();
   }
 
+  /** A suggestion by its id alone (its picture, CargoImageController; the picture holds no details). */
+  findSuggestionById(id: string): Promise<CargoNotification | null> {
+    return this.repository.findOne({ where: { id, listingId: IsNull() } });
+  }
+
   findOneForUser(id: string, userId: string): Promise<CargoNotification | null> {
     return this.repository.findOne({ where: { id, userId }, relations: { listing: true } });
   }

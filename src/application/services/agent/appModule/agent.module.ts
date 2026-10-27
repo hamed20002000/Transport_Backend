@@ -27,6 +27,8 @@ import { RedisModule } from 'src/application/module/RedisModule';
 import { AgentChannelRelays } from '../agentChannelRelays';
 import { BotAgentService } from '../services/botAgent.service';
 
+import { CompanyFeatureModule } from 'src/application/module/CompanyFeatureModule';
+
 @Module({
   imports: [
     ToolRegisterModule,
@@ -34,6 +36,8 @@ import { BotAgentService } from '../services/botAgent.service';
     RedisModule,
     // SubscriptionGuard on the chat endpoints
     SubscriptionModule,
+    // the assistant is a paid menu for a non-parent company (CompanyFeatureGuard, FunctionCallService)
+    CompanyFeatureModule,
       forwardRef(() => AuthModule), 
       forwardRef(() => WhatsappModule), 
       forwardRef(() => UserModule), 

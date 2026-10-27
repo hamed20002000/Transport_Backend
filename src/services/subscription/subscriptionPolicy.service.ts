@@ -27,6 +27,13 @@ export interface SubscriptionPolicy {
   driversEnforced: boolean;
   driverTrialDays: number;
   driverTrialStartedAt: string;
+  /** هدیه به رانندگان پرخرید: وقتی جمع خرید تأییدشده‌ی راننده به minTomans رسید، freeDays روز رایگان (هر پله یک بار). */
+  driverRewards: DriverReward[];
+}
+
+export interface DriverReward {
+  minTomans: number;
+  freeDays: number;
 }
 
 export interface SubscriptionPolicyStatus extends SubscriptionPolicy {
@@ -47,6 +54,7 @@ const DEFAULT_POLICY: SubscriptionPolicy = {
   driversEnforced: true,
   driverTrialDays: DEFAULT_DRIVER_TRIAL_DAYS,
   driverTrialStartedAt: DRIVER_TRIAL_ROLLOUT,
+  driverRewards: [],
 };
 
 /**
@@ -97,6 +105,11 @@ export class SubscriptionPolicyService implements OnModuleInit {
   async getDriverRule(): Promise<Pick<SubscriptionPolicy, 'driversEnforced' | 'driverTrialDays' | 'driverTrialStartedAt'>> {
     const { driversEnforced, driverTrialDays, driverTrialStartedAt } = await this.getPolicy();
     return { driversEnforced, driverTrialDays, driverTrialStartedAt };
+  }
+
+  /** پله‌های هدیه‌ی رانندگان پرخرید، از کم به زیاد. */
+  async getDriverRewards(): Promise<DriverReward[]> {
+    return (await this.getPolicy()).driverRewards;
   }
 
   async getStatus(now = new Date()): Promise<SubscriptionPolicyStatus> {
@@ -210,5 +223,18 @@ function normalize(value: Record<string, unknown>): SubscriptionPolicy {
     driversEnforced: value.driversEnforced !== false,
     driverTrialDays: Number.isSafeInteger(days) && days >= 0 ? days : DEFAULT_DRIVER_TRIAL_DAYS,
     driverTrialStartedAt: startedAt,
+    driverRewards: normalizeRewards(value.driverRewards),
   };
+}
+
+/** Only whole, positive tiers, one per amount, smallest first. */
+function normalizeRewards(value: unknown): DriverReward[] {
+  if (!Array.isArray(value)) return [];
+  const tiers = new Map<number, number>();
+  for (const item of value) {
+    const minTomans = Number((item as DriverReward)?.minTomans);
+    const freeDays = Number((item as DriverReward)?.freeDays);
+    if (Number.isSafeInteger(minTomans) && minTomans > 0 && Number.isSafeInteger(freeDays) && freeDays > 0) tiers.set(minTomans, freeDays);
+  }
+  return [...tiers].sort((a, b) => a[0] - b[0]).map(([minTomans, freeDays]) => ({ minTomans, freeDays }));
 }

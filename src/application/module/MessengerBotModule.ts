@@ -28,6 +28,7 @@ import { BotMessagesService } from 'src/services/messengerBot/core/botMessages.s
 import { MessengerBotService } from 'src/services/messengerBot/core/messengerBot.service';
 
 import { BotAgentBridge } from 'src/services/messengerBot/core/botAgentBridge';
+import { FactoryInviteBridge } from 'src/services/messengerBot/core/factoryInvite';
 
 import { MultiBot } from 'src/services/messengerBot/core/multiBot';
 
@@ -38,6 +39,7 @@ import { BaleBotService } from 'src/services/messengerBot/bale/baleBot.service';
 import { RubikaBotService } from 'src/services/messengerBot/rubika/rubikaBot.service';
 
 import { SubscriptionModule } from './SubscriptionModule';
+import { CompanyFeatureModule } from './CompanyFeatureModule';
 import { ChannelModule } from './ChannelModule';
 import { MarketModule } from './MarketModule';
 import { MarketBotService } from 'src/services/market/marketBot.service';
@@ -49,6 +51,7 @@ import { MarketBotService } from 'src/services/market/marketBot.service';
     ]),
 
     SubscriptionModule,
+    CompanyFeatureModule,
     RedisModule,
     UserModule,
     forwardRef(() => ChannelModule),
@@ -85,6 +88,7 @@ import { MarketBotService } from 'src/services/market/marketBot.service';
     MessengerBotService,
 
     BotAgentBridge,
+    FactoryInviteBridge,
 
     // ربات هر پیام‌رسان جدا؛ همه در MultiBot ثبت می‌شوند و منطق MessengerBotService را مشترک دارند.
     MultiBot,
@@ -114,6 +118,7 @@ import { MarketBotService } from 'src/services/market/marketBot.service';
     MessengerBotService,
 
     BotAgentBridge,
+    FactoryInviteBridge,
 
     BotDialogRegistry,
   ],

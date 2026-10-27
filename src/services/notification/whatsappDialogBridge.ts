@@ -13,6 +13,10 @@ import { parseChoice } from 'src/application/services/agent/services/replyChoice
 import { findMenuButton, MenuButton, namesSeveralButtons } from '../messengerBot/core/menuTextMatch';
 import { MarketAction } from '../market/marketBot.service';
 import { RedisService } from '../redis/redis.service';
+import { CompanyFeatureService } from '../company/companyFeature.service';
+import { AccountVerificationService } from '../company/accountVerification.service';
+import { COMPANY_FEATURE_BY_MENU_ACTION, COMPANY_FEATURE_TITLES } from 'src/domain/enums/companyFeature';
+import { LOAD_REQUESTER_ROLES } from './loadRequesters';
 
 // گزینه‌های آخرین پیام تا این مدت با شماره قابل انتخاب‌اند.
 const MENU_TTL_SECONDS = 60 * 60;
@@ -37,11 +41,13 @@ interface MenuOptions {
 
 const COMPANY_ROLES = ['COMPANY', 'COMPANY_ADMIN'];
 const DRIVER_ROLES = ['DRIVER'];
+const FACTORY_ROLES = ['FACTORY'];
 
 /** بخش‌های منوی واتساپ برای هر نقش: کلید متن در trip.whatsapp.sections → callback منو. */
 const SECTIONS: { roles: string[]; key: string; action: string }[] = [
-  { roles: DRIVER_ROLES, key: 'findCargo', action: BotCallback.DriverSearchLoads },
-  { roles: DRIVER_ROLES, key: 'myRequests', action: BotCallback.DriverLoadRequests },
+  // a broker (واسط) finds loads and requests them like a driver
+  { roles: LOAD_REQUESTER_ROLES, key: 'findCargo', action: BotCallback.DriverSearchLoads },
+  { roles: LOAD_REQUESTER_ROLES, key: 'myRequests', action: BotCallback.DriverLoadRequests },
   { roles: DRIVER_ROLES, key: 'activeTrip', action: BotCallback.DriverActiveTrip },
   { roles: DRIVER_ROLES, key: 'returnLoads', action: BotCallback.DriverReturnLoads },
   { roles: DRIVER_ROLES, key: 'sendLocation', action: TripAction.ShareLocation },
@@ -52,9 +58,15 @@ const SECTIONS: { roles: string[]; key: string; action: string }[] = [
   { roles: COMPANY_ROLES, key: 'createLoad', action: BotCallback.CompanyCreateLoad },
   { roles: COMPANY_ROLES, key: 'driverRequests', action: BotCallback.CompanyDriverRequests },
   { roles: COMPANY_ROLES, key: 'activeTrips', action: BotCallback.CompanyActiveTrips },
+  { roles: COMPANY_ROLES, key: 'companyFeatures', action: BotCallback.CompanyFeatures },
   { roles: [...DRIVER_ROLES, ...COMPANY_ROLES], key: 'filters', action: 'cg:fl' },
   { roles: [...DRIVER_ROLES, ...COMPANY_ROLES], key: 'marketPrices', action: MarketAction.Show },
   { roles: DRIVER_ROLES, key: 'borders', action: BotCallback.Borders },
+  { roles: DRIVER_ROLES, key: 'cargoDisplay', action: BotCallback.CargoDisplay },
+  // کارخانه فقط بار برای شرکت‌هایی که دعوتش کرده‌اند می‌فرستد (FactoryDialog)
+  { roles: FACTORY_ROLES, key: 'factoryCreateLoad', action: BotCallback.FactoryCreateLoad },
+  { roles: FACTORY_ROLES, key: 'factoryExcel', action: BotCallback.FactoryExcel },
+  { roles: FACTORY_ROLES, key: 'factoryLoads', action: BotCallback.FactoryLoads },
 ];
 
 interface MenuState {
@@ -82,6 +94,8 @@ export class WhatsappDialogBridge implements OnModuleInit {
     private readonly redis: RedisService,
     private readonly i18n: I18nService,
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
+    private readonly companyFeatures: CompanyFeatureService,
+    private readonly verification: AccountVerificationService,
   ) {}
 
   onModuleInit(): void {
@@ -278,6 +292,13 @@ export class WhatsappDialogBridge implements OnModuleInit {
 
   /** callback منو یا action یکی از گفتگوها را اجرا و جوابش را می‌فرستد. */
   private async run(jid: string, ctx: BotContext, action: string): Promise<void> {
+    if (await this.sendIfUnverified(jid, ctx)) return;
+    // منوی پولی شرکت غیرمادر که نخریده (همان قفل پنل وب و ربات‌ها)
+    const feature = COMPANY_FEATURE_BY_MENU_ACTION[action];
+    if (feature && !(await this.companyFeatures.hasFeature(ctx.userId, feature))) {
+      await this.sendMenu(jid, ctx.userId, this.t('whatsapp.featureLocked', { feature: COMPANY_FEATURE_TITLES[feature] }), [], { home: true });
+      return;
+    }
     const resolved = this.registry.resolve(action);
     if (!resolved) {
       await this.sendMainMenu(jid, ctx);
@@ -325,7 +346,17 @@ export class WhatsappDialogBridge implements OnModuleInit {
     return false;
   }
 
+  /** شرکت یا کارخانه‌ی خودثبت‌نام‌کرده که هنوز تأیید نشده: وضعیتش به‌جای منو (مثل ربات‌ها). */
+  private async sendIfUnverified(jid: string, ctx: BotContext): Promise<boolean> {
+    const notice = await this.verification.messengerNotice(ctx.userId);
+    if (!notice) return false;
+    await this.clearMenu(ctx.userId);
+    await this.whatsapp.sendMessage(jid, notice);
+    return true;
+  }
+
   private async sendMainMenu(jid: string, ctx: BotContext): Promise<void> {
+    if (await this.sendIfUnverified(jid, ctx)) return;
     const sections = await this.sections(ctx);
     if (!sections.length) {
       await this.clearMenu(ctx.userId);

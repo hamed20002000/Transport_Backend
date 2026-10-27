@@ -15,8 +15,10 @@ import { CargoTripType } from 'src/domain/enums/notification';
 import { UpdateDriverProfileDto } from 'src/dto/notification/DriverProfileDto';
 import { COMPANY_ROLES } from 'src/infrastructure/repositories/notification/cargoAudience.repository';
 import { UserProfile, UserService } from '../UserService';
+import { User } from 'src/domain/entities/auth/User';
 import { DRIVERS_CHANGED_SOCKET_EVENT, NotificationsGateway } from '../notification/notifications.gateway';
 import { evaluateVerification } from './driverVerification.service';
+import { isBrokerOnly } from '../notification/loadRequesters';
 import { DRIVER_KIND_TRIP_TYPES, driverKindForLoad, driverKindOf, driverTripTypes } from '../notification/cargoTripType';
 
 // خارج از پوشه‌ی uploads که به‌صورت عمومی سرو می‌شود؛ فقط از راه API با توکن.
@@ -37,6 +39,8 @@ export interface DriverCard {
   tripType: CargoTripType;
   // فقط وجود عکس؛ خود عکس از API شرکت با توکن
   photos: { face: boolean; vehicle: boolean };
+  /** a broker (واسط) requested, not a driver: it has no vehicle; the company deals with it about the driver */
+  broker: boolean;
 }
 
 const toLatinDigits = (text: string) =>
@@ -88,6 +92,8 @@ export const driverPhotoUploadOptions: MulterOptions = {
 export interface DriverCompanyOption {
   userId: string;
   name: string;
+  /** شرکت مادر: بارش بی‌انتخاب هم می‌رسد (فقط فیلتر بار کنارش می‌گذارد) */
+  isParent: boolean;
   domesticName: string | null;
   internationalName: string | null;
 }
@@ -181,7 +187,9 @@ export class DriverProfileService {
   async cards(userIds: string[]): Promise<DriverCard[]> {
     if (!userIds.length) return [];
     const rows: Array<Record<string, unknown>> = await this.dataSource.query(
-      `SELECT u.id, u."firstName", u."lastName", u.username, u.mobile,
+      `SELECT u.id, u."firstName", u."lastName", u.username, u.mobile, u."companyName",
+              EXISTS (SELECT 1 FROM "UserRole" ur JOIN "Role" r ON r.id = ur."roleId" WHERE ur."userId" = u.id AND r.name = 'BROKER')
+                AND p."userId" IS NULL AS broker,
               p."vehicleType", p."vehicleModel", p.plate, p."capacityTons", p."homeCity", p."facePhoto", p."vehiclePhoto", p."tripType"
          FROM "User" u LEFT JOIN "DriverProfile" p ON p."userId" = u.id
         WHERE u.id = ANY($1)`,
@@ -191,11 +199,15 @@ export class DriverProfileService {
     return userIds.flatMap((id) => {
       const row = byId.get(id);
       if (!row) return [];
-      const name = [row.firstName, row.lastName].filter(Boolean).join(' ') || String(row.username);
+      const broker = !!row.broker;
+      const person = [row.firstName, row.lastName].filter(Boolean).join(' ');
+      // a broker by the name it was approved with (its office), else like a driver
+      const name = (broker && String(row.companyName ?? '').trim()) || person || String(row.username);
       return [
         {
           userId: id,
           name,
+          broker,
           mobile: (row.mobile as string) ?? null,
           vehicleType: (row.vehicleType as string) ?? null,
           vehicleModel: (row.vehicleModel as string) ?? null,
@@ -239,20 +251,35 @@ export class DriverProfileService {
     return driver?.tripType ?? CargoTripType.Domestic;
   }
 
+  // a broker (no driver profile) requests loads of every kind for its drivers
   async tripTypesOf(userId: string): Promise<CargoTripType[]> {
     const driver = await this.profiles.findOne({ where: { userId }, select: { userId: true, tripType: true, tripTypes: true } });
+    if (!driver && (await this.isBroker(userId))) return Object.values(CargoTripType);
     return driverTripTypes(driver?.tripTypes?.length ? driver.tripTypes : [driver?.tripType]);
   }
 
+  private async isBroker(userId: string): Promise<boolean> {
+    const rows: Array<{ name: string }> = await this.dataSource.query(
+      `SELECT r.name FROM "UserRole" ur JOIN "Role" r ON r.id = ur."roleId" AND r."recordStatus" = $2 WHERE ur."userId" = $1`,
+      [userId, RecordStatus.Active],
+    );
+    return isBrokerOnly(rows.map((row) => row.name));
+  }
+
+  // the parent company's loads reach every driver of the kind (CargoAudienceRepository.findDriverIds)
   async canReceiveAnnouncement(userId: string, publisherUserId: string, tripType: CargoTripType): Promise<boolean> {
-    const driver = await this.profiles.findOne({ where: { userId } });
-    return !!driver?.companyUserIds?.includes(publisherUserId) && driverKindOf(driver.tripTypes ?? [driver.tripType]) === driverKindForLoad(tripType);
+    const [driver, publisher] = await Promise.all([
+      this.profiles.findOne({ where: { userId } }),
+      this.dataSource.getRepository(User).findOne({ where: { id: publisherUserId }, select: { id: true, isParentCompany: true } }),
+    ]);
+    const member = !!publisher?.isParentCompany || !!driver?.companyUserIds?.includes(publisherUserId);
+    return !!driver && member && driverKindOf(driver.tripTypes ?? [driver.tripType]) === driverKindForLoad(tripType);
   }
 
   async availableCompanies(ids?: string[]): Promise<DriverCompanyOption[]> {
     if (ids && !ids.length) return [];
-    const rows: Array<{ userId: string; name: string; domesticName: string | null; internationalName: string | null }> = await this.dataSource.query(
-      `SELECT DISTINCT u.id AS "userId",
+    const rows: DriverCompanyOption[] = await this.dataSource.query(
+      `SELECT DISTINCT u.id AS "userId", u."isParentCompany" AS "isParent",
          COALESCE(NULLIF(u."companyName", ''), linked.name, NULLIF(concat_ws(' ', u."firstName", u."lastName"), ''), u.username) AS name,
          NULLIF(trim(u."domesticCompanyName"), '') AS "domesticName",
          NULLIF(trim(u."internationalCompanyName"), '') AS "internationalName"
@@ -267,7 +294,7 @@ export class DriverProfileService {
        WHERE u."recordStatus" = $1 AND r."recordStatus" = $1
          AND r.name IN ('COMPANY', 'COMPANY_ADMIN')
          ${ids ? 'AND u.id = ANY($2::uuid[])' : ''}
-       ORDER BY name, "userId"`,
+       ORDER BY "isParent" DESC, name, "userId"`,
       ids ? [RecordStatus.Active, ids] : [RecordStatus.Active],
     );
     // a company that named neither kind is under both, by its own name (as before the kinds had names)

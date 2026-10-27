@@ -29,6 +29,7 @@ import { FUEL_KINDS, FuelKind, FuelStationService, RouteFuelStation } from '../r
 import { MapMarker, MapMarkerKind, StaticMapService } from '../routing/staticMap.service';
 import { CargoTripService } from './cargoTrip.service';
 import { TripAction } from 'src/domain/constants/bot/TripAction';
+import { LOAD_REQUESTER_ROLES } from './loadRequesters';
 
 const PREFIX = 'tr:';
 const Action = {
@@ -51,6 +52,8 @@ const FIND_CARGO = 'cg:find:1';
 
 const COMPANY_ROLES = ['COMPANY', 'COMPANY_ADMIN'];
 const DRIVER_ROLES = ['DRIVER'];
+// what a broker (واسط) does here, like a driver: a load's detail, requesting it, its requests and cancelling one
+const REQUESTER_ACTIONS = [Action.Detail, Action.RouteDetail, Action.RouteFuel, Action.CargoReturns, Action.Request, Action.DriverRequests, Action.Cancel, Action.OfferYes, Action.OfferNo];
 const PAGE_SIZE = 5;
 const RETURN_PAGE_SIZE = 6;
 const SESSION_TTL_SECONDS = 30 * 60;
@@ -110,6 +113,7 @@ export class TripDialog implements BotDialog, OnModuleInit {
 
   readonly entries: Record<string, string> = {
     [BotCallback.DriverLoadRequests]: `${Action.DriverRequests}1`,
+    [BotCallback.BrokerLoads]: `${Action.DriverRequests}1`,
     [BotCallback.DriverActiveTrip]: Action.ActiveTrip,
     [BotCallback.DriverReturnLoads]: Action.ReturnLoads,
     [BotCallback.DriverMyLocation]: Action.MyLocation,
@@ -190,7 +194,13 @@ export class TripDialog implements BotDialog, OnModuleInit {
     const isCompanyAction = [Action.CompanyRequests, Action.CompanyTrips, Action.Accept, Action.Reject, Action.Location, Action.LocationRequest, Action.RejectDelivery]
       .some((prefix) => id.startsWith(prefix));
     // تحویل را هر دو طرف ثبت می‌کنند
-    const roles = id.startsWith(Action.Deliver) ? [...DRIVER_ROLES, ...COMPANY_ROLES] : isCompanyAction ? COMPANY_ROLES : DRIVER_ROLES;
+    const roles = id.startsWith(Action.Deliver)
+      ? [...DRIVER_ROLES, ...COMPANY_ROLES]
+      : isCompanyAction
+        ? COMPANY_ROLES
+        : REQUESTER_ACTIONS.some((prefix) => id.startsWith(prefix))
+          ? LOAD_REQUESTER_ROLES
+          : DRIVER_ROLES;
     if (!(await this.hasRole(ctx, roles))) {
       await this.clearSession(ctx);
       return { text: this.t(isCompanyAction ? 'onlyCompany' : 'onlyDriver'), actions: [], closed: 'denied' };
@@ -306,10 +316,12 @@ export class TripDialog implements BotDialog, OnModuleInit {
       if (pages > 1) body += `\n\n${this.t('page', { page: fa(page), pages: fa(pages) })}`;
     }
 
+    // a broker has no trip of its own
+    const driver = await this.hasRole(ctx, DRIVER_ROLES);
     const rows = new Rows()
       .grid(cancels)
       .add(...this.pager(Action.DriverRequests, page, pages))
-      .add({ id: Action.ActiveTrip, label: this.t('actions.activeTrip') }, { id: FIND_CARGO, label: this.t('actions.findCargo') })
+      .add(...(driver ? [{ id: Action.ActiveTrip, label: this.t('actions.activeTrip') }] : []), { id: FIND_CARGO, label: this.t('actions.findCargo') })
       .add(this.back());
     return { text: [notice, this.t('myRequests.title'), body].filter(Boolean).join('\n\n'), actions: rows.actions };
   }

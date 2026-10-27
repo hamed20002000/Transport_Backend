@@ -20,7 +20,7 @@ export class CompleteRegistrationDto {
   @Matches(/^[a-f0-9]{64}$/)
   registrationToken!: string;
 
-  @ApiProperty({ enum: [AccountType.Driver, AccountType.Company] })
+  @ApiProperty({ enum: [AccountType.Driver, AccountType.Company, AccountType.Factory, AccountType.Broker] })
   @IsEnum(AccountType)
   accountType!: AccountType;
 }

@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsEnum, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { IsEnum, IsIn, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 
 import { CustomerType } from 'src/domain/enums/company.enum';
 
@@ -31,6 +31,12 @@ export const digitsToNull = (params: { value: unknown }) => {
  * یا رشته خالی باشد پاک می‌شود.
  */
 export class UpdateUserProfileDto {
+  /** how loads are shown on the web and in the messengers: TEXT (fields) or IMAGE (a picture of the load too) */
+  @ApiPropertyOptional({ enum: ['TEXT', 'IMAGE'] })
+  @IsOptional()
+  @IsIn(['TEXT', 'IMAGE'])
+  cargoDisplay?: 'TEXT' | 'IMAGE';
+
   @ApiPropertyOptional({ enum: CustomerType, nullable: true, description: '0 = شخص حقیقی، 1 = شرکت' })
   @IsOptional()
   @IsEnum(CustomerType)

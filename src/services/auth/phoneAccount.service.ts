@@ -8,8 +8,14 @@ import { IUserRepository } from 'src/domain/repositories/IUserRepopsitory';
 import { USER_REPOSITORY } from 'src/domain/repositories/repository.tokens';
 import { JwtPayload } from 'src/domain/entities/auth/jwt-payload.dto';
 
-/** نوع حسابی که کاربر خودش انتخاب می‌کند؛ کارگزار فعلاً در سامانه نیست. */
-export const SELF_SERVICE_ACCOUNT_TYPES = [AccountType.Driver, AccountType.Company] as const;
+/**
+ * نوع حسابی که کاربر خودش انتخاب می‌کند. شرکت حمل‌ونقل، کارخانه و واسطی که خودش ثبت‌نام می‌کند تا تأیید شرکت
+ * مادر فقط پروفایل دارد؛ حسابی که با دعوت ساخته شده از قبل تأییدشده است.
+ */
+export const SELF_SERVICE_ACCOUNT_TYPES = [AccountType.Driver, AccountType.Company, AccountType.Factory, AccountType.Broker] as const;
+
+/** a transport company, factory or broker that signs up on its own is checked by a parent company (AccountVerificationService) */
+export const VERIFIED_ACCOUNT_TYPES: readonly AccountType[] = [AccountType.Company, AccountType.Factory, AccountType.Broker];
 
 /**
  * حساب فقط با شماره موبایل تأییدشده (OTP وب، دکمه‌ی «ارسال شماره» ربات‌ها، شماره‌ی واتساپ):
@@ -31,6 +37,7 @@ export class PhoneAccountService {
       username: phone,
       mobile: phone,
       recordStatus: RecordStatus.Active,
+      verificationStatus: VERIFIED_ACCOUNT_TYPES.includes(accountType) ? 'NONE' : 'APPROVED',
     });
     try {
       return await this.users.createWithRole(user, accountType);
@@ -53,6 +60,12 @@ export class PhoneAccountService {
   /** حسابی که نقش ندارد (مثلاً از ربات پیش از انتخاب نوع حساب) نقش اولیه می‌گیرد. */
   async assignRole(userId: string, accountType: AccountType): Promise<User> {
     await this.users.assignInitialRole(userId, accountType);
-    return (await this.users.findById(userId))!;
+    const user = (await this.users.findById(userId))!;
+    // the account had no role: a company or factory it becomes now is checked like any other that signs up
+    if (VERIFIED_ACCOUNT_TYPES.includes(accountType) && user.verificationStatus === 'APPROVED' && !user.verificationRequests) {
+      user.verificationStatus = 'NONE';
+      return this.users.update(user);
+    }
+    return user;
   }
 }

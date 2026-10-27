@@ -136,6 +136,8 @@ export class BotLinkRepository
       const role = await manager.findOne(Role, { where: { name: roleName, recordStatus: RecordStatus.Active } });
       if (!role) throw new NotFoundException('Active account role not found.');
       await manager.save(UserRole, manager.create(UserRole, { userId: user.id, roleId: role.id }));
+      // a transport company, factory or broker that signs up on its own is checked by a parent company first
+      if (['COMPANY', 'FACTORY', 'BROKER'].includes(roleName)) await manager.update(User, { id: user.id }, { verificationStatus: 'NONE' });
       return user.id;
     });
   }

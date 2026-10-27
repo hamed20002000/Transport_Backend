@@ -48,6 +48,20 @@ import { ChannelMembershipConsumer } from '../../services/notification/channelMe
 import { WhatsappModule } from '../services/agent/appModule/whatsapp.module';
 import { RabbitMqModule } from './RabbitMqModule';
 import { SubscriptionModule } from './SubscriptionModule';
+import { CompanyFeatureModule } from './CompanyFeatureModule';
+import { FactoryInvite } from '../../domain/entities/company/FactoryInvite';
+import { FactoryCompany } from '../../domain/entities/company/FactoryCompany';
+import { FactoryCargo } from '../../domain/entities/company/FactoryCargo';
+import { FactoryService } from '../../services/company/factory.service';
+import { FactoryDialog } from '../../services/company/factoryDialog';
+import { DriverInvite } from '../../domain/entities/company/DriverInvite';
+import { DriverInviteService } from '../../services/company/driverInvite.service';
+import { CargoImageService } from '../../services/notification/cargoImage.service';
+import { CargoDisplayDialog } from '../../services/notification/cargoDisplayDialog';
+import { CargoImageController } from '../../presentation/controllers/notification/cargo-image.controller';
+import { CompanyDriverInviteController, DriverInviteInfoController } from '../../presentation/controllers/company/driver-invite.controller';
+import { CompanyFeatureDialog } from '../../services/company/companyFeatureDialog';
+import { CompanyFactoryController, FactoryController, FactoryInviteController } from '../../presentation/controllers/company/factory.controller';
 import { MessengerBotModule } from './MessengerBotModule';
 import { RedisModule } from './RedisModule';
 import { UserModule } from './UserModule';
@@ -80,7 +94,7 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
 @Module({
   imports: [
     BorderModule,
-    TypeOrmModule.forFeature([CargoNotification, CargoAlertFilter, CargoListing, CargoRequest, DriverLocation, DriverLocationLog, DriverProfile, CompanyAnnounceSetting, WebPushSubscription]),
+    TypeOrmModule.forFeature([CargoNotification, CargoAlertFilter, CargoListing, CargoRequest, DriverLocation, DriverLocationLog, DriverProfile, CompanyAnnounceSetting, WebPushSubscription, FactoryInvite, FactoryCompany, FactoryCargo, DriverInvite]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -91,6 +105,7 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
     HttpModule,
     RabbitMqModule,
     SubscriptionModule,
+    CompanyFeatureModule,
     MessengerBotModule,
     WhatsappModule,
     RedisModule,
@@ -99,8 +114,14 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
     // مسیر، مسافت، سوخت و جایگاه‌های سوخت برای جزئیات بار راننده
     RoutingModule,
   ],
-  controllers: [CargoNotificationController, CargoListingController, CargoAlertFilterController, DriverController, PushController],
+  controllers: [CargoNotificationController, CargoListingController, CargoAlertFilterController, DriverController, PushController, CompanyFactoryController, FactoryController, FactoryInviteController, CompanyDriverInviteController, DriverInviteInfoController, CargoImageController],
   providers: [
+    FactoryService,
+    FactoryDialog,
+    DriverInviteService,
+    CargoImageService,
+    CargoDisplayDialog,
+    CompanyFeatureDialog,
     CargoNotificationRepository,
     CargoAlertFilterRepository,
     CargoListingRepository,

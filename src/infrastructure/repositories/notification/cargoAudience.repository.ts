@@ -32,7 +32,8 @@ export class CargoAudienceRepository {
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
   /**
-   * راننده‌های فعال که الان اجازه‌ی کار دارند و با tripType فقط راننده‌های عضو نوع حمل و شرکت منتشرکننده.
+   * راننده‌های فعال که الان اجازه‌ی کار دارند و با tripType فقط راننده‌های عضو نوع حمل و شرکت منتشرکننده؛
+   * بار شرکت مادر (User.isParentCompany) به همه‌ی راننده‌های آن نوع می‌رسد و راننده فقط با فیلتر بار کنارش می‌گذارد.
    * driverRule روشن: فقط آن‌هایی که اشتراک فعال دارند یا هنوز در دوره‌ی رایگانشان هستند
    * (از ثبت‌نام یا شروع قاعده، هر کدام دیرتر؛ همان حساب SubscriptionAccessService).
    */
@@ -66,7 +67,9 @@ export class CargoAudienceRepository {
     if (tripType || publisherUserId) query.innerJoin('DriverProfile', 'profile', 'profile.userId = user.id');
     // an export or import load reaches every international driver (DriverKind), even one saved with only one of them
     if (tripType) query.andWhere('profile.tripTypes && CAST(:driverTripTypes AS varchar[])', { driverTripTypes: DRIVER_KIND_TRIP_TYPES[driverKindForLoad(tripType)] });
-    if (publisherUserId) query.andWhere('profile.companyUserIds @> ARRAY[:publisherUserId]::uuid[]', { publisherUserId });
+    if (publisherUserId && !(await this.isParentCompany(publisherUserId))) {
+      query.andWhere('profile.companyUserIds @> ARRAY[:publisherUserId]::uuid[]', { publisherUserId });
+    }
     const rows = await query
       .andWhere('user.recordStatus = :active')
       .setParameters({
@@ -78,6 +81,17 @@ export class CargoAudienceRepository {
       .getRawMany<{ id: string }>();
 
     return rows.map((row) => row.id);
+  }
+
+  /** how this user sees loads (User.cargoDisplay): IMAGE sends a picture of the load before its message */
+  async cargoDisplayOf(userId: string): Promise<'TEXT' | 'IMAGE'> {
+    const user = await this.dataSource.getRepository(User).findOne({ where: { id: userId }, select: { id: true, cargoDisplay: true } });
+    return user?.cargoDisplay === 'IMAGE' ? 'IMAGE' : 'TEXT';
+  }
+
+  async isParentCompany(userId: string): Promise<boolean> {
+    const user = await this.dataSource.getRepository(User).findOne({ where: { id: userId }, select: { id: true, isParentCompany: true } });
+    return !!user?.isParentCompany;
   }
 
   /** از میان این کاربرها، آن‌هایی که حساب فعال و نقش فعال شرکت دارند. */

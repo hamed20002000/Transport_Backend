@@ -2,6 +2,8 @@ export enum AccountType {
     Driver = 'DRIVER',
     Company = 'COMPANY',
     Broker = 'BROKER',
+    /** کارخانه (صاحب بار): فقط با لینک دعوت شرکت حمل‌ونقل، فقط بار ثبت می‌کند */
+    Factory = 'FACTORY',
 }
 
 export enum CommunicationProvider {

@@ -22,6 +22,8 @@ import { BotMessagesService } from './botMessages.service';
 import { AccountType } from 'src/domain/enums/subscription';
 import { MessengerPlatform } from 'src/domain/enums/messenger';
 import { CompanyChannelsDialog } from '../../channel/companyChannelsDialog';
+import { CompanyFeatureService } from '../../company/companyFeature.service';
+import { COMPANY_FEATURE_BY_MENU_ACTION, COMPANY_FEATURE_TITLES } from '../../../domain/enums/companyFeature';
 import { BotSessionState } from 'src/domain/enums/botSession';
 import { createWriteStream } from 'node:fs';
 import { findMenuButton, namesSeveralButtons } from './menuTextMatch';
@@ -77,6 +79,7 @@ export class MessengerBotService implements OnModuleInit {
     private readonly dialogs: BotDialogRegistry,
     private readonly subscriptionStatus: SubscriptionStatusService,
     private readonly market: MarketBotService,
+    private readonly companyFeatures: CompanyFeatureService,
   ) {}
 
   /*
@@ -224,6 +227,12 @@ export class MessengerBotService implements OnModuleInit {
     if (message.text && await this.handleDialogText(chatId, externalUserId, message.text)) return;
     // فایلی که گفتگو منتظرش است (مثل اکسل بارها)
     if (message.document && await this.handleDialogDocument(chatId, externalUserId, message.document)) return;
+    // عکسی که گفتگو منتظرش است (مثل رسید خرید امکانات شرکت)
+    if (message.photo?.length) {
+      const photo = message.photo[message.photo.length - 1];
+      const asFile = { file_id: photo.file_id, file_unique_id: photo.file_unique_id, file_name: 'photo.jpg', file_size: photo.file_size } as TelegramBot.Document;
+      if (await this.handleDialogDocument(chatId, externalUserId, asFile)) return;
+    }
 
     // «گزینه ۲» یا متن دقیق یک دکمه = زدن همان دکمه؛ بقیه به agent
     if (message.text && !command?.startsWith('/') && await this.selectMenuByText(chatId, externalUserId, message.text)) return;
@@ -625,6 +634,11 @@ export class MessengerBotService implements OnModuleInit {
      */
 
     if (!(await this.botMenuService.ensureActiveSubscription(chatId, externalUserId))) return;
+    // شرکت یا کارخانه‌ی خودثبت‌نام‌کرده تا تأیید شرکت مادر فقط وضعیتش را می‌بیند
+    if (await this.botMenuService.sendIfUnverified(chatId, externalUserId)) return;
+
+    // منوی پولی شرکت غیرمادر که نخریده (همان قفل پنل وب و واتساپ)
+    if (await this.sendIfFeatureLocked(chatId, externalUserId, data)) return;
 
     if (data.startsWith(AGENT_CALLBACK_PREFIX)) {
       const agent = this.agentBridge.current;
@@ -716,48 +730,6 @@ export class MessengerBotService implements OnModuleInit {
       await this.sendFeaturePending(
         chatId,
         'menu.company.activeTrips',
-      );
-
-      return;
-    }
-
-    /*
-     * =====================================================
-     * Broker
-     * =====================================================
-     */
-
-    if (
-      data ===
-      BotCallback.BrokerSearchLoads
-    ) {
-      await this.sendFeaturePending(
-        chatId,
-        'menu.broker.searchLoads',
-      );
-
-      return;
-    }
-
-    if (
-      data ===
-      BotCallback.BrokerLoads
-    ) {
-      await this.sendFeaturePending(
-        chatId,
-        'menu.broker.loads',
-      );
-
-      return;
-    }
-
-    if (
-      data ===
-      BotCallback.BrokerDrivers
-    ) {
-      await this.sendFeaturePending(
-        chatId,
-        'menu.broker.drivers',
       );
 
       return;
@@ -890,6 +862,11 @@ export class MessengerBotService implements OnModuleInit {
     await this.requireBot().sendVoice(chatId, audio, caption);
   }
 
+  /** عکس (مثل تصویر بار در نمایش تصویری)؛ خطا بالا می‌رود تا فرستنده تصمیم بگیرد. */
+  async sendPhotoNotification(chatId: string, image: Buffer, caption?: string): Promise<void> {
+    await this.multiBot.sendPhoto(chatId, image, caption);
+  }
+
   /** پین نقشه (مثلاً موقعیت راننده برای شرکت). */
   async sendLocation(chatId: string, latitude: number, longitude: number): Promise<void> {
     await this.requireBot().sendLocation(chatId, latitude, longitude);
@@ -999,6 +976,20 @@ export class MessengerBotService implements OnModuleInit {
    * Feature Pending
    * =====================================================
    */
+
+  /** دکمه‌ی منویی که شرکت ندارد: پیام خرید به‌جای باز شدن منو. */
+  private async sendIfFeatureLocked(chatId: string, externalUserId: string, data: string): Promise<boolean> {
+    const feature = COMPANY_FEATURE_BY_MENU_ACTION[data];
+    if (!feature) return false;
+    const userId = await this.botIdentityService.getUserId(externalUserId);
+    if (!userId || (await this.companyFeatures.hasFeature(userId, feature))) return false;
+    await this.sendMessage(
+      chatId,
+      this.messages.get('features.locked', 'fa', { feature: COMPANY_FEATURE_TITLES[feature] }),
+      this.mainMenuKeyboard(),
+    );
+    return true;
+  }
 
   private async sendFeaturePending(
     chatId: string,
@@ -1433,6 +1424,11 @@ ${order.text}`, {
       case AccountType.Broker:
         return this.messages.get(
           'account.broker',
+        );
+
+      case AccountType.Factory:
+        return this.messages.get(
+          'account.factory',
         );
     }
   }

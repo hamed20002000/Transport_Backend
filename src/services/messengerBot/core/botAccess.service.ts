@@ -18,6 +18,7 @@ import { BotIdentityService } from './botIdentity.service';
 import { BotSessionService } from './botSession.service';
 import { BotMessagesService } from './botMessages.service';
 import { BotMenuService } from './botMenu.service';
+import { FactoryInviteBridge, inviteIn, MessengerInvite } from './factoryInvite';
 
 interface BotIdentityMetadata {
   externalUserId: string;
@@ -28,9 +29,11 @@ interface BotIdentityMetadata {
 }
 
 const ACCESS_LOCK_TTL_SECONDS = 120;
+// a factory invite code waits this long for the phone number (sign-up) before it is forgotten
+const INVITE_TTL_SECONDS = 3600;
 
-// Broker is not offered for now: the bot only creates driver and company accounts.
-const SELF_SERVICE_ACCOUNT_TYPES = [AccountType.Driver, AccountType.Company];
+// A company, factory or broker that signs up here is checked by a parent company first.
+const SELF_SERVICE_ACCOUNT_TYPES = [AccountType.Driver, AccountType.Company, AccountType.Factory, AccountType.Broker];
 
 @Injectable()
 export class BotAccessService {
@@ -44,6 +47,7 @@ export class BotAccessService {
     private readonly messages: BotMessagesService,
     private readonly menu: BotMenuService,
     private readonly bot: MultiBot,
+    private readonly factoryInvites: FactoryInviteBridge,
   ) {}
 
   /** Returns true when account setup handles the update; false continues normal routing. */
@@ -60,9 +64,14 @@ export class BotAccessService {
     const externalUserId = String(from.id);
     const chatId = String(message.chat.id);
     //#endregion -------------------------------------------------------------------------------------------------
+
+    // دعوت کارخانه (لینک تلگرام/بله «/start inv_…» یا خود کد): تا معلوم شدن شماره نگه داشته می‌شود
+    const invite = callback ? null : inviteIn(message.text);
+    if (invite) await this.redis.setJson(this.inviteKey(externalUserId), invite, INVITE_TTL_SECONDS);
     
     //#region ------------------------------ بررسی اینکه کاربر قبلا در سیستم ثبت نام کرده یا نه --------------------
     if (await this.identity.getUserId(externalUserId)) {
+      if (invite && (await this.handleInvite(chatId, externalUserId))) return true;
       return this.handleIdentifiedUser(chatId, externalUserId, callback);
     }
     //#endregion -------------------------------------------------------------------------------------------------
@@ -163,7 +172,8 @@ export class BotAccessService {
       await this.handleContact(message.contact, metadata);
       return;
     }
-    await this.requestContact(chatId);
+    const pending = await this.redis.getJson<MessengerInvite>(this.inviteKey(externalUserId));
+    await this.requestContact(chatId, pending ? `${pending.kind}Invite.requestPhone` : 'identity.requestPhone');
   }
   //#endregion ---------------------------------------------------------------------------------------------
 
@@ -203,6 +213,8 @@ export class BotAccessService {
       return;
     }
     await this.registerNewUser(metadata, phone);
+    // came with a factory invite: a factory account, no type to choose
+    if (await this.handleInvite(chatId, externalUserId)) return;
     await this.showAccountTypes(chatId);
   }
   //#endregion ------------------------------------------------------------------------------------------
@@ -226,6 +238,7 @@ export class BotAccessService {
       return;
     }
     await this.identity.linkUser({ ...metadata, userId: user.id });
+    if (await this.handleInvite(metadata.chatId, metadata.externalUserId)) return;
     const roles = await this.identity.getMenuRoles(metadata.externalUserId);
     if (!roles?.length) {
       await this.showAccountTypes(metadata.chatId);
@@ -307,14 +320,54 @@ export class BotAccessService {
    */
 
   //#region ---------------------------- درخواست شماره موبایل از کاربر --------------------------
-  private async requestContact(chatId: string): Promise<void> {
-    await this.bot.sendMessage(chatId, this.messages.get('identity.requestPhone'), {
+  private async requestContact(chatId: string, textKey = 'identity.requestPhone'): Promise<void> {
+    await this.bot.sendMessage(chatId, this.messages.get(textKey), {
       reply_markup: {
         keyboard: [[{ text: this.messages.get('identity.sharePhone'), request_contact: true, style: 'success' }]],
         resize_keyboard: true,
         one_time_keyboard: true,
       },
     });
+  }
+  //#endregion ------------------------------------------------------------------------------------
+
+  /**
+   * دعوتی که در انتظار است (بعد از اینکه شماره معلوم شد). همه‌ی دعوت‌ها شخصی‌اند: شرکت مادر (cmp_، شرکت حمل‌ونقل) یا
+   * شرکت حمل‌ونقل (inv_ کارخانه، drv_ راننده) حساب را با شماره‌ی دعوت‌شده از قبل ساخته؛ اگر همین شماره است خوشامد و منوی
+   * همان حساب، وگرنه پیام «این دعوت برای شماره‌ی دیگری است» و هیچ نقشی از روی دعوت داده نمی‌شود.
+   * false یعنی کاری انجام نشد و ادامه‌ی عادی ثبت‌نام/منو.
+   */
+  //#region ------------------------------ دعوت شرکت و کارخانه ---------------------------------
+  private async handleInvite(chatId: string, externalUserId: string): Promise<boolean> {
+    const key = this.inviteKey(externalUserId);
+    const invite = await this.redis.getJson<MessengerInvite>(key);
+    const userId = invite ? await this.identity.getUserId(externalUserId) : null;
+    if (!invite || !userId) return false;
+    await this.redis.delete(key);
+    const roles = (await this.identity.getMenuRoles(externalUserId)) ?? [];
+
+    let text: string;
+    let joined: boolean;
+    if (invite.kind === 'company') {
+      const result = await this.factoryInvites.companyWelcome(userId, invite.token);
+      joined = result.status === 'joined';
+      text = result.status === 'joined' ? result.welcome : this.messages.get(`companyInvite.${result.status}`);
+    } else {
+      const result = invite.kind === 'driver'
+        ? await this.factoryInvites.driverWelcome(userId, invite.token)
+        : await this.factoryInvites.factoryWelcome(userId, invite.token);
+      joined = result.status === 'joined';
+      text = this.messages.get(`${invite.kind}Invite.${result.status}`, 'fa', result.status === 'joined' ? { company: result.companyName } : undefined);
+    }
+    await this.bot.sendMessage(chatId, text);
+    // another number with no account yet: the usual sign-up goes on (account type)
+    if (!joined && !roles.length) return false;
+    await this.menu.showMenuForUser(chatId, externalUserId);
+    return true;
+  }
+
+  private inviteKey(externalUserId: string): string {
+    return RedisService.key('factoryInvite', botNamespace(this.config), externalUserId);
   }
   //#endregion ------------------------------------------------------------------------------------
 

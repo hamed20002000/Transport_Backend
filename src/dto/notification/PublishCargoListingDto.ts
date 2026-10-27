@@ -40,6 +40,10 @@ export class PublishCargoListingDto {
   @IsOptional() @Transform(trim) @IsString() @MaxLength(1000)
   extraNotes?: string;
 
+  /** a photo of the load sent before (POST api/cargo-photos); none: a picture of its kind is shown */
+  @IsOptional() @IsString() @Matches(/^[0-9a-f-]{36}\.jpg$/, { message: 'photo is not a stored cargo photo.' })
+  photo?: string;
+
   @Transform(trimEach)
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(5)
   @IsString({ each: true })

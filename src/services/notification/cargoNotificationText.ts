@@ -78,6 +78,8 @@ export interface CargoListingFields {
   price?: string | null;
   extraNotes?: string | null;
   contactPhones: string[];
+  // عکس بار (CargoImageService)؛ فقط برای نمایش تصویری، در متن نمی‌آید
+  photo?: string | null;
   // داخلی/صادراتی/وارداتی، که CargoListingService از مبدأ و مقصد تشخیص می‌دهد (فقط برای متن)
   tripType?: CargoTripType | null;
 }

@@ -80,6 +80,10 @@ export class CargoListing {
   @Column({ type: 'text', nullable: true })
   extraNotes?: string | null;
 
+  // the photo the company (or factory) put on the load, in CARGO_PHOTO_DIR; none: a picture made from its kind of cargo
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  photo?: string | null;
+
   @Column('text', { array: true, default: () => "'{}'" })
   contactPhones!: string[];
 

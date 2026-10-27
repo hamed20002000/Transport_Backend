@@ -72,6 +72,41 @@ export class User {
   @Column({ type: 'varchar', length: 200, nullable: true })
   internationalCompanyName?: string | null;
 
+  // شرکت مادر: همه‌ی منوها بی‌خرید باز است و بارش به همه‌ی رانندگان می‌رسد (فقط ادمین تعیین می‌کند)
+  @Column({ type: 'boolean', default: false })
+  isParentCompany!: boolean;
+
+  // the parent company whose invite link this transport company signed up with: every menu stays locked until bought
+  @Column({ type: 'uuid', nullable: true })
+  invitedByCompanyUserId?: string | null;
+
+  // how this user sees loads, on the web and in the messengers: TEXT (the fields) or IMAGE (a picture of the load too)
+  @Column({ type: 'varchar', length: 10, default: 'TEXT' })
+  cargoDisplay!: 'TEXT' | 'IMAGE';
+
+  // a transport company or factory that signed up on its own is checked by a parent company before it can work
+  // (AccountVerificationService): NONE (profile to fill in), PENDING, APPROVED, REJECTED. Everyone else is APPROVED.
+  @Column({ type: 'varchar', length: 20, default: 'APPROVED' })
+  verificationStatus!: 'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED';
+
+  // requests sent so far (the first, then each one after correcting a rejected profile)
+  @Column({ type: 'int', default: 0 })
+  verificationRequests!: number;
+
+  // the parent company's reason for a rejection
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  verificationNote?: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  verificationRequestedAt?: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  verificationDecidedAt?: Date | null;
+
+  // the parent company that approved or rejected
+  @Column({ type: 'uuid', nullable: true })
+  verificationDecidedBy?: string | null;
+
   @Column({ type: 'varchar', length: 11, nullable: true })
   companyNationalId?: string | null;
 

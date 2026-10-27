@@ -26,6 +26,7 @@ import { card } from '../messengerBot/core/botCard';
 import { filterTemplateText, parseFilterTemplate } from './cargoFilterTemplate';
 import { CargoExcelService, ExcelCargoRow, MAX_EXCEL_BYTES, MAX_EXCEL_ROWS } from './cargoExcel.service';
 import { CargoAction } from 'src/domain/constants/bot/CargoAction';
+import { LOAD_REQUESTER_ROLES } from './loadRequesters';
 
 const PREFIX = 'cg:';
 const Action = {
@@ -210,6 +211,7 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     [BotCallback.CompanyLoads]: `${Action.Suggestions}a:1`,
     [BotCallback.CompanyCreateLoad]: Action.Create,
     [BotCallback.DriverSearchLoads]: `${Action.OpenCargo}1`,
+    [BotCallback.BrokerSearchLoads]: `${Action.OpenCargo}1`,
   };
 
   constructor(
@@ -316,12 +318,13 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     }
 
     if (id.startsWith(Action.OpenCargo)) {
-      return (await this.denied(ctx, DRIVER_ROLES)) ?? this.openCargoView(ctx, this.page(id.slice(Action.OpenCargo.length)));
+      // a broker (واسط) finds loads and requests them like a driver
+      return (await this.denied(ctx, LOAD_REQUESTER_ROLES)) ?? this.openCargoView(ctx, this.page(id.slice(Action.OpenCargo.length)));
     }
 
     // تنظیمات فیلتر برای شرکت و راننده
     if (id.startsWith(PREFIX + 'f')) {
-      const denied = await this.denied(ctx, [...COMPANY_ROLES, ...DRIVER_ROLES]);
+      const denied = await this.denied(ctx, [...COMPANY_ROLES, ...LOAD_REQUESTER_ROLES]);
       if (denied) return denied;
       const reply = await this.routeFilters(ctx, id);
       if (reply) return reply;
@@ -1483,7 +1486,7 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     const names = user?.userRoles?.map((item) => item.role?.name).filter(Boolean) ?? [];
     if (names.some((name) => roles.includes(name))) return null;
     await this.clearSession(ctx);
-    return { text: this.t(roles === DRIVER_ROLES ? 'onlyDriver' : 'onlyCompany'), actions: [], closed: 'denied' };
+    return { text: this.t(roles === COMPANY_ROLES ? 'onlyCompany' : 'onlyDriver'), actions: [], closed: 'denied' };
   }
 
   private pager(prefix: string, page: number, pages: number): BotAction[] {

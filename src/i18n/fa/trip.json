@@ -89,6 +89,9 @@
   "notify": {
     "newRequest": "🙋 درخواست تازه‌ی راننده\n\n🚛 {driver}\n📦 {cargo}",
     "requestCancelled": "↩️ راننده درخواستش را لغو کرد\n\n🚛 {driver}\n📦 {cargo}",
+    "newBrokerRequest": "🙋 درخواست تازه‌ی واسط\n\n🤝 {driver}\n📦 {cargo}",
+    "brokerRequestCancelled": "↩️ واسط درخواستش را لغو کرد\n\n🤝 {driver}\n📦 {cargo}",
+    "acceptedBroker": "✅ شرکت {company} درخواست شما را قبول کرد:\n{cargo}\n\nبرای معرفی راننده با شرکت هماهنگ کنید.",
     "accepted": "✅ شرکت {company} درخواست شما را قبول کرد. سفر شما شروع شد:\n{cargo}\n\nلطفاً موقعیت خود را برای شرکت بفرستید.",
     "rejected": "❌ شرکت درخواست شما برای این بار را رد کرد:\n{cargo}",
     "rejectedTaken": "این بار به راننده‌ی دیگری داده شد:\n{cargo}",
@@ -171,6 +174,7 @@
     "startHint": "🔄 هر جا گیر کردید، فقط ۰ (صفر) را بفرستید تا به همین منو برگردید.",
     "noSections": "برای حساب شما بخشی در واتساپ فعال نیست.",
     "closed": "بسته شد.",
+    "featureLocked": "🔒 بخش «{feature}» برای شرکت شما فعال نیست.\n\nبرای استفاده، آن را از «💎 خرید امکانات» در منو (یا پنل وب) بخرید.",
     "locationHint": "📎 در واتساپ از منوی پیوست ← Location (موقعیت) ← «Send your current location» یا «Share live location» را بزنید.",
     "sections": {
       "companyProfile": "🏢 پروفایل شرکت",
@@ -187,7 +191,12 @@
       "nearStations": "⛽ جایگاه‌های نزدیک من",
       "sendLocation": "📍 ارسال موقعیت",
       "marketPrices": "💰 قیمت دلار و طلا",
-      "borders": "🛃 وضعیت مرزها"
+      "borders": "🛃 وضعیت مرزها",
+      "cargoDisplay": "🖼 نحوه‌ی نمایش بار",
+      "companyFeatures": "💎 خرید امکانات",
+      "factoryCreateLoad": "➕ ثبت بار",
+      "factoryExcel": "📊 ثبت با اکسل",
+      "factoryLoads": "📦 بارهای من"
     },
     "showMenu": "🏠 منوی اصلی"
   },

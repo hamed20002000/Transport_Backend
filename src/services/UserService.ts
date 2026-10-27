@@ -27,6 +27,7 @@ const PROFILE_FIELDS = [
   'phone',
   'postalCode',
   'address',
+  'cargoDisplay',
 ] as const;
 
 // what a published cargo shows of its company (CargoAudienceRepository.findPublisherContact)

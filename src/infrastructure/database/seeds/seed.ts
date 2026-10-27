@@ -11,6 +11,7 @@ const roleTitles: Record<AccountType | 'ADMIN', string> = {
   [AccountType.Driver]: 'راننده',
   [AccountType.Company]: 'شرکت',
   [AccountType.Broker]: 'واسطه',
+  [AccountType.Factory]: 'کارخانه',
   ADMIN: 'مدیر سیستم',
 };
 

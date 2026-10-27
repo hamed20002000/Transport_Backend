@@ -28,6 +28,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
+import { CompanyFeatureGuard, RequireCompanyFeature } from 'src/auth/guards/companyFeature.guard';
+import { CompanyFeature } from 'src/domain/enums/companyFeature';
 import { JwtPayload } from 'src/domain/entities/auth/jwt-payload.dto';
 import { CreateCargoAlertFilterDto, UpdateCargoAlertFilterDto } from 'src/dto/notification/CargoAlertFilterDto';
 import { SetCargoStatusDto } from 'src/dto/notification/SetCargoStatusDto';
@@ -70,7 +72,7 @@ const excelUploadOptions = {
 };
 
 @Controller('api/cargo-notifications')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, CompanyFeatureGuard)
 export class CargoNotificationController {
   constructor(
     private readonly notifications: CargoNotificationService,
@@ -79,6 +81,7 @@ export class CargoNotificationController {
 
   // kind=suggestion: پیشنهادهای بار به شرکت، kind=listing: بارهای منتشرشده برای راننده
   @Get()
+  @RequireCompanyFeature(CompanyFeature.Suggestions)
   list(
     @Req() request: AuthRequest,
     @Query('unreadOnly', new DefaultValuePipe(false), ParseBoolPipe) unreadOnly: boolean,
@@ -111,12 +114,14 @@ export class CargoNotificationController {
 
   // نمونه‌ی «فیلد: مقدار» برای انتشار یک پیشنهاد بار؛ شرکت می‌تواند ویرایشش کند.
   @Get(':id/listing-draft')
+  @RequireCompanyFeature(CompanyFeature.Suggestions)
   listingDraft(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string) {
     return this.listings.buildDraft(currentUserId(request), id);
   }
 
   // انتشار بار به نام همین شرکت برای راننده‌ها
   @Post(':id/publish')
+  @RequireCompanyFeature(CompanyFeature.Suggestions)
   publish(
     @Req() request: AuthRequest,
     @Param('id', ParseUUIDPipe) id: string,
@@ -127,7 +132,7 @@ export class CargoNotificationController {
 }
 
 @Controller('api/cargo-listings')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, CompanyFeatureGuard)
 export class CargoListingController {
   constructor(
     private readonly listings: CargoListingService,
@@ -150,6 +155,7 @@ export class CargoListingController {
 
   // راننده‌های یک نوع (داخلی/صادراتی/وارداتی) برای صفحه‌ی «رانندگان» شرکت
   @Get('drivers')
+  @RequireCompanyFeature(CompanyFeature.Drivers)
   drivers(
     @Req() request: AuthRequest,
     @Query('type', new ParseEnumPipe(CargoTripType)) type: CargoTripType,
@@ -163,6 +169,7 @@ export class CargoListingController {
 
   // فایل نمونه‌ی ثبت چند بار با اکسل
   @Get('excel/template')
+  @RequireCompanyFeature(CompanyFeature.CreateLoad)
   excelTemplate(@Req() request: AuthRequest) {
     companyUserId(request);
     return new StreamableFile(this.excel.template(), {
@@ -176,6 +183,7 @@ export class CargoListingController {
    * وگرنه همه‌ی بارها ثبت و برای راننده‌ها اعلام می‌شوند. dryRun=true فقط بررسی و پیش‌نمایش.
    */
   @Post('excel')
+  @RequireCompanyFeature(CompanyFeature.CreateLoad)
   @UseInterceptors(FileInterceptor('file', excelUploadOptions))
   importExcel(
     @Req() request: AuthRequest,
@@ -195,6 +203,7 @@ export class CargoListingController {
 
   // بارهایی که همین کاربر (شرکت) منتشر کرده است، با راننده‌ای که هر بار به او سپرده شده
   @Get()
+  @RequireCompanyFeature(CompanyFeature.PublishedLoads)
   async listMine(
     @Req() request: AuthRequest,
     @Query('status', new ParseEnumPipe(CargoListingStatus, { optional: true })) status: CargoListingStatus | undefined,
@@ -220,18 +229,21 @@ export class CargoListingController {
 
   // «برداشته شد»: راننده‌هایی که برای این بار درخواست داده‌اند و راننده‌ای که منتظر تأیید است
   @Get(':id/candidates')
+  @RequireCompanyFeature(CompanyFeature.PublishedLoads)
   candidates(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string) {
     return this.trips.candidates(currentUserId(request), id);
   }
 
   // راننده‌ی دیگری از سامانه با موبایل یا پلاک کامل
   @Get(':id/candidates/search')
+  @RequireCompanyFeature(CompanyFeature.PublishedLoads)
   searchDrivers(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string, @Query('q') query = '') {
     return this.trips.searchDrivers(currentUserId(request), id, query.slice(0, 40));
   }
 
   // سفرهای فعال شرکت (جدیدترین اول) با راننده و آخرین موقعیتش
   @Get('trips')
+  @RequireCompanyFeature(CompanyFeature.Trips)
   companyTrips(
     @Req() request: AuthRequest,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
@@ -248,6 +260,7 @@ export class CargoListingController {
 
   // درخواست‌های در انتظار رانندگان برای بارهای شرکت، با کارت راننده
   @Get('requests')
+  @RequireCompanyFeature(CompanyFeature.DriverRequests)
   companyRequests(
     @Req() request: AuthRequest,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
@@ -264,6 +277,7 @@ export class CargoListingController {
 
   // قبول یا رد درخواست راننده (409 notPending / taken / reserved)
   @Patch('requests/:id/:decision')
+  @RequireCompanyFeature(CompanyFeature.DriverRequests)
   async decideRequest(
     @Req() request: AuthRequest,
     @Param('id', ParseUUIDPipe) id: string,
@@ -275,6 +289,7 @@ export class CargoListingController {
 
   // شرکت تحویل بار را ثبت می‌کند؛ راننده خبردار می‌شود (409 notActive اگر سفر فعال نیست)
   @Patch('trips/:id/deliver')
+  @RequireCompanyFeature(CompanyFeature.Trips)
   async deliverTrip(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string) {
     const delivered = await this.trips.deliver(companyUserId(request), id);
     return { requestId: delivered.id, status: delivered.status, deliveredAt: delivered.deliveredAt };
@@ -282,6 +297,7 @@ export class CargoListingController {
 
   // «تحویل نشده»: اعلام تحویل راننده رد می‌شود و سفر فعال می‌ماند (409 notReported اگر اعلامی نبود)
   @Patch('trips/:id/reject-delivery')
+  @RequireCompanyFeature(CompanyFeature.Trips)
   async rejectDelivery(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string) {
     const trip = await this.trips.rejectDeliveryReport(companyUserId(request), id);
     return { requestId: trip.id, status: trip.status, deliveryReportedAt: trip.deliveryReportedAt ?? null };
@@ -289,6 +305,7 @@ export class CargoListingController {
 
   // سپردن بار به راننده؛ بار بعد از تأیید راننده «برداشته شد» می‌شود
   @Post(':id/offer')
+  @RequireCompanyFeature(CompanyFeature.PublishedLoads)
   offer(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string, @Body() dto: OfferCargoDto) {
     return this.trips.offer(currentUserId(request), id, dto.driverUserId);
   }
@@ -308,24 +325,28 @@ export class CargoListingController {
 
   // نام شرکت و شماره‌های تماس پیش‌فرض برای فرم ثبت بار
   @Get('draft')
+  @RequireCompanyFeature(CompanyFeature.CreateLoad)
   draft(@Req() request: AuthRequest) {
     return this.listings.buildManualDraft(currentUserId(request));
   }
 
   // ثبت بار دستی توسط شرکت و انتشار آن برای راننده‌ها
   @Post()
+  @RequireCompanyFeature(CompanyFeature.CreateLoad)
   create(@Req() request: AuthRequest, @Body() dto: PublishCargoListingDto) {
     return this.listings.createManual(currentUserId(request), dto);
   }
 
   // «📣 اعلام همین الان»: بار در صف اعلام خودکار، یا اعلام دوباره به راننده‌های تازه‌ی همان نوع
   @Post(':id/announce')
+  @RequireCompanyFeature(CompanyFeature.PublishedLoads)
   announceNow(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string) {
     return this.listings.announceNow(companyUserId(request), id);
   }
 
   // TAKEN = «برداشته شد»، OPEN = برگرداندن؛ فقط شرکتی که منتشر کرده
   @Patch(':id/status')
+  @RequireCompanyFeature(CompanyFeature.PublishedLoads)
   setStatus(
     @Req() request: AuthRequest,
     @Param('id', ParseUUIDPipe) id: string,

@@ -137,7 +137,8 @@ export class CargoTripService {
 
     const full = (await this.requests.findById(saved.id))!;
     const driver = await this.contact(driverUserId);
-    const text = this.t('notify.newRequest', { driver: this.describe(driver), cargo: this.cargoTitle(full) });
+    const broker = await this.isBroker(driverUserId);
+    const text = this.t(broker ? 'notify.newBrokerRequest' : 'notify.newRequest', { driver: this.describe(driver), cargo: this.cargoTitle(full) });
     this.changed(full, { type: 'newRequest', text });
     await this.notify(
       listing.publisherUserId,
@@ -159,7 +160,8 @@ export class CargoTripService {
 
     // like a new request: the company's open panel updates and it hears about it right away
     const full = (await this.requests.findById(request.id))!;
-    const text = this.t('notify.requestCancelled', { driver: this.describe(await this.contact(driverUserId)), cargo: this.cargoTitle(full) });
+    const key = (await this.isBroker(driverUserId)) ? 'notify.brokerRequestCancelled' : 'notify.requestCancelled';
+    const text = this.t(key, { driver: this.describe(await this.contact(driverUserId)), cargo: this.cargoTitle(full) });
     this.changed(full, { type: 'requestCancelled', text });
     await this.notify(full.companyUserId, text, [{ id: `${TripAction.CompanyRequests}1`, label: this.t('actions.allRequests'), row: 0 }]);
     return full;
@@ -347,8 +349,15 @@ export class CargoTripService {
 
     const company = await this.contact(companyUserId);
     const cargo = this.cargoTitle(request);
-    const text = accept ? this.t('notify.accepted', { cargo, company: this.describe(company) }) : this.t('notify.rejected', { cargo });
-    if (accept) {
+    // a broker has no trip of its own to follow: it brings the driver to the company
+    const broker = accept && (await this.isBroker(request.driverUserId));
+    const text = accept
+      ? this.t(broker ? 'notify.acceptedBroker' : 'notify.accepted', { cargo, company: this.describe(company) })
+      : this.t('notify.rejected', { cargo });
+    if (broker) {
+      await this.notify(request.driverUserId, text, [{ id: `${TripAction.DriverRequests}1`, label: this.t('actions.myRequests'), row: 0 }]);
+      await this.completeAssignment(request);
+    } else if (accept) {
       await this.notify(request.driverUserId, text, [
         { id: TripAction.ActiveTrip, label: this.t('actions.activeTrip'), row: 0 },
         { id: TripAction.ShareLocation, label: this.t('actions.shareLocation'), row: 0 },
@@ -697,6 +706,10 @@ export class CargoTripService {
   async contact(userId: string): Promise<PartyContact> {
     const draft = await this.listings.buildManualDraft(userId);
     return { name: draft.companyName || this.t('unknownName'), phones: draft.contactPhones };
+  }
+
+  private async isBroker(userId: string): Promise<boolean> {
+    return !!(await this.profiles.cards([userId]))[0]?.broker;
   }
 
   describe(contact: PartyContact): string {

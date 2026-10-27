@@ -8,6 +8,8 @@ import { MessengerBotModule } from './MessengerBotModule';
 import { SubscriptionModule } from './SubscriptionModule';
 import { RedisModule } from './RedisModule';
 import { ReceiptAccessService } from '../../services/subscription/receiptAccess.service';
+import { CompanyFeatureAdminController } from '../../presentation/controllers/admin/company-feature.controller';
+import { CompanyFeatureModule } from './CompanyFeatureModule';
 
 /**
  * تأیید/رد رسید خرید اشتراک توسط ادمین. جدا از SubscriptionModule چون
@@ -15,8 +17,8 @@ import { ReceiptAccessService } from '../../services/subscription/receiptAccess.
  * SubscriptionModule وابسته است.
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([SubscriptionOrder, PaymentReceipt]), SubscriptionModule, MessengerBotModule, RedisModule],
-  controllers: [SubscriptionOrderController, AdminStatsController],
+  imports: [TypeOrmModule.forFeature([SubscriptionOrder, PaymentReceipt]), SubscriptionModule, MessengerBotModule, RedisModule, CompanyFeatureModule],
+  controllers: [SubscriptionOrderController, AdminStatsController, CompanyFeatureAdminController],
   providers: [ReceiptAccessService],
 })
 export class SubscriptionAdminModule {}
