@@ -118,9 +118,15 @@ export class CargoListingRepository {
   }
 
   /** بارهای هنوز برداشته‌نشده‌ی همه‌ی شرکت‌ها، جدیدترین اول (برای «پیدا کردن بار» راننده). */
-  findOpenPage(options: { skip: number; take: number; tripType?: CargoTripType; tripTypes?: CargoTripType[] }): Promise<[CargoListing[], number]> {
+  // publisherUserIds: only these companies' loads (a broker sees the companies it bought)
+  findOpenPage(options: { skip: number; take: number; tripType?: CargoTripType; tripTypes?: CargoTripType[]; publisherUserIds?: string[] }): Promise<[CargoListing[], number]> {
     return this.repository.findAndCount({
-      where: { status: CargoListingStatus.Open, announcedAt: Not(IsNull()), ...(options.tripTypes ? { tripType: In(options.tripTypes) } : options.tripType ? { tripType: options.tripType } : {}) },
+      where: {
+        status: CargoListingStatus.Open,
+        announcedAt: Not(IsNull()),
+        ...(options.tripTypes ? { tripType: In(options.tripTypes) } : options.tripType ? { tripType: options.tripType } : {}),
+        ...(options.publisherUserIds && { publisherUserId: In(options.publisherUserIds) }),
+      },
       order: { createdAt: 'DESC' },
       skip: options.skip,
       take: options.take,

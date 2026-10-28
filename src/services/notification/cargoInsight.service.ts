@@ -7,6 +7,7 @@ import { decodePolyline, GeoPoint } from '../routing/geo';
 import { placeCandidates, RoutingService } from '../routing/routing.service';
 import { CargoListingService } from './cargoListing.service';
 import { CargoTripService } from './cargoTrip.service';
+import { BrokerAccessService } from '../company/brokerAccess.service';
 
 // موقعیت قدیمی‌تر از این برای «فاصله‌ی شما تا مبدأ» استفاده نمی‌شود
 const DRIVER_LOCATION_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -59,11 +60,14 @@ export class CargoInsightService {
     private readonly routing: RoutingService,
     private readonly fuelStations: FuelStationService,
     private readonly trips: CargoTripService,
+    private readonly brokerAccess: BrokerAccessService,
   ) {}
 
+  // driverUserId: a broker sees only the loads of the companies it bought
   async build(listingId: string, driverUserId?: string): Promise<CargoInsight | null> {
     const listing = await this.listings.findById(listingId);
     if (!listing) return null;
+    if (driverUserId && !(await this.brokerAccess.canSee(driverUserId, listing.publisherUserId))) return null;
 
     const [originPoint, destinationPoint, returnLoads] = await Promise.all([
       this.routing.geocode(listing.origin),
@@ -137,12 +141,14 @@ export class CargoInsightService {
   }
 
   /** بارهای باز از مقصد این بار (اول آن‌هایی که به مبدأش برمی‌گردند). */
-  async returnLoadList(listing: CargoListing, page: number, pageSize: number) {
+  // viewerUserId: a broker sees only the loads of the companies it bought
+  async returnLoadList(listing: CargoListing, page: number, pageSize: number, viewerUserId?: string) {
     const destination = core(listing.destination);
     const origin = core(listing.origin);
+    const publisherUserIds = viewerUserId ? await this.brokerAccess.visiblePublishers(viewerUserId) : null;
     const [back, all] = await Promise.all([
-      this.listings.listOpen({ page: 1, pageSize: 1000, origin: destination, destination: origin }),
-      this.listings.listOpen({ page: 1, pageSize: 1000, origin: destination }),
+      this.listings.listOpen({ page: 1, pageSize: 1000, origin: destination, destination: origin, publisherUserIds }),
+      this.listings.listOpen({ page: 1, pageSize: 1000, origin: destination, publisherUserIds }),
     ]);
     const backIds = new Set(back.items.map((item) => item.id));
     const ordered = [...back.items, ...all.items.filter((item) => !backIds.has(item.id))].filter((item) => item.id !== listing.id);

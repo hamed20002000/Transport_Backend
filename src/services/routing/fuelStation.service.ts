@@ -2,12 +2,12 @@ import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@ne
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import axios from 'axios';
-import { Repository } from 'typeorm';
+import { Between, LessThan, Repository } from 'typeorm';
 
 import { FuelStation } from '../../domain/entities/routing/FuelStation';
 import { RedisService } from '../redis/redis.service';
 import { ipv4Agent } from './http';
-import { bboxOf, GeoPoint, haversineKm, inBBox, projectOnRoute, resample } from './geo';
+import { BBox, bboxOf, GeoPoint, haversineKm, inBBox, projectOnRoute, resample } from './geo';
 
 const DEFAULT_OVERPASS_URLS = [
   'https://overpass-api.de/api/interpreter',
@@ -18,7 +18,16 @@ const DEFAULT_OVERPASS_URLS = [
 const IRAN = { south: 25, west: 44, north: 40, east: 63.5 };
 const CHUNK_ROWS = 3;
 const CHUNK_COLS = 4;
-const REFRESH_SECONDS = 30 * 86_400;
+// منطقه‌ای که این‌قدر از دریافتش گذشته دوباره دریافت می‌شود؛ نشانِ «دریافت شده» کمی بیشتر می‌ماند
+// تا وسط به‌روزرسانی، پوشش مسیر «ناقص» نشود.
+const REFRESH_MS = 30 * 86_400_000;
+const KEEP_SECONDS = 45 * 86_400;
+// هر چند وقت سر زدن به منطقه‌های ایران که موعد به‌روزرسانی‌شان رسیده
+const CHECK_MS = 6 * 60 * 60 * 1000;
+// بیرون از ایران: کاشی‌های ۱°×۱° فقط وقتی مسیر یا راننده به آن‌ها برسد دریافت می‌شوند
+const TILES_PER_REQUEST = 12;
+// پاسخ به کاربر حداکثر این‌قدر منتظر کاشی‌های تازه می‌ماند؛ بقیه در پس‌زمینه ادامه می‌یابد
+const TILE_WAIT_MS = 15_000;
 // تگ‌های بنزین در OSM (هر اکتانی)
 const PETROL_TAGS = ['fuel:octane_91', 'fuel:octane_92', 'fuel:octane_95', 'fuel:octane_98', 'fuel:octane_100', 'fuel:e5', 'fuel:e10', 'fuel:gasoline', 'fuel:petrol'];
 // تکه‌هایی که نشد (Overpass شلوغ/کند) بعد از این مدت دوباره امتحان می‌شوند.
@@ -29,12 +38,37 @@ const MAX_OFF_ROUTE_KM = 0.8;
 // دو جایگاه نزدیک‌تر از این روی مسیر احتمالاً یکی‌اند (یک جایگاه دوطرفه یا ثبت تکراری).
 const DUPLICATE_KM = 0.25;
 
-/** منطقه‌ی همگام‌سازی («ردیف-ستون») که نقطه در آن است؛ بیرون از کادر ایران null. */
-export function regionOf(point: GeoPoint): string | null {
+/** منطقه‌ی همگام‌سازی نقطه: در کادر ایران «ردیف-ستون»، بیرون از آن کاشی ۱°×۱° مثل «t41_28». */
+export function regionOf(point: GeoPoint): string {
   const r = Math.floor(((point.lat - IRAN.south) / (IRAN.north - IRAN.south)) * CHUNK_ROWS);
   const c = Math.floor(((point.lng - IRAN.west) / (IRAN.east - IRAN.west)) * CHUNK_COLS);
-  if (r < 0 || r >= CHUNK_ROWS || c < 0 || c >= CHUNK_COLS) return null;
+  if (r < 0 || r >= CHUNK_ROWS || c < 0 || c >= CHUNK_COLS) return tileId(Math.floor(point.lat), Math.floor(point.lng));
   return `${r}-${c}`;
+}
+
+function tileId(lat: number, lng: number): string {
+  return `t${lat}_${lng}`;
+}
+
+function tileBox(id: string): BBox {
+  const [lat, lng] = id.slice(1).split('_').map(Number);
+  return { south: lat, west: lng, north: lat + 1, east: lng + 1 };
+}
+
+/** کاشی‌هایی که با کادر تلاقی دارند و کامل داخل کادر ایران نیستند (آن بخش را همگام‌سازی ایران دارد). */
+function tilesIn(box: BBox): string[] {
+  const tiles: string[] = [];
+  for (let lat = Math.floor(box.south); lat <= Math.floor(box.north); lat++) {
+    for (let lng = Math.floor(box.west); lng <= Math.floor(box.east); lng++) {
+      const insideIran = lat >= IRAN.south && lat + 1 <= IRAN.north && lng >= IRAN.west && lng + 1 <= IRAN.east;
+      if (!insideIran) tiles.push(tileId(lat, lng));
+    }
+  }
+  return tiles;
+}
+
+function isStale(fetchedAt: string | null): boolean {
+  return !fetchedAt || Date.now() - new Date(fetchedAt).getTime() > REFRESH_MS;
 }
 
 export interface RouteFuelStation {
@@ -88,6 +122,12 @@ function petrolOf(tags: Record<string, string>): boolean | null {
   return values.length && values.every((value) => value === 'no') ? false : null;
 }
 
+interface OverpassResponse {
+  elements?: OverpassElement[];
+  // وقتی Overpass وسط کار به محدودیت زمان/حافظه بخورد؛ elements آن‌وقت ناقص است
+  remark?: string;
+}
+
 interface OverpassElement {
   type: 'node' | 'way' | 'relation';
   id: number;
@@ -98,8 +138,8 @@ interface OverpassElement {
 }
 
 /**
- * جایگاه‌های سوخت ایران: همگام‌سازی ماهانه از OpenStreetMap (Overpass) در
- * پس‌زمینه و پیدا کردن جایگاه‌های کنار یک مسیر از روی نسخه‌ی محلی.
+ * جایگاه‌های سوخت از OpenStreetMap (Overpass): ایران ماهانه در پس‌زمینه، بیرون از ایران
+ * کاشی‌به‌کاشی وقتی مسیری از آن بگذرد (و هر ماه دوباره)؛ پیدا کردن جایگاه‌ها از نسخه‌ی محلی.
  */
 @Injectable()
 export class FuelStationService implements OnApplicationBootstrap, OnModuleDestroy {
@@ -109,6 +149,10 @@ export class FuelStationService implements OnApplicationBootstrap, OnModuleDestr
   private cache?: Promise<FuelStation[]>;
   private syncing?: Promise<number>;
   private retryTimer?: NodeJS.Timeout;
+  private checkTimer?: NodeJS.Timeout;
+  // کاشی‌هایی که الان در حال دریافت‌اند و کاشی‌هایی که نشد (تا کی دوباره امتحان نشوند)
+  private readonly tileFetches = new Map<string, Promise<void>>();
+  private readonly tileFailedUntil = new Map<string, number>();
 
   constructor(
     @InjectRepository(FuelStation) private readonly stations: Repository<FuelStation>,
@@ -121,15 +165,19 @@ export class FuelStationService implements OnApplicationBootstrap, OnModuleDestr
   }
 
   /**
-   * بعد از بالا آمدن برنامه، در پس‌زمینه: تکه‌هایی که در ۳۰ روز گذشته
-   * به‌روز نشده‌اند (یا همگام‌سازی قبلی وسطش قطع شد) دریافت می‌شوند.
+   * بعد از بالا آمدن برنامه و از آن به بعد هر ۶ ساعت، در پس‌زمینه: تکه‌هایی که در ۳۰ روز
+   * گذشته به‌روز نشده‌اند (یا همگام‌سازی قبلی وسطش قطع شد) دریافت می‌شوند.
    */
   onApplicationBootstrap(): void {
-    void this.sync().catch((error: Error) => this.logger.warn(`Fuel station refresh failed: ${error.message}`));
+    const run = () => void this.sync().catch((error: Error) => this.logger.warn(`Fuel station refresh failed: ${error.message}`));
+    run();
+    this.checkTimer = setInterval(run, CHECK_MS);
+    this.checkTimer.unref?.();
   }
 
   onModuleDestroy(): void {
     clearTimeout(this.retryTimer);
+    clearInterval(this.checkTimer);
   }
 
   /** فقط تکه‌های قدیمی؛ تکه‌ای که نشد بقیه را متوقف نمی‌کند و ساعت بعد دوباره امتحان می‌شود. */
@@ -146,8 +194,8 @@ export class FuelStationService implements OnApplicationBootstrap, OnModuleDestr
     let skipped = 0;
     for (let r = 0; r < CHUNK_ROWS; r++) {
       for (let c = 0; c < CHUNK_COLS; c++) {
-        const doneKey = RedisService.key('fuelStationChunk', `${r}-${c}`);  // همان regionOf
-        if (await this.redis.exists(doneKey)) {
+        const region = `${r}-${c}`; // همان regionOf
+        if (!isStale(await this.redis.get(RedisService.key('fuelStationChunk', region)))) {
           skipped++;
           continue;
         }
@@ -158,11 +206,7 @@ export class FuelStationService implements OnApplicationBootstrap, OnModuleDestr
           east: IRAN.west + (c + 1) * lngStep,
         };
         try {
-          const rows = await this.fetchChunk(box);
-          for (let i = 0; i < rows.length; i += 500) await this.stations.upsert(rows.slice(i, i + 500), ['id']);
-          await this.redis.set(doneKey, new Date().toISOString(), REFRESH_SECONDS);
-          saved += rows.length;
-          this.cache = undefined;
+          saved += await this.refresh([{ region, box }]);
         } catch (error) {
           failed++;
           this.logger.warn(`Fuel stations chunk ${r},${c} failed: ${(error as Error).message}`);
@@ -180,17 +224,40 @@ export class FuelStationService implements OnApplicationBootstrap, OnModuleDestr
     return saved;
   }
 
-  private async fetchChunk(box: { south: number; west: number; north: number; east: number }): Promise<Partial<FuelStation>[]> {
-    const query = `[out:json][timeout:100];nwr["amenity"="fuel"](${box.south},${box.west},${box.north},${box.east});out center tags;`;
+  /**
+   * جایگاه‌های چند منطقه با یک درخواست: ذخیره‌ی تازه‌ها، پاک کردن آن‌هایی که دیگر در نقشه
+   * نیستند (بسته شده یا حذف شده‌اند) و علامت «دریافت شده» برای هر منطقه.
+   */
+  private async refresh(regions: { region: string; box: BBox }[]): Promise<number> {
+    const startedAt = new Date();
+    const rows = await this.fetchBoxes(regions.map(({ box }) => box));
+    for (let i = 0; i < rows.length; i += 500) await this.stations.upsert(rows.slice(i, i + 500), ['id']);
+    for (const { region, box } of regions) {
+      await this.stations.delete({
+        latitude: Between(box.south, box.north),
+        longitude: Between(box.west, box.east),
+        updatedAt: LessThan(startedAt),
+      });
+      await this.redis.set(RedisService.key('fuelStationChunk', region), startedAt.toISOString(), KEEP_SECONDS);
+    }
+    this.cache = undefined;
+    return rows.length;
+  }
+
+  private async fetchBoxes(boxes: BBox[]): Promise<Partial<FuelStation>[]> {
+    const parts = boxes.map((box) => `nwr["amenity"="fuel"](${box.south},${box.west},${box.north},${box.east});`).join('');
+    const query = `[out:json][timeout:100];(${parts});out center tags;`;
     let lastError: unknown;
     for (const url of this.overpassUrls) {
       try {
-        const { data } = await axios.post<{ elements: OverpassElement[] }>(url, new URLSearchParams({ data: query }).toString(), {
+        const { data } = await axios.post<OverpassResponse>(url, new URLSearchParams({ data: query }).toString(), {
           timeout: REQUEST_TIMEOUT_MS,
           httpsAgent: ipv4Agent,
           headers: { 'User-Agent': this.userAgent, 'Content-Type': 'application/x-www-form-urlencoded' },
         });
         if (!Array.isArray(data?.elements)) throw new Error('Unexpected Overpass response.');
+        // پاسخ ناقص نباید جایگاه‌های موجود را «حذف‌شده» نشان دهد
+        if (data.remark) throw new Error(`Overpass: ${data.remark}`);
         return data.elements.map((element) => this.toStation(element)).filter((row): row is Partial<FuelStation> => !!row);
       } catch (error) {
         lastError = error;
@@ -218,6 +285,43 @@ export class FuelStationService implements OnApplicationBootstrap, OnModuleDestr
     };
   }
 
+  /**
+   * کاشی‌های بیرون از ایران: آن‌هایی که هنوز دریافت نشده‌اند دریافت می‌شوند و تا TILE_WAIT_MS
+   * منتظرشان می‌ماند؛ آن‌هایی که قدیمی شده‌اند فقط در پس‌زمینه تازه می‌شوند.
+   */
+  private async ensureTiles(tiles: Iterable<string>): Promise<void> {
+    const waitFor = new Set<string>();
+    const toFetch: string[] = [];
+    for (const tile of new Set(tiles)) {
+      if (this.tileFetches.has(tile)) {
+        waitFor.add(tile);
+        continue;
+      }
+      if ((this.tileFailedUntil.get(tile) ?? 0) > Date.now()) continue;
+      const fetchedAt = await this.redis.get(RedisService.key('fuelStationChunk', tile));
+      if (!isStale(fetchedAt)) continue;
+      toFetch.push(tile);
+      if (!fetchedAt) waitFor.add(tile);
+    }
+    for (let i = 0; i < toFetch.length; i += TILES_PER_REQUEST) {
+      const batch = toFetch.slice(i, i + TILES_PER_REQUEST);
+      const done = this.refresh(batch.map((region) => ({ region, box: tileBox(region) })))
+        .then((saved) => this.logger.log(`Fuel stations fetched for ${batch.join(', ')}: ${saved}.`))
+        .catch((error: Error) => {
+          this.logger.warn(`Fuel stations for ${batch.join(', ')} failed: ${error.message}`);
+          for (const tile of batch) this.tileFailedUntil.set(tile, Date.now() + RETRY_MS);
+        })
+        .finally(() => batch.forEach((tile) => this.tileFetches.delete(tile)));
+      for (const tile of batch) this.tileFetches.set(tile, done);
+    }
+    const pending = [...waitFor].map((tile) => this.tileFetches.get(tile)).filter((done): done is Promise<void> => !!done);
+    if (!pending.length) return;
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([Promise.all(pending), new Promise<void>((resolve) => (timer = setTimeout(resolve, TILE_WAIT_MS)))]).finally(() =>
+      clearTimeout(timer),
+    );
+  }
+
   private all(): Promise<FuelStation[]> {
     this.cache ??= this.stations.find().catch((error) => {
       this.cache = undefined;
@@ -231,9 +335,10 @@ export class FuelStationService implements OnApplicationBootstrap, OnModuleDestr
    * اگر نه، «فاصله‌ی بی‌جایگاه» آن بخش واقعی نیست و نباید هشدار داد.
    */
   async coverage(route: GeoPoint[]): Promise<'none' | 'partial' | 'complete'> {
-    const regions = new Set(resample(route, 5).points.map(regionOf).filter((region): region is string => !!region));
+    const regions = new Set(resample(route, 5).points.map(regionOf));
     let done = 0;
     try {
+      await this.ensureTiles([...regions].filter((region) => region.startsWith('t')));
       for (const region of regions) {
         // تکه‌ای که فقط با نسخه‌ی قبلی (بدون بنزین) دریافت شده هم جایگاه‌هایش را دارد
         if (
@@ -254,6 +359,7 @@ export class FuelStationService implements OnApplicationBootstrap, OnModuleDestr
   /** نزدیک‌ترین جایگاه‌ها به یک نقطه (فاصله‌ی مستقیم)، نزدیک‌ترین اول؛ kinds: فقط جایگاه‌های این سوخت‌ها. */
   async near(point: GeoPoint, radiusKm: number, limit: number, kinds?: readonly FuelKind[]): Promise<(RouteFuelStation & { distanceKm: number })[]> {
     const box = bboxOf([point], radiusKm / 100);
+    await this.ensureTiles(tilesIn(box)).catch((error: Error) => this.logger.warn(`Fuel station tiles failed: ${error.message}`));
     return (await this.all())
       .filter((station) => inBBox({ lat: station.latitude, lng: station.longitude }, box))
       .map((station) =>

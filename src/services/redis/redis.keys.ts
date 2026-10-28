@@ -23,6 +23,7 @@ export const KEY_PREFIXES = {
   cargoDialog: 'messenger:cargo-flow:v1',
   factoryDialog: 'messenger:factory-flow:v1',
   companyFeatureDialog: 'messenger:company-feature-flow:v1',
+  brokerAccessDialog: 'messenger:broker-access-flow:v1',
   tripDialog: 'messenger:trip-flow:v1',
   locationRequest: 'messenger:location-request:v1',
   whatsappMenu: 'whatsapp:menu:v1',
@@ -44,6 +45,14 @@ export const KEY_PREFIXES = {
   // نوع‌های سوختی که راننده در ربات برای جایگاه‌ها انتخاب کرده
   driverFuelKinds: 'driver:fuel-kinds:v1',
   rubikaPollOffset: 'rubika:poll-offset:v1',
+  // ایتا (GoOmni): رویدادهای پردازش‌شده، کسانی که خودشان اول پیام داده‌اند، و آخرین فهرست گزینه‌ای که هر چت دیده
+  eitaaEvent: 'eitaa:event:v1',
+  eitaaPeer: 'eitaa:peer:v1',
+  eitaaShownKeyboard: 'eitaa:shown-keyboard:v1',
+  // کد یک‌بارمصرف اتصال پیام‌رسان (از پنل وب) و تلاش‌های اشتباه هر حساب پیام‌رسان
+  messengerLinkCode: 'messenger:link-code:v1',
+  messengerLinkUser: 'messenger:link-user:v1',
+  messengerLinkAttempts: 'messenger:link-attempts:v1',
   subscriptionPolicy: 'settings:subscription-policy:v1',
   // مشاهده‌ی عکس رسیدها: توکن کوتاه‌عمر بعد از رمز، و شمارش رمزهای اشتباه هر ادمین
   receiptViewToken: 'admin:receipt-view-token:v1',
@@ -81,6 +90,7 @@ export type RedisKeyParts = {
   cargoDialog: [platform: string, externalUserId: string];
   factoryDialog: [platform: string, externalUserId: string];
   companyFeatureDialog: [platform: string, externalUserId: string];
+  brokerAccessDialog: [platform: string, externalUserId: string];
   tripDialog: [platform: string, externalUserId: string];
   locationRequest: [driverUserId: string];
   whatsappMenu: [userId: string];
@@ -96,6 +106,12 @@ export type RedisKeyParts = {
   fuelStationChunkV1: [chunk: string];
   driverFuelKinds: [userId: string];
   rubikaPollOffset: [tokenHash: string];
+  eitaaEvent: [instanceId: string, eventId: string];
+  eitaaPeer: [instanceId: string, peerId: string];
+  eitaaShownKeyboard: [namespace: string, chatId: string];
+  messengerLinkCode: [platform: string, code: string];
+  messengerLinkUser: [platform: string, userId: string];
+  messengerLinkAttempts: [externalUserId: string];
   subscriptionPolicy: [];
   marketPrices: [];
   marketRefreshLock: [];
@@ -119,6 +135,10 @@ export const REDIS_CHANNELS = {
   companyFeatureReceipt: 'company-feature:receipt:v1',
   /** the admin approved or rejected a menu's receipt: the company hears of it everywhere */
   companyFeatureDecided: 'company-feature:decided:v1',
+  /** a broker sent a receipt for seeing companies' loads (BrokerAccessService): the admins hear of it */
+  brokerAccessReceipt: 'broker-access:receipt:v1',
+  /** the admin approved or rejected it: the broker hears of it everywhere */
+  brokerAccessDecided: 'broker-access:decided:v1',
   /** a self-signed-up transport company or factory asked to be checked: the parent companies hear of it */
   accountVerificationRequested: 'account-verification:requested:v1',
   /** a parent company approved or rejected it: the account hears of it everywhere */
@@ -166,6 +186,20 @@ export interface CompanyFeatureOrderEvent {
   userId: string;
   feature: string;
   title: string;
+  amount: string;
+  currency: string;
+  /** a decision; absent for a new receipt */
+  approved?: boolean;
+  expireAt?: string;
+  reason?: string;
+}
+
+/** BrokerAccessService → SubscriptionNotifier */
+export interface BrokerAccessOrderEvent {
+  orderId: string;
+  userId: string;
+  kind: 'NEW' | 'ADD';
+  companies: number;
   amount: string;
   currency: string;
   /** a decision; absent for a new receipt */

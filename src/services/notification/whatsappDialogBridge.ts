@@ -16,7 +16,7 @@ import { RedisService } from '../redis/redis.service';
 import { CompanyFeatureService } from '../company/companyFeature.service';
 import { AccountVerificationService } from '../company/accountVerification.service';
 import { COMPANY_FEATURE_BY_MENU_ACTION, COMPANY_FEATURE_TITLES } from 'src/domain/enums/companyFeature';
-import { LOAD_REQUESTER_ROLES } from './loadRequesters';
+import { BROKER_ROLE, LOAD_REQUESTER_ROLES } from './loadRequesters';
 
 // گزینه‌های آخرین پیام تا این مدت با شماره قابل انتخاب‌اند.
 const MENU_TTL_SECONDS = 60 * 60;
@@ -48,6 +48,7 @@ const SECTIONS: { roles: string[]; key: string; action: string }[] = [
   // a broker (واسط) finds loads and requests them like a driver
   { roles: LOAD_REQUESTER_ROLES, key: 'findCargo', action: BotCallback.DriverSearchLoads },
   { roles: LOAD_REQUESTER_ROLES, key: 'myRequests', action: BotCallback.DriverLoadRequests },
+  { roles: [BROKER_ROLE], key: 'brokerAccess', action: BotCallback.BrokerAccess },
   { roles: DRIVER_ROLES, key: 'activeTrip', action: BotCallback.DriverActiveTrip },
   { roles: DRIVER_ROLES, key: 'returnLoads', action: BotCallback.DriverReturnLoads },
   { roles: DRIVER_ROLES, key: 'sendLocation', action: TripAction.ShareLocation },

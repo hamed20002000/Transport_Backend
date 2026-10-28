@@ -23,6 +23,7 @@ import { CargoListingService } from './cargoListing.service';
 import { CargoSearch } from './cargoSearch';
 import { WhatsappDialogBridge } from './whatsappDialogBridge';
 import { DriverProfileService } from '../driver/driverProfile.service';
+import { BrokerAccessService } from '../company/brokerAccess.service';
 import { NotificationsGateway } from './notifications.gateway';
 import { WebPushService } from './webPush.service';
 
@@ -82,7 +83,13 @@ export class CargoTripService {
     private readonly profiles: DriverProfileService,
     private readonly gateway: NotificationsGateway,
     @Optional() private readonly push?: WebPushService,
+    @Optional() private readonly brokerAccess?: BrokerAccessService,
   ) {}
+
+  /** Companies whose loads this user sees: null for all (a driver, or broker purchase off); a broker gets what it bought. */
+  visiblePublishers(userId: string): Promise<string[] | null> {
+    return this.brokerAccess ? this.brokerAccess.visiblePublishers(userId) : Promise.resolve(null);
+  }
 
   //#region ----------- Driver ------------------------------------------------
 
@@ -97,7 +104,8 @@ export class CargoTripService {
     const { matchFilters, ...rest } = options;
     // هر راننده فقط بارهای نوع خودش (داخلی، صادراتی، وارداتی)
     const tripTypes = await this.profiles.tripTypesOf(driverUserId);
-    const result = await this.listings.listOpen({ ...rest, tripTypes, userId: matchFilters ? driverUserId : undefined });
+    const publisherUserIds = await this.visiblePublishers(driverUserId);
+    const result = await this.listings.listOpen({ ...rest, tripTypes, publisherUserIds, userId: matchFilters ? driverUserId : undefined });
     const ids = result.items.map((item) => item.id);
     const mine = new Map((await this.requests.findForDriverByListings(driverUserId, ids)).map((r) => [r.listingId, r]));
     // بار سپرده‌شده به راننده‌ی دیگر: «رزرو شده» و بدون دکمه‌ی درخواست
@@ -122,6 +130,8 @@ export class CargoTripService {
     if (!listing) throw new NotFoundException('Cargo listing not found.');
     if (listing.status !== CargoListingStatus.Open) throw new ConflictException('taken');
     if (listing.publisherUserId === driverUserId) throw new ConflictException('own');
+    // a broker requests only the loads of the companies it bought
+    if (this.brokerAccess && !(await this.brokerAccess.canSee(driverUserId, listing.publisherUserId))) throw new ConflictException('notPurchased');
 
     let request = await this.requests.findByListingAndDriver(listingId, driverUserId);
     if (request && [CargoRequestStatus.Pending, CargoRequestStatus.Offered, CargoRequestStatus.Accepted].includes(request.status)) {

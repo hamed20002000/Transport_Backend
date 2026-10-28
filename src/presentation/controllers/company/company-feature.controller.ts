@@ -15,7 +15,7 @@ type AuthRequest = { user?: { userId?: string; roles?: string[] } };
 const RECEIPT_EXTENSIONS: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
 const MAX_RECEIPT_BYTES = 8 * 1024 * 1024;
 
-const receiptUploadOptions: MulterOptions = {
+export const receiptUploadOptions: MulterOptions = {
   storage: diskStorage({
     // the private receipt store, beside the subscription receipts from the app
     destination: (_req, _file, cb) => cb(null, receiptDir('web')),

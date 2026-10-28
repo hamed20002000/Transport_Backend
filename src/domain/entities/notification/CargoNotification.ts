@@ -130,6 +130,22 @@ export class CargoNotification {
   @Column({ type: 'timestamp', nullable: true })
   rubikaNextRetryAt?: Date | null;
 
+  // ایتا (حساب کاربری از راه GoOmni) -- مثل بله و روبیکا
+  @Column({ type: 'enum', enum: NotificationDeliveryStatus, default: NotificationDeliveryStatus.Pending })
+  eitaaStatus!: NotificationDeliveryStatus;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  eitaaChatId?: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  eitaaMessageId?: string | null;
+
+  @Column({ type: 'integer', default: 0 })
+  eitaaAttempts!: number;
+
+  @Column({ type: 'timestamp', nullable: true })
+  eitaaNextRetryAt?: Date | null;
+
   // واتساپ فقط تا ۱۵ دقیقه بعد از ارسال اجازه‌ی ویرایش می‌دهد.
   @Column({ type: 'timestamp', nullable: true })
   whatsappSentAt?: Date | null;

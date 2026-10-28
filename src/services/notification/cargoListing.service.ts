@@ -495,8 +495,11 @@ export class CargoListingService {
    * جدیدترین OPEN_SCAN_LIMIT بار در برنامه فیلتر می‌شوند.
    */
   /** tripTypes: فقط بارهای این نوع‌ها (فهرست بار راننده، مثل اعلام بار فقط به راننده‌های همان نوع)؛ tripType جستجو یکی از آن‌ها. */
-  async listOpen(options: { page: number; pageSize: number; userId?: string; tripTypes?: CargoTripType[] } & CargoSearch) {
+  // publisherUserIds: فقط بار این شرکت‌ها (واسط، BrokerAccessService.visiblePublishers)؛ نیامده = همه
+  async listOpen(options: { page: number; pageSize: number; userId?: string; tripTypes?: CargoTripType[]; publisherUserIds?: string[] | null } & CargoSearch) {
     const skip = (options.page - 1) * options.pageSize;
+    if (options.publisherUserIds?.length === 0) return { items: [], total: 0, page: options.page, pageSize: options.pageSize };
+    const publishers = options.publisherUserIds ? { publisherUserIds: options.publisherUserIds } : {};
     const tripType = parseTripType(options.tripType) ?? undefined;
     const filters = options.userId ? await this.filters.activeFor(options.userId) : [];
     // جستجوی مبدأ/مقصد/نوع بار/ماشین («شامل بودن» مثل فیلترها)؛ بار برگشتی هم از همین استفاده می‌کند
@@ -504,9 +507,9 @@ export class CargoListingService {
     let items: CargoListing[];
     let total: number;
     if (filters.length === 0 && !search) {
-      [items, total] = await this.listings.findOpenPage({ skip, take: options.pageSize, tripType, ...(options.tripTypes && { tripTypes: options.tripTypes }) });
+      [items, total] = await this.listings.findOpenPage({ skip, take: options.pageSize, tripType, ...(options.tripTypes && { tripTypes: options.tripTypes }), ...publishers });
     } else {
-      const [recent] = await this.listings.findOpenPage({ skip: 0, take: OPEN_SCAN_LIMIT, tripType, ...(options.tripTypes && { tripTypes: options.tripTypes }) });
+      const [recent] = await this.listings.findOpenPage({ skip: 0, take: OPEN_SCAN_LIMIT, tripType, ...(options.tripTypes && { tripTypes: options.tripTypes }), ...publishers });
       const matching = recent.filter(
         (listing) => this.filters.matchesAny(filters, listing) && (!search || matchesCargoSearch(listing, search)),
       );

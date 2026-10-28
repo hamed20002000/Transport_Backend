@@ -61,6 +61,7 @@ import { CargoDisplayDialog } from '../../services/notification/cargoDisplayDial
 import { CargoImageController } from '../../presentation/controllers/notification/cargo-image.controller';
 import { CompanyDriverInviteController, DriverInviteInfoController } from '../../presentation/controllers/company/driver-invite.controller';
 import { CompanyFeatureDialog } from '../../services/company/companyFeatureDialog';
+import { BrokerAccessDialog } from '../../services/company/brokerAccessDialog';
 import { CompanyFactoryController, FactoryController, FactoryInviteController } from '../../presentation/controllers/company/factory.controller';
 import { MessengerBotModule } from './MessengerBotModule';
 import { RedisModule } from './RedisModule';
@@ -122,6 +123,7 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
     CargoImageService,
     CargoDisplayDialog,
     CompanyFeatureDialog,
+    BrokerAccessDialog,
     CargoNotificationRepository,
     CargoAlertFilterRepository,
     CargoListingRepository,

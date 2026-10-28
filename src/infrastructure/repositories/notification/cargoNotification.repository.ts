@@ -15,13 +15,14 @@ export type CargoNotificationDelivery = Partial<
     | 'telegramStatus' | 'telegramChatId' | 'telegramMessageId' | 'telegramAttempts' | 'telegramNextRetryAt'
     | 'baleStatus' | 'baleChatId' | 'baleMessageId' | 'baleAttempts' | 'baleNextRetryAt'
     | 'rubikaStatus' | 'rubikaChatId' | 'rubikaMessageId' | 'rubikaAttempts' | 'rubikaNextRetryAt'
+    | 'eitaaStatus' | 'eitaaChatId' | 'eitaaMessageId' | 'eitaaAttempts' | 'eitaaNextRetryAt'
     | 'whatsappStatus' | 'whatsappMessageKey' | 'whatsappSentAt' | 'whatsappAttempts' | 'whatsappNextRetryAt'
   >
 >;
 
 export type NewCargoNotification = Pick<CargoNotification, 'userId' | 'sourceMessageId' | 'text' | 'payload'> &
   Partial<
-    Pick<CargoNotification, 'listingId' | 'telegramNextRetryAt' | 'baleNextRetryAt' | 'rubikaNextRetryAt' | 'whatsappNextRetryAt' | 'telegramStatus' | 'baleStatus' | 'rubikaStatus' | 'whatsappStatus'>
+    Pick<CargoNotification, 'listingId' | 'telegramNextRetryAt' | 'baleNextRetryAt' | 'rubikaNextRetryAt' | 'eitaaNextRetryAt' | 'whatsappNextRetryAt' | 'telegramStatus' | 'baleStatus' | 'rubikaStatus' | 'eitaaStatus' | 'whatsappStatus'>
   >;
 
 @Injectable()
@@ -97,7 +98,7 @@ export class CargoNotificationRepository {
   }
 
   /** پیام‌های اعلان پیشنهاد که هنوز در چت شرکت باقی مانده‌اند. */
-  findSuggestionNotices(userId: string, platform: 'telegram' | 'bale' | 'rubika' | 'whatsapp'): Promise<CargoNotification[]> {
+  findSuggestionNotices(userId: string, platform: 'telegram' | 'bale' | 'rubika' | 'eitaa' | 'whatsapp'): Promise<CargoNotification[]> {
     const messageColumn = platform === 'whatsapp' ? 'whatsappMessageKey' : `${platform}MessageId`;
     return this.repository.createQueryBuilder('notification')
       .where('notification.userId = :userId', { userId })
@@ -114,6 +115,7 @@ export class CargoNotificationRepository {
         { telegramStatus: NotificationDeliveryStatus.Pending, telegramNextRetryAt: LessThanOrEqual(now), createdAt: recent },
         { baleStatus: NotificationDeliveryStatus.Pending, baleNextRetryAt: LessThanOrEqual(now), createdAt: recent },
         { rubikaStatus: NotificationDeliveryStatus.Pending, rubikaNextRetryAt: LessThanOrEqual(now), createdAt: recent },
+        { eitaaStatus: NotificationDeliveryStatus.Pending, eitaaNextRetryAt: LessThanOrEqual(now), createdAt: recent },
         { whatsappStatus: NotificationDeliveryStatus.Pending, whatsappNextRetryAt: LessThanOrEqual(now), createdAt: recent },
       ],
       relations: { listing: true },
@@ -140,12 +142,16 @@ export class CargoNotificationRepository {
       { rubikaStatus: pending, createdAt: old },
       { rubikaStatus: failed, rubikaNextRetryAt: null },
     );
+    const eitaa = await this.repository.update(
+      { eitaaStatus: pending, createdAt: old },
+      { eitaaStatus: failed, eitaaNextRetryAt: null },
+    );
     const whatsapp = await this.repository.update(
       { whatsappStatus: pending, createdAt: old },
       { whatsappStatus: failed, whatsappNextRetryAt: null },
     );
 
-    return (telegram.affected ?? 0) + (bale.affected ?? 0) + (rubika.affected ?? 0) + (whatsapp.affected ?? 0);
+    return (telegram.affected ?? 0) + (bale.affected ?? 0) + (rubika.affected ?? 0) + (eitaa.affected ?? 0) + (whatsapp.affected ?? 0);
   }
 
   findPageForUser(

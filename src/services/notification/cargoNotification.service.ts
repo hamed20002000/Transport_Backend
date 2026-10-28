@@ -32,7 +32,7 @@ import { TripAction } from '../../domain/constants/bot/TripAction';
 import { RedisService } from '../redis/redis.service';
 import { WebPushService } from './webPush.service';
 
-const BOT_PLATFORM_LABEL_EN: Record<BotPlatform, string> = { telegram: 'Telegram', bale: 'Bale', rubika: 'Rubika' };
+const BOT_PLATFORM_LABEL_EN: Record<BotPlatform, string> = { telegram: 'Telegram', bale: 'Bale', rubika: 'Rubika', eitaa: 'Eitaa' };
 
 // سقف ردیف‌هایی که برای غربال با فیلترها خوانده می‌شوند (جدیدترین‌ها).
 const LIST_SCAN_LIMIT = 1000;

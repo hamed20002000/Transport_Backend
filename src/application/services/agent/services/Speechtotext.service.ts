@@ -92,7 +92,7 @@ export function loadCorrections(path = CORRECTIONS_PATH): TranscriptCorrection[]
 
 /** Where a voice came from, kept with its training sample. */
 export interface SpeechSampleSource {
-  channel: 'web' | 'telegram' | 'bale' | 'rubika' | 'whatsapp' | 'test';
+  channel: 'web' | 'telegram' | 'bale' | 'rubika' | 'eitaa' | 'whatsapp' | 'test';
   userId?: string;
 }
 

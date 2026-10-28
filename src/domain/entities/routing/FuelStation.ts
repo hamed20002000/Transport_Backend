@@ -1,7 +1,7 @@
 import { Column, Entity, Index, PrimaryColumn, UpdateDateColumn } from 'typeorm';
 
 /**
- * جایگاه سوخت از OpenStreetMap؛ یک بار در ماه برای کل ایران به‌روز می‌شود تا
+ * جایگاه سوخت از OpenStreetMap؛ ایران و کاشی‌های بیرونِ مسیرها ماهی یک بار به‌روز می‌شوند تا
  * پیدا کردن جایگاه‌های هر مسیر بدون درخواست بیرونی و فوری باشد.
  */
 @Entity('FuelStation')

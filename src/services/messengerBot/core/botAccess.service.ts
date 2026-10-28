@@ -1,5 +1,5 @@
 import { Inject, Injectable, ConflictException } from '@nestjs/common';
-import { botNamespace } from './botPlatform';
+import { botNamespace, botPlatformOf } from './botPlatform';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'node:crypto';
 import TelegramBot from 'node-telegram-bot-api';
@@ -19,6 +19,7 @@ import { BotSessionService } from './botSession.service';
 import { BotMessagesService } from './botMessages.service';
 import { BotMenuService } from './botMenu.service';
 import { FactoryInviteBridge, inviteIn, MessengerInvite } from './factoryInvite';
+import { linkCodeIn, MessengerLinkCodeService } from './messengerLinkCode.service';
 
 interface BotIdentityMetadata {
   externalUserId: string;
@@ -48,6 +49,7 @@ export class BotAccessService {
     private readonly menu: BotMenuService,
     private readonly bot: MultiBot,
     private readonly factoryInvites: FactoryInviteBridge,
+    private readonly linkCodes: MessengerLinkCodeService,
   ) {}
 
   /** Returns true when account setup handles the update; false continues normal routing. */
@@ -168,6 +170,11 @@ export class BotAccessService {
       firstName: from.first_name,
       lastName: from.last_name,
     };
+    // ایتا (حساب کاربری، نه ربات) دکمه‌ی «ارسال شماره» ندارد: اتصال با کد یک‌بارمصرف پنل وب
+    if (botPlatformOf(externalUserId) === 'eitaa') {
+      await this.handleLinkCode(message.text, metadata);
+      return;
+    }
     if (!callback && message.contact) {
       await this.handleContact(message.contact, metadata);
       return;
@@ -219,6 +226,33 @@ export class BotAccessService {
   }
   //#endregion ------------------------------------------------------------------------------------------
 
+
+  /**
+   * کدی که کاربر از «پروفایل ← اتصال ایتا» در پنل وب گرفته (آنجا با شماره و کد پیامکی وارد شده): حساب همان کاربر
+   * به این گفتگو وصل می‌شود. بدون کد، راهنمای گرفتن کد؛ پیام‌رسان شماره‌ی تأییدشده‌ای نمی‌دهد که از روی آن وصل کنیم.
+   */
+  //#region ------------------------------ اتصال با کد پنل وب (ایتا) ------------------------------
+  private async handleLinkCode(text: string | undefined, metadata: BotIdentityMetadata): Promise<void> {
+    const platform = botPlatformOf(metadata.externalUserId);
+    const code = linkCodeIn(text);
+    if (!code) {
+      const panel = this.config.get<string>('WEB_PANEL_URL')?.trim().replace(/\/+$/, '');
+      await this.bot.sendMessage(metadata.chatId, this.messages.get('identity.eitaaLink', 'fa', { panel: panel ? ` (${panel})` : '' }));
+      return;
+    }
+    const userId = await this.linkCodes.consume(platform, metadata.externalUserId, code);
+    if (userId === 'limited' || !userId) {
+      await this.bot.sendMessage(metadata.chatId, this.messages.get(userId === 'limited' ? 'identity.eitaaLinkLimited' : 'identity.eitaaLinkWrong'));
+      return;
+    }
+    const user = await this.users.findById(userId);
+    if (!user) {
+      await this.bot.sendMessage(metadata.chatId, this.messages.get('identity.eitaaLinkWrong'));
+      return;
+    }
+    await this.linkExistingUser(metadata, user);
+  }
+  //#endregion ------------------------------------------------------------------------------------
 
   /**
    * بررسی وجود کاربر در BotLink 

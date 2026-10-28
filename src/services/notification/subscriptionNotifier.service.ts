@@ -8,7 +8,7 @@ import { RecordStatus } from '../../domain/enums/RecordStatus';
 import { MessengerBotService } from '../messengerBot/core/messengerBot.service';
 import { RedisService } from '../redis/redis.service';
 import { VERIFICATION_PROFILE_PATH, VerifiedKind } from '../company/accountVerification.service';
-import { AccountVerificationEvent, CompanyFeatureOrderEvent, PaymentReceiptSubmittedEvent, REDIS_CHANNELS, SubscriptionDecidedEvent } from '../redis/redis.keys';
+import { AccountVerificationEvent, BrokerAccessOrderEvent, CompanyFeatureOrderEvent, PaymentReceiptSubmittedEvent, REDIS_CHANNELS, SubscriptionDecidedEvent } from '../redis/redis.keys';
 import { NotificationsGateway } from './notifications.gateway';
 import { WebPushService } from './webPush.service';
 import { WhatsappDialogBridge } from './whatsappDialogBridge';
@@ -18,6 +18,9 @@ export const SUBSCRIPTION_CHANGED_SOCKET_EVENT = 'subscription-changed';
 // a company menu's receipt arrived (admins) / was decided (the company): the pages reload
 export const COMPANY_FEATURE_RECEIPT_SOCKET_EVENT = 'company-feature-receipt';
 export const COMPANY_FEATURES_CHANGED_SOCKET_EVENT = 'company-features-changed';
+// a broker's receipt for companies' loads arrived (admins) / was decided (the broker)
+export const BROKER_ACCESS_RECEIPT_SOCKET_EVENT = 'broker-access-receipt';
+export const BROKER_ACCESS_CHANGED_SOCKET_EVENT = 'broker-access-changed';
 // a self-signed-up company or factory asked to be checked (parent companies) / was decided (the account)
 export const VERIFICATION_REQUESTED_SOCKET_EVENT = 'verification-requested';
 export const VERIFICATION_CHANGED_SOCKET_EVENT = 'verification-changed';
@@ -74,6 +77,10 @@ export class SubscriptionNotifier implements OnModuleInit {
         void this.handle('feature-receipt', message, (event: CompanyFeatureOrderEvent) => this.featureReceipt(event)));
       await this.redis.subscribe(REDIS_CHANNELS.companyFeatureDecided, (message) =>
         void this.handle('feature-decision', message, (event: CompanyFeatureOrderEvent) => this.featureDecided(event)));
+      await this.redis.subscribe(REDIS_CHANNELS.brokerAccessReceipt, (message) =>
+        void this.handle('broker-receipt', message, (event: BrokerAccessOrderEvent) => this.brokerReceipt(event)));
+      await this.redis.subscribe(REDIS_CHANNELS.brokerAccessDecided, (message) =>
+        void this.handle('broker-decision', message, (event: BrokerAccessOrderEvent) => this.brokerDecided(event)));
       // a request or decision has no order: the user and the time make it one notice
       await this.redis.subscribe(REDIS_CHANNELS.accountVerificationRequested, (message) =>
         void this.handle('verification-request', this.withNoticeId(message), (event: AccountVerificationEvent & { orderId: string }) => this.verificationRequested(event)));
@@ -170,6 +177,34 @@ export class SubscriptionNotifier implements OnModuleInit {
     await Promise.all([
       this.push.sendToUser(event.userId, { title: `ترابوت · ${event.approved ? 'بخش تازه فعال شد' : 'رسید تأیید نشد'}`, body: text, url: '/account/company/features' })
         .catch((error: Error) => this.logger.warn(`Feature decision push to ${event.userId} failed: ${error.message}`)),
+      this.messengers(event.userId, text),
+    ]);
+  }
+
+  /** A broker sent a receipt for companies' loads (web, bots or WhatsApp): every admin hears of it. */
+  async brokerReceipt(event: BrokerAccessOrderEvent): Promise<void> {
+    const price = `${fa(event.amount)} ${currencyNames[event.currency] ?? event.currency}`;
+    const what = `${event.kind === 'ADD' ? 'افزودن' : 'خرید'} بار ${fa(event.companies)} شرکت`;
+    const text = `🧾 رسید واسط: ${what} · ${price}\nبرای بررسی به «خرید واسط» در پنل ادمین بروید.`;
+    this.gateway.sendToRoles(['ADMIN'], BROKER_ACCESS_RECEIPT_SOCKET_EVENT, { orderId: event.orderId });
+    for (const adminId of await this.adminIds()) {
+      await Promise.all([
+        this.push.sendToUser(adminId, { title: 'ترابوت · رسید واسط', body: `${what} · ${price}`, url: '/admin/broker-access', tag: 'payment-receipts', renotify: true })
+          .catch((error: Error) => this.logger.warn(`Broker receipt push to admin ${adminId} failed: ${error.message}`)),
+        this.messengers(adminId, text),
+      ]);
+    }
+  }
+
+  /** The admin decided on a broker's receipt: the broker hears of it in the app, its bots and WhatsApp. */
+  async brokerDecided(event: BrokerAccessOrderEvent): Promise<void> {
+    const text = event.approved
+      ? `✅ بار ${fa(event.companies)} شرکت برای شما باز شد${event.expireAt ? ` و تا ${faDate(event.expireAt)} می‌بینیدشان` : ''}.`
+      : `رسید خرید بار شرکت‌ها تأیید نشد.\nدلیل: ${event.reason ?? '—'}\nلطفاً دوباره پرداخت کنید یا رسید درست را بفرستید («🔓 خرید بار شرکت‌ها»).`;
+    this.gateway.sendToUser(event.userId, BROKER_ACCESS_CHANGED_SOCKET_EVENT, { approved: event.approved });
+    await Promise.all([
+      this.push.sendToUser(event.userId, { title: `ترابوت · ${event.approved ? 'شرکت‌ها باز شد' : 'رسید تأیید نشد'}`, body: text, url: '/account/broker?tab=access' })
+        .catch((error: Error) => this.logger.warn(`Broker decision push to ${event.userId} failed: ${error.message}`)),
       this.messengers(event.userId, text),
     ]);
   }

@@ -27,6 +27,7 @@ import { filterTemplateText, parseFilterTemplate } from './cargoFilterTemplate';
 import { CargoExcelService, ExcelCargoRow, MAX_EXCEL_BYTES, MAX_EXCEL_ROWS } from './cargoExcel.service';
 import { CargoAction } from 'src/domain/constants/bot/CargoAction';
 import { LOAD_REQUESTER_ROLES } from './loadRequesters';
+import { BROKER_ACCESS_ACTION } from '../company/brokerAccessDialog';
 
 const PREFIX = 'cg:';
 const Action = {
@@ -1194,7 +1195,15 @@ export class CargoDialog implements BotDialog, OnModuleInit {
   /** بارهای باز نوع راننده با فیلترهای فعال خودش (همان‌هایی که اعلانشان برایش می‌رود). */
   private async openCargoView(ctx: BotContext, page: number): Promise<BotReply> {
     const tripTypes = await this.profiles.tripTypesOf(ctx.userId);
-    const result = await this.listings.listOpen({ page, pageSize: FIND_PAGE_SIZE, userId: ctx.userId, tripTypes });
+    const publisherUserIds = await this.trips.visiblePublishers(ctx.userId);
+    // a broker that has bought no companies yet: how to see loads
+    if (publisherUserIds?.length === 0) {
+      return {
+        text: `${this.t('find.title')}\n\n${this.t('find.brokerNoAccess')}`,
+        actions: new Rows().add({ id: BROKER_ACCESS_ACTION, label: this.t('actions.brokerAccess') }).add(this.back()).actions,
+      };
+    }
+    const result = await this.listings.listOpen({ page, pageSize: FIND_PAGE_SIZE, userId: ctx.userId, tripTypes, publisherUserIds });
     const pages = Math.max(1, Math.ceil(result.total / FIND_PAGE_SIZE));
     if (page > pages && result.total > 0) return this.openCargoView(ctx, pages);
 

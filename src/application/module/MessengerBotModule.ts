@@ -6,6 +6,10 @@ import { BotKeyboardService } from '../../services/messengerBot/core/botKeyboard
 import { BotDialogRegistry } from '../../services/messengerBot/core/botDialog';
 import { TelegramWebhookController } from '../../services/messengerBot/telegram/telegramWebhook.controller';
 import { RubikaWebhookController } from '../../services/messengerBot/rubika/rubikaWebhook.controller';
+import { EitaaWebhookController } from '../../services/messengerBot/eitaa/eitaaWebhook.controller';
+import { EitaaBotService } from 'src/services/messengerBot/eitaa/eitaaBot.service';
+import { MessengerLinkCodeService } from 'src/services/messengerBot/core/messengerLinkCode.service';
+import { EitaaLinkController } from 'src/presentation/controllers/messenger/eitaaLink.controller';
 import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
@@ -58,7 +62,7 @@ import { MarketBotService } from 'src/services/market/marketBot.service';
     MarketModule,
   ],
 
-  controllers: [TelegramWebhookController, RubikaWebhookController],
+  controllers: [TelegramWebhookController, RubikaWebhookController, EitaaWebhookController, EitaaLinkController],
 
   providers: [
     BotSubscriptionService,
@@ -98,6 +102,8 @@ import { MarketBotService } from 'src/services/market/marketBot.service';
     BaleBotService,
 
     RubikaBotService,
+    EitaaBotService,
+    MessengerLinkCodeService,
     // پیام قیمت ارز و طلا که هر ۳۰ دقیقه ویرایش می‌شود
     MarketBotService,
   ],

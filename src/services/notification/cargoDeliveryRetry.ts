@@ -53,4 +53,11 @@ export const BOT_DELIVERY_COLUMNS = {
     attempts: 'rubikaAttempts',
     nextRetryAt: 'rubikaNextRetryAt',
   },
+  eitaa: {
+    status: 'eitaaStatus',
+    chatId: 'eitaaChatId',
+    messageId: 'eitaaMessageId',
+    attempts: 'eitaaAttempts',
+    nextRetryAt: 'eitaaNextRetryAt',
+  },
 } as const;

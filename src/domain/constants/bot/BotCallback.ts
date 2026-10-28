@@ -30,6 +30,8 @@ export const BotCallback = {
 
   BrokerSearchLoads: 'broker_search_loads',
   BrokerLoads: 'broker_loads',
+  // خرید دیدن بار شرکت‌ها برای واسط (BrokerAccessDialog)
+  BrokerAccess: 'broker_access',
 
   // کارخانه (FactoryDialog): فقط ثبت بار برای شرکت‌هایی که دعوتش کرده‌اند
   FactoryCreateLoad: 'factory_create_load',

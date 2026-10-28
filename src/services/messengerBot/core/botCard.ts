@@ -72,13 +72,13 @@ export function whatsappOptionRows(rows: string[][], start = 1): string {
   return lines.join('\n');
 }
 
-/** بله و روبیکا کادر نقل‌قول ربات ندارند: نوار عمودی کنار هر خط کارت. */
+/** بله، روبیکا و ایتا کادر نقل‌قول ربات ندارند: نوار عمودی کنار هر خط کارت. */
 export function plainCards(text: string): string {
   return text.replace(CARD, (_, body: string) => body.split('\n').map((line) => `┃ ${line}`).join('\n'));
 }
 
 /** متن کارت‌دار برای یک پیام‌رسان؛ entities فقط برای تلگرام. */
-export function cardsFor(platform: 'telegram' | 'bale' | 'rubika', text: string): { text: string; entities?: TelegramBot.MessageEntity[] } {
+export function cardsFor(platform: 'telegram' | 'bale' | 'rubika' | 'eitaa', text: string): { text: string; entities?: TelegramBot.MessageEntity[] } {
   if (!text.includes(OPEN)) return { text };
   if (platform === 'telegram') {
     const result = telegramCards(text);

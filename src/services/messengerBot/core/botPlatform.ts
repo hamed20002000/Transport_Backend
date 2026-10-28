@@ -6,10 +6,10 @@ import { CommunicationProvider } from '../../../domain/enums/subscription';
  * اجرا می‌شود. کل منطق ربات یک بار نوشته شده (برای تلگرام) و MultiBot
  * پیام‌ها را بر اساس پیشوند شناسه به پیام‌رسان درست می‌فرستد.
  */
-export const BOT_PLATFORMS = ['telegram', 'bale', 'rubika'] as const;
+export const BOT_PLATFORMS = ['telegram', 'bale', 'rubika', 'eitaa'] as const;
 
  
-export type BotPlatform = (typeof BOT_PLATFORMS)[number];//در حقیقت معادل telegram|bale|rubika است  
+export type BotPlatform = (typeof BOT_PLATFORMS)[number];//در حقیقت معادل telegram|bale|rubika|eitaa است  
 
 const SEPARATOR = ':';
 
@@ -52,6 +52,7 @@ export const BOT_PLATFORM_LABEL: Record<BotPlatform, string> = {
   telegram: 'تلگرام',
   bale: 'بله',
   rubika: 'روبیکا',
+  eitaa: 'ایتا',
 };
 //#endregion ----------------------------------------------------------------------------------------------
 
@@ -63,6 +64,8 @@ export function communicationProviderOf(id: string | number): CommunicationProvi
       return CommunicationProvider.Bale;
     case 'rubika':
       return CommunicationProvider.Rubika;
+    case 'eitaa':
+      return CommunicationProvider.Eitaa;
     default:
       return CommunicationProvider.Telegram;
   }

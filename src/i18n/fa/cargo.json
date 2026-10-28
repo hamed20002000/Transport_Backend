@@ -46,7 +46,8 @@
   "find": {
     "title": "🔎 بارهای موجود",
     "empty": "در حال حاضر بار بازی وجود ندارد.",
-    "page": "صفحه {page} از {pages}"
+    "page": "صفحه {page} از {pages}",
+    "brokerNoAccess": "برای دیدن بارها، شرکت‌هایی را که بارشان را می‌خواهید از «🔓 خرید بار شرکت‌ها» انتخاب و خرید کنید."
   },
   "create": {
     "ask": {
@@ -119,7 +120,8 @@
     "excelConfirm": "📣 اعلام {count} بار برای راننده‌ها",
     "announceNow": "📣 اعلام همین الان {code}",
     "unannounced": "📣 بارهای من که اعلام نشده‌اند ({count})",
-    "backToSuggestions": "📥 بارهای پیشنهادی"
+    "backToSuggestions": "📥 بارهای پیشنهادی",
+    "brokerAccess": "🔓 خرید بار شرکت‌ها"
   },
   "tabs": {
     "suggestions": "📥 بارهای پیشنهادی",

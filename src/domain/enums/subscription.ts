@@ -12,6 +12,7 @@ export enum CommunicationProvider {
     Web = 'WEB',
     Bale = 'BALE',
     Rubika = 'RUBIKA',
+    Eitaa = 'EITAA',
 }
 
 export enum SubscriptionStatus {

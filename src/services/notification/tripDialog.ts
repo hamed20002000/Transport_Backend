@@ -643,7 +643,7 @@ export class TripDialog implements BotDialog, OnModuleInit {
   private async cargoReturns(ctx: BotContext, listingId: string, page: number): Promise<BotReply> {
     const listing = await this.listings.findById(listingId);
     if (!listing) return { text: this.t('notFound'), actions: [this.back()] };
-    const result = await this.insights.returnLoadList(listing, page, RETURN_PAGE_SIZE);
+    const result = await this.insights.returnLoadList(listing, page, RETURN_PAGE_SIZE, ctx.userId);
     const pages = Math.max(1, Math.ceil(result.total / RETURN_PAGE_SIZE));
 
     const details: BotAction[] = [];

@@ -261,11 +261,11 @@ export class DriverController {
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('pageSize', new DefaultValuePipe(10), ParseIntPipe) pageSize: number,
   ) {
-    await this.requester(request);
+    const userId = await this.requester(request);
     const listing = await this.listings.findById(id);
     if (!listing) throw new NotFoundException('Cargo listing not found.');
     const paging = pageOf(page, pageSize);
-    const result = await this.insight.returnLoadList(listing, paging.page, paging.pageSize);
+    const result = await this.insight.returnLoadList(listing, paging.page, paging.pageSize, userId);
     return { ...result, ...paging };
   }
 

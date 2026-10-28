@@ -10,6 +10,7 @@ import { RedisModule } from './RedisModule';
 import { ReceiptAccessService } from '../../services/subscription/receiptAccess.service';
 import { CompanyFeatureAdminController } from '../../presentation/controllers/admin/company-feature.controller';
 import { CompanyFeatureModule } from './CompanyFeatureModule';
+import { BrokerAccessAdminController } from '../../presentation/controllers/admin/broker-access.controller';
 
 /**
  * تأیید/رد رسید خرید اشتراک توسط ادمین. جدا از SubscriptionModule چون
@@ -18,7 +19,7 @@ import { CompanyFeatureModule } from './CompanyFeatureModule';
  */
 @Module({
   imports: [TypeOrmModule.forFeature([SubscriptionOrder, PaymentReceipt]), SubscriptionModule, MessengerBotModule, RedisModule, CompanyFeatureModule],
-  controllers: [SubscriptionOrderController, AdminStatsController, CompanyFeatureAdminController],
+  controllers: [SubscriptionOrderController, AdminStatsController, CompanyFeatureAdminController, BrokerAccessAdminController],
   providers: [ReceiptAccessService],
 })
 export class SubscriptionAdminModule {}

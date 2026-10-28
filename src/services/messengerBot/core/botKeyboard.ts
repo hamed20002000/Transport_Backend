@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { botNamespace } from './botPlatform';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../../redis/redis.service';
@@ -16,10 +16,22 @@ interface ChatKeyboard {
   mainMenuButtons?: MenuButton[];
   mainMenu?: TelegramBot.Message;
   mainMenuSignature?: string;
+  /** when the menu above was last sent; a list shown after it (ShownKeyboard) is what the user answers */
+  menuAt?: number;
+}
+
+/**
+ * A messenger without buttons (Eitaa) writes every keyboard as a numbered list, a notification's too. The user's
+ * «۱» answers the latest list they saw, so it is kept apart from the menu (and is never deleted with it).
+ */
+interface ShownKeyboard {
+  messageId: number;
+  buttons: MenuButton[];
+  at: number;
 }
 
 @Injectable()
-export class BotKeyboardService {
+export class BotKeyboardService implements OnModuleInit {
   private readonly logger = new Logger(BotKeyboardService.name);
   // Only in-flight promises live locally; all menu state lives in Redis.
   private readonly pending = new Map<string, Promise<unknown>>();
@@ -38,6 +50,15 @@ export class BotKeyboardService {
       throw new Error('TELEGRAM_KEYBOARD_TTL_SECONDS must be a positive integer.');
     }
     this.namespace = botNamespace(config);
+  }
+
+  onModuleInit(): void {
+    this.bot.on('keyboard_shown', (chatId: string, messageId: number, buttons: MenuButton[]) => {
+      const shown: ShownKeyboard = { messageId, buttons, at: Date.now() };
+      void this.redis
+        .setJson(RedisService.key('eitaaShownKeyboard', this.namespace, chatId), shown, this.ttlSeconds)
+        .catch((error: Error) => this.logger.warn(`Could not keep the list shown in chat ${chatId}: ${error.message}`));
+    });
   }
 
   /** The user pressed a button on this message: the next inline menu edits it instead of sending a new one. */
@@ -61,6 +82,10 @@ export class BotKeyboardService {
     chatId: string,
   ): Promise<{ messageId: number; buttons: MenuButton[]; mainMenuButtons: MenuButton[]; refreshAction?: string } | null> {
     const current = await this.redis.getJson<ChatKeyboard>(RedisService.key('telegramKeyboard', this.namespace, chatId));
+    const shown = await this.redis.getJson<ShownKeyboard>(RedisService.key('eitaaShownKeyboard', this.namespace, chatId));
+    if (shown?.buttons.length && shown.at > (current?.menuAt ?? 0)) {
+      return { messageId: shown.messageId, buttons: shown.buttons, mainMenuButtons: current?.mainMenuButtons ?? [] };
+    }
     return current?.messageId !== undefined && current.buttons?.length
       ? { messageId: current.messageId, buttons: current.buttons, mainMenuButtons: current.mainMenuButtons ?? [], refreshAction: current.refreshAction }
       : null;
@@ -120,6 +145,7 @@ export class BotKeyboardService {
       current.menuMessageIds = [...new Set([...(current.menuMessageIds ?? []), ...[previousId, previousMainMenuId, message.message_id].filter((id): id is number => id !== undefined)])];
       current.refreshAction = refreshAction;
       current.buttons = inlineButtons(options.reply_markup);
+      current.menuAt = Date.now();
 
       await this.redis.setJson(key, current, this.ttlSeconds);
 

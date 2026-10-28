@@ -589,6 +589,18 @@ export class BotMenuService {
               {
                 text:
                   this.messages.get(
+                    'menu.broker.access',
+                  ),
+
+                callback_data:
+                  BotCallback.BrokerAccess,
+              },
+            ],
+
+            [
+              {
+                text:
+                  this.messages.get(
                     'menu.broker.subscription',
                   ),
 

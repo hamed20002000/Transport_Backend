@@ -35,7 +35,8 @@ process.on('unhandledRejection', (reason: unknown) => {
 });
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // rawBody: webhooks signed over the exact bytes (GoOmni for the Eitaa bot) are checked before parsing
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   const configService = app.get(ConfigService);
 
   // Payment receipts once lived in the public uploads folder; they are private now (receiptStorage) and that

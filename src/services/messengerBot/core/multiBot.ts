@@ -5,6 +5,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import { BotPlatform, parseBotId, toBotId } from './botPlatform';
 import { cardsFor } from './botCard';
 import { dialablePhones } from './dialablePhones';
+import { MenuButton } from './menuTextMatch';
 
 /** متدهایی از TelegramBot که ربات اصلی استفاده می‌کند -- RubikaBotClient هم همین‌ها را دارد. */
 type PlatformClient = Pick<
@@ -53,6 +54,10 @@ export class MultiBot extends EventEmitter {
     });
     typed.on('callback_query', (query: TelegramBot.CallbackQuery) => {
       this.emit('callback_query', prefixCallbackQuery(platform, query));
+    });
+    // پیام‌رسان بی‌دکمه (ایتا): فهرست شماره‌داری که چت الان می‌بیند؛ BotKeyboardService نگهش می‌دارد
+    typed.on('keyboard_shown', (chatId: string, messageId: string, buttons: MenuButton[]) => {
+      this.emit('keyboard_shown', toBotId(platform, chatId), messageId, buttons);
     });
     typed.on('polling_error', (error: Error) => {
       this.logger.error(`${platform} polling error: ${error?.message}`);
