@@ -147,7 +147,7 @@ export class SubscriptionNotifier implements OnModuleInit {
   /** A company sent a receipt for a menu (web, bots or WhatsApp): every admin hears of it, like a subscription receipt. */
   async featureReceipt(event: CompanyFeatureOrderEvent): Promise<void> {
     const price = `${fa(event.amount)} ${currencyNames[event.currency] ?? event.currency}`;
-    const text = `🧾 رسید خرید بخش «${event.title}» · ${price}\nبرای بررسی به «امکانات شرکت‌ها ← رسیدها» در پنل ادمین بروید.`;
+    const text = `🧾 رسید خرید بخش «${event.title}» · ${price}\nبرای بررسی به «امکانات شرکت‌های حمل‌ونقل ← رسیدها» در پنل ادمین بروید.`;
     this.gateway.sendToRoles(['ADMIN'], COMPANY_FEATURE_RECEIPT_SOCKET_EVENT, { orderId: event.orderId });
     for (const adminId of await this.adminIds()) {
       await Promise.all([
