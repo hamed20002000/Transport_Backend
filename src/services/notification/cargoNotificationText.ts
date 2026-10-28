@@ -88,7 +88,7 @@ export interface CargoListingFields {
 export function buildCargoListingText(fields: CargoListingFields): string {
   const rows: [string, string | null | undefined][] = [
     [CODE_TITLE, fields.code],
-    ['شرکت', fields.companyName],
+    ['شرکت حمل‌ونقل', fields.companyName],
     ['مبدا', fields.origin],
     ['مقصد', fields.destination],
     ['نوع حمل', fields.tripType ? TRIP_TYPE_LABELS[fields.tripType] : null],

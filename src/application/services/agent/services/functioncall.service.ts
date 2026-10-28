@@ -120,7 +120,7 @@ export class FunctionCallService {
         if (isCompanyRole(req.user.roles) && !(await this.companyFeatures.hasFeature(userId, CompanyFeature.Agent))) {
             this.agentGateway.sendToolResult(userId, {
                 result: "error",
-                message: `🔒 بخش «${COMPANY_FEATURE_TITLES[CompanyFeature.Agent]}» برای شرکت شما فعال نیست؛ برای استفاده آن را از «💎 خرید امکانات» در منو (یا پنل وب) بخرید.`,
+                message: `🔒 بخش «${COMPANY_FEATURE_TITLES[CompanyFeature.Agent]}» برای شرکت حمل‌ونقل شما فعال نیست؛ برای استفاده آن را از «💎 خرید امکانات» در منو (یا پنل وب) بخرید.`,
                 prompt: prompt,
                 continuePrompt: undefined,
                 toolName: undefined,

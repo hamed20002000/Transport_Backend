@@ -386,7 +386,7 @@ ${JSON.stringify(selectedTool)}
         if (!feature || !this.companyFeatures || !isCompanyRole(req?.user?.roles)) return;
         if (await this.companyFeatures.hasFeature(req.user.userId, feature)) return;
         throw new HttpException(
-            `🔒 بخش «${COMPANY_FEATURE_TITLES[feature]}» برای شرکت شما فعال نیست؛ برای استفاده آن را از «💎 خرید امکانات» در منو (یا پنل وب) بخرید.`,
+            `🔒 بخش «${COMPANY_FEATURE_TITLES[feature]}» برای شرکت حمل‌ونقل شما فعال نیست؛ برای استفاده آن را از «💎 خرید امکانات» در منو (یا پنل وب) بخرید.`,
             HttpStatus.PAYMENT_REQUIRED,
         );
     }

@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   OneToMany,
   OneToOne,
   PrimaryGeneratedColumn,
@@ -41,6 +42,13 @@ export class User {
     unique: true,
   })
   mobile?: string;
+
+  // کد اختصاصی حساب (مثل کد اشتراک تاکسی تلفنی): رقم اول نوع حساب (۱ راننده، ۲ شرکت حمل‌ونقل، ۳ شرکت/کارخانه،
+  // ۴ واسط) و بعد شماره‌ی ترتیبی. trigger دیتابیس با اولین نقش حساب می‌دهدش (migration AddAccountCode)؛ برنامه
+  // هیچ‌وقت نمی‌نویسدش تا یک شیء کهنه کد را پاک نکند.
+  @Index('IDX_User_accountCode', { unique: true })
+  @Column({ type: 'varchar', length: 10, nullable: true, insert: false, update: false })
+  accountCode?: string | null;
 
   @Column({
     type: 'smallint',

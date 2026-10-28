@@ -63,7 +63,7 @@ export const APP_SECTIONS: Record<string, AppSection> = {
       const active = await trips.activeTrips(userId);
       if (!active.length) return 'سفر فعالی ندارید.';
       return listText('سفر فعال شما', active.length, active.map((request) =>
-        `${trips.cargoTitle(request)}${request.deliveryReportedAt ? ' · تحویل را اعلام کرده‌اید؛ منتظر تأیید شرکت' : ''}`));
+        `${trips.cargoTitle(request)}${request.deliveryReportedAt ? ' · تحویل را اعلام کرده‌اید؛ منتظر تأیید شرکت حمل‌ونقل' : ''}`));
     },
   },
   return_loads: {

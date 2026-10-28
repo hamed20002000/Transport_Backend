@@ -19,7 +19,7 @@ const FIELDS: { field: TemplateField; title: string; aliases: string[]; driverOn
   { field: 'destinations', title: 'مقصد', aliases: ['مقصد', 'مقصدها', 'به'] },
   { field: 'cargoTypes', title: 'نوع بار', aliases: ['نوع بار', 'بار', 'کالا', 'جنس'] },
   { field: 'vehicleTypes', title: 'نوع خودرو', aliases: ['نوع خودرو', 'خودرو', 'ماشین', 'بارگیر'] },
-  { field: 'companies', title: 'شرکت', aliases: ['شرکت', 'شرکت‌ها', 'شرکتها'], driverOnly: true },
+  { field: 'companies', title: 'شرکت حمل‌ونقل', aliases: ['شرکت حمل‌ونقل', 'شرکت حمل و نقل', 'شرکت‌های حمل‌ونقل', 'شرکت', 'شرکت‌ها', 'شرکتها'], driverOnly: true },
   { field: 'minPrice', title: 'حداقل کرایه', aliases: ['حداقل کرایه', 'حداقل', 'کرایه از'] },
   { field: 'maxPrice', title: 'حداکثر کرایه', aliases: ['حداکثر کرایه', 'حداکثر', 'کرایه تا'] },
 ];

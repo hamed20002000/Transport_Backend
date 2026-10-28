@@ -49,12 +49,30 @@ export class WebPushService {
     return this.publicKey !== null;
   }
 
-  /** The same device subscribing again (or for another account on it) replaces its row. */
-  async subscribe(userId: string, subscription: { endpoint: string; keys: { p256dh: string; auth: string } }): Promise<void> {
+  /**
+   * A device never moves to another account quietly: an account made later on the same phone (e.g. for someone who
+   * cannot sign up themselves) would otherwise take it, and its notifications would go to the phone's owner. Only an
+   * explicit takeOver (the holder confirmed in the profile that the phone is theirs) moves it. False when the device
+   * belongs to another account; the same account subscribing again refreshes its keys.
+   */
+  async subscribe(
+    userId: string,
+    subscription: { endpoint: string; keys: { p256dh: string; auth: string } },
+    takeOver = false,
+  ): Promise<boolean> {
+    const existing = await this.subscriptions.findOne({ where: { endpoint: subscription.endpoint } });
+    if (existing && existing.userId !== userId && !takeOver) return false;
     await this.subscriptions.upsert(
       { userId, endpoint: subscription.endpoint, p256dh: subscription.keys.p256dh, auth: subscription.keys.auth },
       ['endpoint'],
     );
+    return true;
+  }
+
+  /** The account whose notifications this device gets, if any. */
+  async ownerOf(endpoint: string): Promise<string | null> {
+    const row = await this.subscriptions.findOne({ where: { endpoint } });
+    return row?.userId ?? null;
   }
 
   async unsubscribe(userId: string, endpoint: string): Promise<void> {

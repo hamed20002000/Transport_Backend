@@ -9,9 +9,9 @@ import { RecordStatus } from 'src/domain/enums/RecordStatus';
 
 const roleTitles: Record<AccountType | 'ADMIN', string> = {
   [AccountType.Driver]: 'راننده',
-  [AccountType.Company]: 'شرکت',
+  [AccountType.Company]: 'شرکت حمل‌ونقل',
   [AccountType.Broker]: 'واسطه',
-  [AccountType.Factory]: 'کارخانه',
+  [AccountType.Factory]: 'شرکت / کارخانه',
   ADMIN: 'مدیر سیستم',
 };
 

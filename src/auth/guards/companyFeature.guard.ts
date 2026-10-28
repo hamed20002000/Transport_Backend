@@ -35,7 +35,7 @@ export class CompanyFeatureGuard implements CanActivate {
         statusCode: HttpStatus.PAYMENT_REQUIRED,
         code: COMPANY_FEATURE_REQUIRED_CODE,
         feature,
-        message: `بخش «${COMPANY_FEATURE_TITLES[feature]}» برای شرکت شما فعال نیست؛ برای استفاده آن را بخرید.`,
+        message: `بخش «${COMPANY_FEATURE_TITLES[feature]}» برای شرکت حمل‌ونقل شما فعال نیست؛ برای استفاده آن را بخرید.`,
       },
       HttpStatus.PAYMENT_REQUIRED,
     );

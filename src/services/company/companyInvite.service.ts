@@ -131,8 +131,8 @@ export class CompanyInviteService {
       return `${item.locked ? '🔒' : '✅'} ${item.title} — ${price}`;
     });
     return [
-      `🏢 به سامانه خوش آمدید؛ حساب شرکت شما را «${parentName}» ساخته است.`,
-      'بخش‌های پنل شرکت تا وقتی آن‌ها را نخرید فعال نمی‌شوند:',
+      `🏢 به سامانه خوش آمدید؛ حساب شرکت حمل‌ونقل شما را «${parentName}» ساخته است.`,
+      'بخش‌های پنل شرکت حمل‌ونقل تا وقتی آن‌ها را نخرید فعال نمی‌شوند:',
       lines.join('\n'),
       'برای خرید، «💎 خرید امکانات» را در منو بزنید (کارت‌به‌کارت و ارسال عکس رسید) یا از پنل وب بخرید. بعد از تأیید رسید، همان بخش باز می‌شود.',
     ].join('\n\n');
@@ -155,7 +155,7 @@ export class CompanyInviteService {
 
   private async name(userId: string): Promise<string> {
     const user = await this.users.findOne({ where: { id: userId } });
-    return user?.companyName?.trim() || [user?.firstName, user?.lastName].filter(Boolean).join(' ') || user?.mobile || 'شرکت';
+    return user?.companyName?.trim() || [user?.firstName, user?.lastName].filter(Boolean).join(' ') || user?.mobile || 'شرکت حمل‌ونقل';
   }
 }
 

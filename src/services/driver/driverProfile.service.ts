@@ -31,6 +31,8 @@ export interface DriverCard {
   userId: string;
   name: string;
   mobile: string | null;
+  /** the account's own code (User.accountCode), to tell drivers apart on the phone */
+  accountCode: string | null;
   vehicleType: string | null;
   vehicleModel: string | null;
   plate: string | null;
@@ -125,7 +127,7 @@ export class DriverProfileService {
   async update(userId: string, dto: UpdateDriverProfileDto) {
     if (dto.companyUserIds !== undefined) {
       const valid = await this.availableCompanies(dto.companyUserIds);
-      if (valid.length !== dto.companyUserIds.length) throw new BadRequestException('یکی از شرکت‌های انتخاب‌شده فعال یا معتبر نیست.');
+      if (valid.length !== dto.companyUserIds.length) throw new BadRequestException('یکی از شرکت‌های حمل‌ونقل انتخاب‌شده فعال یا معتبر نیست.');
     }
     const userChanges = Object.fromEntries(USER_FIELDS.filter((f) => dto[f] !== undefined).map((f) => [f, dto[f]]));
     // راننده شخص حقیقی است؛ displayName در پنل از روی profileType نام را انتخاب می‌کند.
@@ -187,7 +189,7 @@ export class DriverProfileService {
   async cards(userIds: string[]): Promise<DriverCard[]> {
     if (!userIds.length) return [];
     const rows: Array<Record<string, unknown>> = await this.dataSource.query(
-      `SELECT u.id, u."firstName", u."lastName", u.username, u.mobile, u."companyName",
+      `SELECT u.id, u."firstName", u."lastName", u.username, u.mobile, u."accountCode", u."companyName",
               EXISTS (SELECT 1 FROM "UserRole" ur JOIN "Role" r ON r.id = ur."roleId" WHERE ur."userId" = u.id AND r.name = 'BROKER')
                 AND p."userId" IS NULL AS broker,
               p."vehicleType", p."vehicleModel", p.plate, p."capacityTons", p."homeCity", p."facePhoto", p."vehiclePhoto", p."tripType"
@@ -209,6 +211,7 @@ export class DriverProfileService {
           name,
           broker,
           mobile: (row.mobile as string) ?? null,
+          accountCode: (row.accountCode as string) ?? null,
           vehicleType: (row.vehicleType as string) ?? null,
           vehicleModel: (row.vehicleModel as string) ?? null,
           plate: (row.plate as string) ?? null,
@@ -365,6 +368,7 @@ export class DriverProfileService {
     return {
       username: user.username,
       mobile: user.mobile ?? null,
+      accountCode: user.accountCode ?? null,
       firstName: user.firstName ?? null,
       lastName: user.lastName ?? null,
       nationalCode: user.nationalCode ?? null,

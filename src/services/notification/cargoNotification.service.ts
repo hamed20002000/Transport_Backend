@@ -53,7 +53,7 @@ const DETAIL_BUTTON = '🗺 مسیر و جزئیات';
 // را در CargoDialog باز می‌کند؛ واتساپ دکمه ندارد و اسم بخش منو را می‌فرستد.
 const SUGGESTIONS_BUTTON = '📥 بارهای پیشنهادی';
 const SUGGESTIONS_UNREAD_ACTION = 'cg:sg:u:1';
-const WHATSAPP_SUGGESTIONS_HINT = 'برای دیدن جزئیات، «بارهای شرکت» را بفرستید.';
+const WHATSAPP_SUGGESTIONS_HINT = 'برای دیدن جزئیات، «بارهای شرکت حمل‌ونقل» را بفرستید.';
 // تا یک دقیقه از آخرین بار، اعلان در جای خودش تازه می‌شود.
 const SUGGESTION_BURST_MS = 60 * 1000;
 const WHATSAPP_EDIT_WINDOW_MS = 14 * 60 * 1000;

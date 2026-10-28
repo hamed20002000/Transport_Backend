@@ -139,7 +139,7 @@ export class CargoExcelService {
 
       const contactPhones = values.contactPhones ? phones(values.contactPhones) : defaultPhones;
       if (!contactPhones.length) {
-        rowErrors.push({ row, column: 'شماره تماس', message: 'شماره تماس خالی است و شماره‌ای هم در پروفایل شرکت نیست.' });
+        rowErrors.push({ row, column: 'شماره تماس', message: 'شماره تماس خالی است و شماره‌ای هم در پروفایل شرکت حمل‌ونقل یا شرکت / کارخانه نیست.' });
       } else if (contactPhones.length > 5 || contactPhones.some((phone) => !PHONE.test(phone))) {
         rowErrors.push({ row, column: 'شماره تماس', message: 'شماره تماس درست نیست (حداکثر ۵ شماره، با ویرگول جدا).' });
       }

@@ -95,7 +95,7 @@ export class DriverInviteService {
   private async inviteOne(manager: EntityManager, companyUserId: string, mobile: string, name: string | null) {
     let driver = await manager.findOne(User, { where: { mobile }, relations: { userRoles: { role: true } } });
     const roles = driver?.userRoles?.filter((item) => item.role?.recordStatus === RecordStatus.Active).map((item) => item.role.name) ?? [];
-    if (roles.length && !roles.includes(DRIVER_ROLE)) throw new ConflictException('این شماره حساب شرکت یا کارخانه است.');
+    if (roles.length && !roles.includes(DRIVER_ROLE)) throw new ConflictException('این شماره حساب شرکت حمل‌ونقل یا شرکت / کارخانه است.');
     const created = !roles.length;
     if (created) {
       const role = await manager.findOne(Role, { where: { name: DRIVER_ROLE, recordStatus: RecordStatus.Active } });

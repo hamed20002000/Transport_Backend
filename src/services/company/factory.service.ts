@@ -71,7 +71,7 @@ export class FactoryService {
     const invite = await this.dataSource.transaction(async (manager) => {
       let factory = await manager.findOne(User, { where: { mobile }, relations: { userRoles: { role: true } } });
       const roles = factory?.userRoles?.filter((item) => item.role?.recordStatus === RecordStatus.Active).map((item) => item.role.name) ?? [];
-      if (roles.length && !roles.includes(FACTORY_ROLE)) throw new ConflictException('این شماره حساب راننده یا شرکت است و نمی‌شود آن را کارخانه دعوت کرد.');
+      if (roles.length && !roles.includes(FACTORY_ROLE)) throw new ConflictException('این شماره حساب راننده یا شرکت حمل‌ونقل است و نمی‌شود آن را کارخانه دعوت کرد.');
       if (!roles.length) {
         const role = await manager.findOne(Role, { where: { name: FACTORY_ROLE, recordStatus: RecordStatus.Active } });
         if (!role) throw new BadRequestException('نقش کارخانه در سامانه تعریف نشده است.');
@@ -98,8 +98,8 @@ export class FactoryService {
 
   /** کارخانه‌های عضو این شرکت، جدیدترین اول، با دعوت هر کدام و تعداد بارهایی که فرستاده‌اند. */
   async factoriesOf(companyUserId: string) {
-    const rows: Array<{ userId: string; name: string; mobile: string | null; joinedAt: Date; loads: number; token: string | null; usedAt: Date | null }> = await this.dataSource.query(
-      `SELECT u.id AS "userId", ${displayName('u')} AS name, u.mobile, fc."createdAt" AS "joinedAt",
+    const rows: Array<{ userId: string; name: string; mobile: string | null; accountCode: string | null; joinedAt: Date; loads: number; token: string | null; usedAt: Date | null }> = await this.dataSource.query(
+      `SELECT u.id AS "userId", ${displayName('u')} AS name, u.mobile, u."accountCode", fc."createdAt" AS "joinedAt",
          (SELECT COUNT(*)::int FROM "FactoryCargo" c WHERE c."factoryUserId" = u.id AND c."companyUserId" = fc."companyUserId") AS loads,
          i.token, i."usedAt"
        FROM "FactoryCompany" fc JOIN "User" u ON u.id = fc."factoryUserId"
@@ -287,7 +287,7 @@ export class FactoryService {
 
   private async assertMember(factoryUserId: string, companyUserId: string): Promise<void> {
     if (!(await this.companies(factoryUserId)).some((company) => company.userId === companyUserId)) {
-      throw new ForbiddenException('برای این شرکت لینک دعوت ندارید؛ یکی از شرکت‌های لیست خودتان را انتخاب کنید.');
+      throw new ForbiddenException('برای این شرکت حمل‌ونقل لینک دعوت ندارید؛ یکی از شرکت‌های حمل‌ونقل لیست خودتان را انتخاب کنید.');
     }
   }
 

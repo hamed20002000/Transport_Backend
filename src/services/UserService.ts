@@ -33,7 +33,7 @@ const PROFILE_FIELDS = [
 // what a published cargo shows of its company (CargoAudienceRepository.findPublisherContact)
 const CONTACT_FIELDS = ['profileType', 'firstName', 'lastName', 'companyName', 'domesticCompanyName', 'internationalCompanyName', 'phone'] as const;
 
-export type UserProfile = Pick<User, 'id' | 'username' | 'email' | 'mobile' | (typeof PROFILE_FIELDS)[number]>;
+export type UserProfile = Pick<User, 'id' | 'username' | 'email' | 'mobile' | 'accountCode' | (typeof PROFILE_FIELDS)[number]>;
 
 @Injectable()
 export class UserService {
@@ -133,6 +133,7 @@ export class UserService {
       username: user.username,
       email: user.email ?? null,
       mobile: user.mobile ?? null,
+      accountCode: user.accountCode ?? null,
     };
     for (const field of PROFILE_FIELDS) profile[field] = user[field] ?? null;
     return profile as UserProfile;

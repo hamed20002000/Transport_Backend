@@ -55,7 +55,7 @@ const REQUIRED_FIELDS: Record<VerifiedKind, Array<{ key: keyof User; title: stri
   ],
 };
 
-const NOUN: Record<VerifiedKind, string> = { COMPANY: 'شرکت', FACTORY: 'کارخانه', BROKER: 'واسط' };
+const NOUN: Record<VerifiedKind, string> = { COMPANY: 'شرکت حمل‌ونقل', FACTORY: 'شرکت / کارخانه', BROKER: 'واسط' };
 const REQUIRED_TEXT: Record<VerifiedKind, string> = {
   COMPANY: 'نام تجاری، کد اقتصادی و شماره‌ی شرکت',
   FACTORY: 'نام و شماره‌ی کارخانه',
@@ -163,7 +163,7 @@ export class AccountVerificationService {
   async list(parentUserId: string, statuses: VerificationStatus[] = ['PENDING']) {
     await this.assertParent(parentUserId);
     const rows: Array<Record<string, unknown>> = await this.dataSource.query(
-      `SELECT DISTINCT u.id AS "userId", u.mobile, u."verificationStatus" AS status, u."verificationRequests" AS requests,
+      `SELECT DISTINCT u.id AS "userId", u.mobile, u."accountCode", u."verificationStatus" AS status, u."verificationRequests" AS requests,
          u."verificationNote" AS note, u."verificationRequestedAt" AS "requestedAt", u."verificationDecidedAt" AS "decidedAt",
          u."createdAt", ${PROFILE_FIELDS.map((field) => `u."${field}"`).join(', ')},
          CASE WHEN bool_or(r.name = '${FACTORY_ROLE}') THEN 'FACTORY' WHEN bool_or(r.name = '${BROKER_ROLE}') THEN 'BROKER' ELSE 'COMPANY' END AS kind
