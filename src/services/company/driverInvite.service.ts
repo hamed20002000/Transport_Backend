@@ -52,7 +52,7 @@ export class DriverInviteService {
 
   /**
    * Each number on its own: a refused one (bad number, a company's or factory's) does not stop the others. Then the
-   * drivers invited hear of it by SMS: one alone gets its own link, several get one group SMS with the sign-in address.
+   * drivers invited hear of it by SMS, each with its own web and messenger links.
    */
   async invite(companyUserId: string, drivers: DriverInviteInput[]): Promise<{ outcomes: DriverInviteOutcome[]; sms: InviteSmsResult }> {
     const outcomes = await this.inviteAll(companyUserId, drivers);
@@ -61,13 +61,17 @@ export class DriverInviteService {
   }
 
   private async notify(companyUserId: string, invited: Array<{ mobile: string; token: string }>): Promise<InviteSmsResult> {
-    if (!invited.length) return { status: 'sent', count: 0 };
-    const panel = this.sms.panelUrl();
-    if (!panel) return { status: 'notConfigured', count: invited.length };
-    const intro = `«${await this.companyName(companyUserId)}» شما را به رانندگانش اضافه کرده و بارهایش برایتان اعلام می‌شود.`;
-    if (invited.length === 1) return this.sms.sendOne(invited[0].mobile, `${intro}\nورود با همین شماره:\n${panel}/driver-invite/${invited[0].token}`);
-    return this.sms.sendGroup(invited.map((item) => item.mobile), `${intro}\nورود با همین شماره:\n${panel}/auth/login`);
+    // every driver gets its own links, so a batch goes number by number
+    const inviter = await this.companyName(companyUserId);
+    let failed = false;
+    for (const { mobile, token } of invited) {
+      const result = await this.sms.sendInvite(mobile, `/driver-invite/${token}`, inviter);
+      if (result.status === 'off' || result.status === 'notConfigured') return { status: result.status, count: invited.length };
+      failed ||= result.status === 'failed';
+    }
+    return { status: failed ? 'failed' : 'sent', count: invited.length };
   }
+
 
   private async inviteAll(companyUserId: string, drivers: DriverInviteInput[]): Promise<DriverInviteOutcome[]> {
     if (!drivers.length) throw new BadRequestException('دست‌کم یک شماره وارد کنید.');

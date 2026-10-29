@@ -52,6 +52,11 @@ export function addCompaniesPrice(policy: BrokerAccessPolicy, existing: number, 
   return (BigInt(paidAfter - paidBefore) * BigInt(policy.extraCompanyPrice)).toString();
 }
 
+const companyView = (company: { userId: string; name: string | null; accountCode: string | null }) => ({
+  userId: company.userId,
+  name: company.name || company.accountCode || '—',
+});
+
 export interface BrokerOrderInput {
   kind: 'NEW' | 'ADD';
   companyUserIds: string[];
@@ -108,6 +113,11 @@ export class BrokerAccessService {
     return !visible || visible.includes(publisherUserId);
   }
 
+  /** The broker may work now: the purchase is off, or it has a period open. */
+  async hasOpenAccess(userId: string, now = new Date()): Promise<boolean> {
+    return !(await this.getPolicy()).enabled || !!(await this.currentPeriod(userId, now));
+  }
+
   async isBroker(userId: string): Promise<boolean> {
     const rows: Array<{ name: string }> = await this.dataSource.query(
       `SELECT r.name FROM "UserRole" ur JOIN "Role" r ON r.id = ur."roleId" AND r."recordStatus" = $2 WHERE ur."userId" = $1`,
@@ -123,13 +133,13 @@ export class BrokerAccessService {
 
   /** وضعیت برای صفحه‌ی خرید: قیمت‌ها، دوره‌ی باز و تمدیدی، شرکت‌های قابل انتخاب و آخرین خریدها. */
   async status(userId: string, now = new Date()) {
-    const [policy, companies, periods, latestOrders] = await Promise.all([
+    const [policy, companies, names, periods, latestOrders] = await Promise.all([
       this.getPolicy(),
       this.companyList(),
+      this.companyNames(),
       this.periods.find({ where: { userId, expireAt: MoreThan(now) }, order: { startAt: 'ASC' } }),
       this.orders.find({ where: { userId }, order: { createdAt: 'DESC' }, take: 20 }),
     ]);
-    const names = new Map(companies.map((company) => [company.userId, company.name]));
     const view = (period: BrokerAccessPeriod) => ({
       id: period.id,
       startAt: period.startAt,
@@ -169,9 +179,21 @@ export class BrokerAccessService {
     return rows.map((row) => ({ ...row, companies: row.companies ?? 0 }));
   }
 
-  /** شرکت‌های حمل‌ونقل فعال که واسط می‌تواند انتخاب کند. */
+  /**
+   * شرکت‌هایی که واسط می‌تواند انتخاب کند: شرکت مادر و شرکت‌های زیر آن (دعوت‌شده یا تأییدشده‌ی شرکت مادر)؛ شرکت
+   * خودثبت‌نام‌کرده‌ای که هنوز تأیید نشده نه.
+   */
   async companyList(): Promise<Array<{ userId: string; name: string }>> {
-    return (await this.companies.listCompanies()).map((company) => ({ userId: company.userId, name: company.name || company.accountCode || '—' }));
+    const companies = await this.companies.listCompanies();
+    const parents = new Set(companies.filter((company) => company.isParentCompany).map((company) => company.userId));
+    return companies
+      .filter((company) => company.isParentCompany || (company.invitedByCompanyUserId && parents.has(company.invitedByCompanyUserId)))
+      .map(companyView);
+  }
+
+  /** نام همه‌ی شرکت‌ها، برای دوره‌ها و سفارش‌هایی که شرکتشان دیگر در فهرست انتخاب نیست. */
+  private async companyNames(): Promise<Map<string, string>> {
+    return new Map((await this.companies.listCompanies()).map((company) => [company.userId, companyView(company).name]));
   }
 
   //#endregion
@@ -226,11 +248,10 @@ export class BrokerAccessService {
   }
 
   async listOrders(statuses: SubscriptionOrderStatus[]) {
-    const [orders, companies] = await Promise.all([
+    const [orders, names] = await Promise.all([
       this.orders.find({ where: { status: In(statuses) }, relations: { user: true }, order: { createdAt: 'DESC' }, take: 100 }),
-      this.companyList(),
+      this.companyNames(),
     ]);
-    const names = new Map(companies.map((company) => [company.userId, company.name]));
     return orders.map((order) => ({
       ...this.orderView(order, names),
       userId: order.userId,

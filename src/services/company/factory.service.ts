@@ -89,10 +89,7 @@ export class FactoryService {
       const existing = await manager.findOne(FactoryInvite, { where: { companyUserId, factoryUserId } });
       return existing ?? manager.save(FactoryInvite, manager.create(FactoryInvite, { companyUserId, factoryUserId, mobile, token: newToken() }));
     });
-    const panel = this.sms.panelUrl();
-    const sms = panel
-      ? await this.sms.sendOne(invite.mobile, `«${await this.companyName(companyUserId)}» شما را برای ثبت بار دعوت کرده است؛ بارتان مستقیم به این شرکت می‌رسد.\nورود با همین شماره:\n${panel}/invite/${invite.token}`)
-      : { status: 'notConfigured' as const, count: 1 };
+    const sms = await this.sms.sendInvite(invite.mobile, `/invite/${invite.token}`, await this.companyName(companyUserId));
     return { token: invite.token, mobile: invite.mobile, factoryUserId: invite.factoryUserId, usedAt: invite.usedAt ?? null, name: name ?? (await this.companyName(invite.factoryUserId)), sms };
   }
 

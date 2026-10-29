@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -185,10 +186,12 @@ export class AccountVerificationService {
   async approve(parentUserId: string, userId: string) {
     await this.assertParent(parentUserId);
     const kind = await this.dataSource.transaction(async (manager) => {
-      const user = await manager.findOne(User, { where: { id: userId }, relations: { userRoles: { role: true } }, lock: { mode: 'pessimistic_write' } });
+      // Postgres can't lock the nullable side of the roles' LEFT JOIN, so the row is locked alone and the roles read after.
+      const user = await manager.findOne(User, { where: { id: userId }, lock: { mode: 'pessimistic_write' } });
       if (!user) throw new NotFoundException('حساب پیدا نشد.');
       if (user.verificationStatus !== 'PENDING') throw new ConflictException('این درخواست در انتظار بررسی نیست.');
-      const kind = kindOf(user);
+      const withRoles = await manager.findOne(User, { where: { id: userId }, relations: { userRoles: { role: true } } });
+      const kind = kindOf(withRoles ?? user);
       await manager.update(User, { id: userId }, {
         verificationStatus: 'APPROVED',
         verificationDecidedAt: new Date(),
@@ -240,6 +243,6 @@ export class AccountVerificationService {
 
   /** The parent companies (a new request) or the account (a decision) hear of it through SubscriptionNotifier. */
   private async announce(channel: string, event: AccountVerificationEvent): Promise<void> {
-    await this.redis.publish(channel, JSON.stringify(event)).catch(() => undefined);
+    await this.redis.publish(channel, JSON.stringify({ ...event, noticeId: randomUUID() })).catch(() => undefined);
   }
 }

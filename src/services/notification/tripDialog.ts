@@ -193,9 +193,9 @@ export class TripDialog implements BotDialog, OnModuleInit {
 
     const isCompanyAction = [Action.CompanyRequests, Action.CompanyTrips, Action.Accept, Action.Reject, Action.Location, Action.LocationRequest, Action.RejectDelivery]
       .some((prefix) => id.startsWith(prefix));
-    // تحویل را هر دو طرف ثبت می‌کنند
+    // تحویل را هر دو طرف ثبت می‌کنند؛ بار واسط را خود واسط اعلام می‌کند
     const roles = id.startsWith(Action.Deliver)
-      ? [...DRIVER_ROLES, ...COMPANY_ROLES]
+      ? [...LOAD_REQUESTER_ROLES, ...COMPANY_ROLES]
       : isCompanyAction
         ? COMPANY_ROLES
         : REQUESTER_ACTIONS.some((prefix) => id.startsWith(prefix))
@@ -295,6 +295,8 @@ export class TripDialog implements BotDialog, OnModuleInit {
     const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
     if (page > pages && total > 0) return this.driverRequestsView(ctx, pages, notice);
 
+    // a broker has no trip of its own: it reports the delivery of an accepted load from here
+    const driver = await this.hasRole(ctx, DRIVER_ROLES);
     let body = this.t('myRequests.empty');
     const cancels: BotAction[] = [];
     if (items.length) {
@@ -304,10 +306,15 @@ export class TripDialog implements BotDialog, OnModuleInit {
           if (request.status === CargoRequestStatus.Pending) {
             cancels.push({ id: `${Action.Cancel}${request.id}`, label: this.t('actions.cancelRequest', { index }) });
           }
+          const reported = request.status === CargoRequestStatus.Accepted && !!request.deliveryReportedAt;
+          if (!driver && request.status === CargoRequestStatus.Accepted && !reported) {
+            cancels.push({ id: `${Action.Deliver}${request.id}`, label: this.t('actions.deliveredN', { index }) });
+          }
           return [
             `${index}. ${this.trips.cargoTitle(request)}`,
             request.listing?.companyName ? this.t('myRequests.company', { company: request.listing.companyName }) : '',
             `${STATUS_ICON[request.status]} ${this.t(`status.${request.status}`)} · ${this.ago(request.updatedAt)}`,
+            reported ? this.t('myRequests.awaitingConfirm', { ago: this.ago(request.deliveryReportedAt) }) : '',
           ]
             .filter(Boolean)
             .join('\n');
@@ -316,8 +323,6 @@ export class TripDialog implements BotDialog, OnModuleInit {
       if (pages > 1) body += `\n\n${this.t('page', { page: fa(page), pages: fa(pages) })}`;
     }
 
-    // a broker has no trip of its own
-    const driver = await this.hasRole(ctx, DRIVER_ROLES);
     const rows = new Rows()
       .grid(cancels)
       .add(...this.pager(Action.DriverRequests, page, pages))
@@ -394,7 +399,8 @@ export class TripDialog implements BotDialog, OnModuleInit {
       notice = this.conflictText(error, 'trip');
     }
     const byCompany = request ? request.companyUserId === ctx.userId : await this.hasRole(ctx, COMPANY_ROLES);
-    return byCompany ? this.companyTripsView(ctx, 1, notice) : this.activeTripView(ctx, notice);
+    if (byCompany) return this.companyTripsView(ctx, 1, notice);
+    return (await this.hasRole(ctx, DRIVER_ROLES)) ? this.activeTripView(ctx, notice) : this.driverRequestsView(ctx, 1, notice);
   }
 
   private async rejectDelivery(ctx: BotContext, requestId: string): Promise<BotReply> {
@@ -966,26 +972,28 @@ export class TripDialog implements BotDialog, OnModuleInit {
       const blocks: string[] = [];
       for (const [i, trip] of items.entries()) {
         const index = fa((page - 1) * PAGE_SIZE + i + 1);
-        const [driver, location] = await Promise.all([
+        const [driver, location, broker] = await Promise.all([
           this.trips.contact(trip.driverUserId),
           this.trips.lastLocation(trip.driverUserId),
+          this.trips.isBroker(trip.driverUserId),
         ]);
         blocks.push(
           [
-            this.t('companyTrips.item', {
+            this.t(broker ? 'companyTrips.itemBroker' : 'companyTrips.item', {
               index,
               driver: this.trips.describe(driver),
               cargo: this.trips.cargoTitle(trip),
               ago: this.ago(trip.decidedAt ?? trip.updatedAt),
             }),
-            trip.deliveryReportedAt ? this.t('companyTrips.reported', { ago: this.ago(trip.deliveryReportedAt) }) : '',
-            this.locationLine(location),
+            trip.deliveryReportedAt ? this.t(broker ? 'companyTrips.reportedBroker' : 'companyTrips.reported', { ago: this.ago(trip.deliveryReportedAt) }) : '',
+            // a broker has no vehicle to follow
+            broker ? '' : this.locationLine(location),
           ]
             .filter(Boolean)
             .join('\n'),
         );
         buttons.push(
-          { id: `${Action.Location}${trip.id}`, label: this.t('actions.locationN', { index }) },
+          ...(broker ? [] : [{ id: `${Action.Location}${trip.id}`, label: this.t('actions.locationN', { index }) }]),
           {
             id: `${Action.Deliver}${trip.id}`,
             label: this.t(trip.deliveryReportedAt ? 'actions.confirmDeliveryN' : 'actions.deliveredN', { index }),

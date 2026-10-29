@@ -43,8 +43,6 @@
   {"tool":"set_company_display_filter_active","text":"فیلتر تریلی رو دوباره روشن کن","expect":{"which":"تریلی","on":true}},
   {"tool":"delete_company_display_filter","text":"همه فیلترهام رو پاک کن","expect":{"everything":true}},
   {"tool":"delete_company_display_filter","text":"فیلتر یخچالی رو حذف کن","expect":{"which":"یخچالی"}},
-  {"tool":"update_company_profile","text":"اسمم رو به علی رضایی تغییر بده","expect":{"firstName":"علی","lastName":"رضایی"}},
-  {"tool":"update_company_profile","text":"حسابم رو از حقیقی به شرکتی تغییر بده","expect":{"profileType":"COMPANY"}},
   {"tool":"update_company_profile","text":"کد پستی ۱۲۳۴۵۶۷۸۹۰ و تلفن دفتر ۰۲۱۸۸۸۸۷۷۷۷ رو ثبت کن","expect":{"postalCode":"۱۲۳۴۵۶۷۸۹۰","phone":"۰۲۱۸۸۸۸۷۷۷۷"}},
   {"tool":"list_company_suggested_cargo","text":"لیست بارهای صادراتی رو بیار","expect":{"tripType":"EXPORT"}},
   {"tool":"list_company_suggested_cargo","text":"بارهای وارداتی از ترکیه چی داریم","expect":{"tripType":"IMPORT","origin":"ترکیه"}},

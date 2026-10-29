@@ -209,10 +209,13 @@ export class SubscriptionNotifier implements OnModuleInit {
     ]);
   }
 
-  /** The dedupe key of handle() is orderId: a verification event gets the user and the minute instead. */
+  /**
+   * The dedupe key of handle() is orderId: a verification event gets its own noticeId (the user and the minute for one
+   * published before it had one). The minute alone took a request right after a rejection for the first one.
+   */
   private withNoticeId(message: string): string {
     const event = JSON.parse(message) as AccountVerificationEvent;
-    return JSON.stringify({ ...event, orderId: `${event.userId}:${event.approved ?? 'request'}:${Math.floor(Date.now() / 60_000)}` });
+    return JSON.stringify({ ...event, orderId: event.noticeId ?? `${event.userId}:${event.approved ?? 'request'}:${Math.floor(Date.now() / 60_000)}` });
   }
 
   /** A self-signed-up company or factory asked to be checked: every parent company hears of it. */

@@ -7,7 +7,7 @@ import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { COMPANY_INVITE_PREFIX } from 'src/services/messengerBot/core/factoryInvite';
 import { CompanyInviteService } from 'src/services/company/companyInvite.service';
 import { isCompanyRole } from 'src/services/company/companyFeature.service';
-import { messengerInvites } from './messengerInvites';
+import { messengerInvites } from 'src/services/company/inviteLinks';
 
 type AuthRequest = { user?: { userId?: string; roles?: string[] } };
 
@@ -58,17 +58,19 @@ export class CompanyInviteController {
   }
 
   private messengers(token: string) {
-    return messengerInvites(this.config, `${COMPANY_INVITE_PREFIX}${token}`, 'کد دعوت شرکت حمل‌ونقل');
+    return messengerInvites(this.config, `${COMPANY_INVITE_PREFIX}${token}`);
   }
 }
 
 /** صفحه‌ی لینک دعوت شرکت پیش از ورود: شرکت مادر و شماره‌ی دعوت‌شده (پوشیده). */
 @Controller('api/company-invites')
 export class CompanyInviteInfoController {
-  constructor(private readonly invites: CompanyInviteService) {}
+  constructor(private readonly invites: CompanyInviteService, private readonly config: ConfigService) {}
 
+  // the sign-in page the link opens also offers the messengers, with this invite's code
   @Get(':token')
-  info(@Param('token') token: string) {
-    return this.invites.info(token);
+  async info(@Param('token') token: string) {
+    const info = await this.invites.info(token);
+    return { ...info, messengers: info.valid ? messengerInvites(this.config, `${COMPANY_INVITE_PREFIX}${token}`) : null };
   }
 }

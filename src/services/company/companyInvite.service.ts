@@ -70,10 +70,7 @@ export class CompanyInviteService {
       await manager.save(UserRole, manager.create(UserRole, { userId: saved.id, roleId: role.id }));
       return manager.save(CompanyInvite, manager.create(CompanyInvite, { parentUserId, companyUserId: saved.id, mobile, token: randomBytes(18).toString('base64url') }));
     });
-    const panel = this.sms.panelUrl();
-    const sms = panel
-      ? await this.sms.sendOne(invite.mobile, `حساب شرکت حمل‌ونقل شما را «${await this.name(parentUserId)}» در ترابوت ساخته است.\nورود با همین شماره:\n${panel}/join/${invite.token}`)
-      : { status: 'notConfigured' as const, count: 1 };
+    const sms = await this.sms.sendInvite(invite.mobile, `/join/${invite.token}`, await this.name(parentUserId));
     return { ...this.view(invite, name ?? (await this.name(invite.companyUserId))), sms };
   }
 

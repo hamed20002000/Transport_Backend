@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 
+import { inviteText } from './inviteLinks';
+
 /** what happened to the invite SMS, shown to the inviting company */
 export type InviteSmsStatus =
   /** sent to the provider */
@@ -19,12 +21,9 @@ export interface InviteSmsResult {
   count: number;
 }
 
-// the provider's limit for one «advanced» send is not documented here: big batches go in parts of this size
-const GROUP_PART = 100;
-
 /**
- * پیامک دعوت (راننده، کارخانه، شرکت) با ملی‌پیامک: یک شماره با send/simple (لینک شخصی همان دعوت) و چند شماره یک‌جا
- * با send/advanced (یک متن برای همه؛ لینک ورود عمومی، چون حساب هر کس از قبل با شماره‌اش ساخته شده).
+ * پیامک دعوت (راننده، کارخانه، شرکت) با ملی‌پیامک (send/simple): هر شماره لینک وب شخصی خودش را می‌گیرد (inviteText)؛
+ * لینک ربات‌ها در صفحه‌ی ورودی است که همان لینک باز می‌کند. دعوت چندتایی هم شماره‌به‌شماره فرستاده می‌شود.
  * فقط وقتی SMS_OTP_ENABLED=true است ارسال می‌شود؛ وگرنه متن در لاگ می‌آید. خطای ارسال دعوت را خراب نمی‌کند.
  *
  * تنظیمات: WEB_PANEL_URL (آدرس پنل وب، مثلاً https://trabot.ir)، MELIPAYAMAK_FROM (خط فرستنده) و
@@ -44,30 +43,18 @@ export class InviteSmsService {
     return this.config.get<string>('WEB_PANEL_URL')?.trim().replace(/\/+$/, '') || null;
   }
 
-  /** One number: its own text (with its personal link). */
-  async sendOne(mobile: string, text: string): Promise<InviteSmsResult> {
-    return this.send('simple', [mobile], text);
+  /** One invite from inviter (the inviting company's name): its web link (panel path + token). */
+  async sendInvite(mobile: string, webPath: string, inviter: string): Promise<InviteSmsResult> {
+    const panel = this.panelUrl();
+    if (!panel) return { status: 'notConfigured', count: 1 };
+    return this.sendOne(mobile, inviteText(`${panel}${webPath}`, inviter));
   }
 
-  /** Several numbers at once: one text for all of them. */
-  async sendGroup(mobiles: string[], text: string): Promise<InviteSmsResult> {
-    if (mobiles.length === 1) return this.sendOne(mobiles[0], text);
-    let failed = false;
-    for (let i = 0; i < mobiles.length; i += GROUP_PART) {
-      const part = await this.send('advanced', mobiles.slice(i, i + GROUP_PART), text);
-      if (part.status !== 'sent') {
-        if (part.status !== 'failed') return { status: part.status, count: mobiles.length };
-        failed = true;
-      }
-    }
-    return { status: failed ? 'failed' : 'sent', count: mobiles.length };
-  }
-
-  private async send(method: 'simple' | 'advanced', to: string[], text: string): Promise<InviteSmsResult> {
-    const count = to.length;
-    if (!count) return { status: 'sent', count };
+  /** One number, one text. */
+  async sendOne(to: string, text: string): Promise<InviteSmsResult> {
+    const count = 1;
     if (this.config.get<string>('SMS_OTP_ENABLED')?.trim().toLowerCase() !== 'true') {
-      this.logger.log(`Invite SMS is off; would send to ${count} number(s): ${text}`);
+      this.logger.log(`Invite SMS is off; would send to ${to}: ${text}`);
       return { status: 'off', count };
     }
     const key = (this.config.get<string>('MELIPAYAMAK_CONSOLE_KEY') ?? this.config.get<string>('MELIPAYAMAK_OTP_TOKEN'))?.trim();
@@ -79,8 +66,8 @@ export class InviteSmsService {
     try {
       const response = await firstValueFrom(
         this.http.post<{ status?: string }>(
-          `https://console.melipayamak.com/api/send/${method}/${encodeURIComponent(key)}`,
-          { from, to: method === 'simple' ? to[0] : to, text },
+          `https://console.melipayamak.com/api/send/simple/${encodeURIComponent(key)}`,
+          { from, to, text },
           { headers: { 'Content-Type': 'application/json' }, timeout: 15000, maxRedirects: 0 },
         ),
       );
@@ -90,7 +77,7 @@ export class InviteSmsService {
     } catch (error) {
       // the URL holds the API key: log only the provider's status text
       const failure = (error as { response?: { status?: number; data?: { status?: unknown } } })?.response;
-      this.logger.error(`Invite SMS (${method}, ${count} number(s)) failed (HTTP ${failure?.status ?? 'n/a'}): ${String(failure?.data?.status ?? (error as Error).message)}`);
+      this.logger.error(`Invite SMS failed (HTTP ${failure?.status ?? 'n/a'}): ${String(failure?.data?.status ?? (error as Error).message)}`);
       return { status: 'failed', count };
     }
   }

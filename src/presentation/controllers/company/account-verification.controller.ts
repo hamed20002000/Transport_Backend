@@ -20,7 +20,7 @@ function userId(request: AuthRequest, roles: string[]): string {
   return request.user.userId;
 }
 
-/** شرکت حمل‌ونقل یا کارخانه‌ی خودثبت‌نام‌کرده: وضعیت بررسی اعتبار و «درخواست بررسی اعتبار». */
+/** شرکت حمل‌ونقل، کارخانه یا واسط خودثبت‌نام‌کرده: وضعیت بررسی اعتبار و «درخواست بررسی اعتبار». */
 @Controller('api/account/verification')
 @UseGuards(JwtAuthGuard)
 export class AccountVerificationController {
@@ -28,13 +28,13 @@ export class AccountVerificationController {
 
   @Get()
   state(@Req() request: AuthRequest) {
-    return this.verification.state(userId(request, ['COMPANY', 'COMPANY_ADMIN', 'FACTORY']));
+    return this.verification.state(userId(request, ['COMPANY', 'COMPANY_ADMIN', 'FACTORY', 'BROKER']));
   }
 
   @Post()
   @HttpCode(200)
   request(@Req() request: AuthRequest) {
-    return this.verification.request(userId(request, ['COMPANY', 'COMPANY_ADMIN', 'FACTORY']));
+    return this.verification.request(userId(request, ['COMPANY', 'COMPANY_ADMIN', 'FACTORY', 'BROKER']));
   }
 }
 

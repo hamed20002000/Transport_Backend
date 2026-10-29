@@ -32,7 +32,7 @@ import { FACTORY_ROLE, FactoryService } from 'src/services/company/factory.servi
 import { isCompanyRole } from 'src/services/company/companyFeature.service';
 import { CargoExcelService, MAX_EXCEL_BYTES } from 'src/services/notification/cargoExcel.service';
 import { INVITE_CODE_PREFIX } from 'src/services/messengerBot/core/factoryInvite';
-import { messengerInvites } from './messengerInvites';
+import { messengerInvites } from 'src/services/company/inviteLinks';
 
 type AuthRequest = { user?: { userId?: string; roles?: string[] } };
 
@@ -99,7 +99,7 @@ export class CompanyFactoryController {
   }
 
   private messengers(token: string) {
-    return messengerInvites(this.config, `${INVITE_CODE_PREFIX}${token}`, 'کد دعوت کارخانه');
+    return messengerInvites(this.config, `${INVITE_CODE_PREFIX}${token}`);
   }
 
   @Delete(':factoryUserId')
@@ -111,11 +111,13 @@ export class CompanyFactoryController {
 /** صفحه‌ی لینک دعوت پیش از ورود: شرکت دعوت‌کننده و شماره‌ی دعوت‌شده (پوشیده). */
 @Controller('api/factory-invites')
 export class FactoryInviteController {
-  constructor(private readonly factories: FactoryService) {}
+  constructor(private readonly factories: FactoryService, private readonly config: ConfigService) {}
 
+  // the sign-in page the link opens also offers the messengers, with this invite's code
   @Get(':token')
-  info(@Param('token') token: string) {
-    return this.factories.inviteInfo(token);
+  async info(@Param('token') token: string) {
+    const info = await this.factories.inviteInfo(token);
+    return { ...info, messengers: info.valid ? messengerInvites(this.config, `${INVITE_CODE_PREFIX}${token}`) : null };
   }
 }
 

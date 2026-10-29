@@ -4,6 +4,7 @@ export const KEY_PREFIXES = {
   registrationToken: 'auth:registration-token',
   registrationLock: 'auth:registration-lock',
   registrationCooldown: 'auth:registration-cooldown',
+  registrationSends: 'auth:registration-sends',
   refreshToken: 'auth:refresh',
   telegramIdentity: 'telegram:identity:v1',
   telegramIdentityRoles: 'telegram:identity-roles:v1',
@@ -73,6 +74,7 @@ export type RedisKeyParts = {
   registrationToken: [token: string];
   registrationLock: [phone: string];
   registrationCooldown: [phone: string];
+  registrationSends: [phone: string];
   refreshToken: [token: string];
   telegramIdentity: [namespace: string, userId: string];
   telegramIdentityRoles: [namespace: string, userId: string];
@@ -178,6 +180,8 @@ export interface AccountVerificationEvent {
   reason?: string;
   /** requests left after a rejection */
   remaining?: number;
+  /** one per announcement, so every instance sends it once and a second request is not taken for the first */
+  noticeId?: string;
 }
 
 /** CompanyFeatureService → SubscriptionNotifier */

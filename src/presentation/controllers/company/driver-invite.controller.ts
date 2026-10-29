@@ -12,7 +12,7 @@ import { DRIVER_INVITE_PREFIX } from 'src/services/messengerBot/core/factoryInvi
 import { DriverInviteService, MAX_DRIVER_INVITES } from 'src/services/company/driverInvite.service';
 import { driverExcelTemplate, MAX_DRIVER_EXCEL_BYTES, readDriverExcel } from 'src/services/company/driverInviteExcel';
 import { isCompanyRole } from 'src/services/company/companyFeature.service';
-import { messengerInvites } from './messengerInvites';
+import { messengerInvites } from 'src/services/company/inviteLinks';
 
 type AuthRequest = { user?: { userId?: string; roles?: string[] } };
 
@@ -101,18 +101,20 @@ export class CompanyDriverInviteController {
   }
 
   private messengers(token: string) {
-    return messengerInvites(this.config, `${DRIVER_INVITE_PREFIX}${token}`, 'کد دعوت راننده');
+    return messengerInvites(this.config, `${DRIVER_INVITE_PREFIX}${token}`);
   }
 }
 
 /** صفحه‌ی لینک دعوت راننده: پیش از ورود شرکت و شماره‌ی دعوت‌شده (پوشیده)؛ بعد از ورود، همان شماره است؟ */
 @Controller('api/driver-invites')
 export class DriverInviteInfoController {
-  constructor(private readonly invites: DriverInviteService) {}
+  constructor(private readonly invites: DriverInviteService, private readonly config: ConfigService) {}
 
+  // the sign-in page the link opens also offers the messengers, with this invite's code
   @Get(':token')
-  info(@Param('token') token: string) {
-    return this.invites.info(token);
+  async info(@Param('token') token: string) {
+    const info = await this.invites.info(token);
+    return { ...info, messengers: info.valid ? messengerInvites(this.config, `${DRIVER_INVITE_PREFIX}${token}`) : null };
   }
 
   @Get(':token/membership')

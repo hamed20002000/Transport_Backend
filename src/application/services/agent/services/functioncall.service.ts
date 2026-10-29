@@ -21,6 +21,9 @@ import { User } from 'src/domain/entities/auth/User';
 import { RecordStatus } from 'src/domain/enums/RecordStatus';
 import { CompanyFeatureService, isCompanyRole } from 'src/services/company/companyFeature.service';
 import { COMPANY_FEATURE_TITLES, CompanyFeature } from 'src/domain/enums/companyFeature';
+import { AccountVerificationService } from 'src/services/company/accountVerification.service';
+import { BrokerAccessService } from 'src/services/company/brokerAccess.service';
+import { isBrokerOnly } from 'src/services/notification/loadRequesters';
 
 
 
@@ -42,6 +45,8 @@ export class FunctionCallService {
         private readonly cancellation: CancellationService,
         private readonly pendingConfirmationService: PendingConfirmationService,
         private readonly companyFeatures: CompanyFeatureService,
+        private readonly verification: AccountVerificationService,
+        private readonly brokerAccess: BrokerAccessService,
 
         @InjectDataSource() private readonly dataSource: DataSource
     ) {
@@ -117,19 +122,7 @@ export class FunctionCallService {
         req.user.roles = await this.activeRoles(userId);
 
         // دستیار برای شرکت غیرمادر منوی پولی است (وب، ربات‌ها و واتساپ همه از اینجا رد می‌شوند)
-        if (isCompanyRole(req.user.roles) && !(await this.companyFeatures.hasFeature(userId, CompanyFeature.Agent))) {
-            this.agentGateway.sendToolResult(userId, {
-                result: "error",
-                message: `🔒 بخش «${COMPANY_FEATURE_TITLES[CompanyFeature.Agent]}» برای شرکت حمل‌ونقل شما فعال نیست؛ برای استفاده آن را از «💎 خرید امکانات» در منو (یا پنل وب) بخرید.`,
-                prompt: prompt,
-                continuePrompt: undefined,
-                toolName: undefined,
-                lastsegment: true,
-                isSpecial: false,
-                list: []
-            });
-            return;
-        }
+        if (await this.rejectIfAgentLocked(userId, prompt, req.user.roles)) return;
 
 
 
@@ -207,6 +200,43 @@ export class FunctionCallService {
 
 
     /** همان قاعده‌ی JwtPayload: فقط نقش‌های فعال کاربر */
+    /**
+     * شرکتی که دستیار را نخریده (یا هنوز تأیید نشده): پیام قفل به socket می‌رود و true برمی‌گردد. ویس وب هم پیش از
+     * تبدیل صدا به متن (که هزینه دارد) همین را می‌پرسد.
+     */
+    async rejectIfAgentLocked(userId: string, prompt: string, roles?: string[]): Promise<boolean> {
+        const message = await this.agentLockedMessage(userId, roles ?? (await this.activeRoles(userId)));
+        if (!message) return false;
+        this.agentGateway.sendToolResult(userId, {
+            result: "error",
+            message,
+            prompt: prompt,
+            continuePrompt: undefined,
+            toolName: undefined,
+            lastsegment: true,
+            isSpecial: false,
+            list: []
+        });
+        return true;
+    }
+
+    /**
+     * Why the assistant is closed to this account, or null. A transport company: until it has the AGENT menu. A broker:
+     * until the parent company approves it, then (while brokers pay for companies) until it has bought some.
+     */
+    private async agentLockedMessage(userId: string, roles: string[]): Promise<string | null> {
+        if (isCompanyRole(roles)) {
+            if (await this.companyFeatures.hasFeature(userId, CompanyFeature.Agent)) return null;
+            return `🔒 بخش «${COMPANY_FEATURE_TITLES[CompanyFeature.Agent]}» برای شرکت حمل‌ونقل شما فعال نیست؛ برای استفاده آن را از «💎 خرید امکانات» در منو (یا پنل وب) بخرید.`;
+        }
+        if (!isBrokerOnly(roles)) return null;
+        if (!(await this.verification.isApproved(userId))) {
+            return '🔒 دستیار هوشمند بعد از تأیید حساب واسط فعال می‌شود؛ پروفایل را کامل کنید و «درخواست بررسی اعتبار» را بزنید.';
+        }
+        if (await this.brokerAccess.hasOpenAccess(userId)) return null;
+        return '🔒 دستیار هوشمند بعد از خرید بار شرکت‌ها فعال می‌شود؛ از «🔓 خرید بار شرکت‌ها» در منو (یا پنل وب) شرکت‌ها را بخرید.';
+    }
+
     private async activeRoles(userId: string): Promise<string[]> {
         const user = await this.dataSource.getRepository(User).findOne({
             where: { id: userId },

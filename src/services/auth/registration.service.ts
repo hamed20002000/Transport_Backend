@@ -35,6 +35,9 @@ interface PendingSignup {
 const OTP_TTL_SECONDS = 300;
 const OTP_COOLDOWN_SECONDS = 60;
 const MAX_ATTEMPTS = 5;
+// ۳ پیامک بدون ورود موفق → تا یک ساعت بعد از آخرین پیامک، کد تازه فرستاده نمی‌شود
+const MAX_SENDS = 3;
+const SENDS_BLOCK_SECONDS = 3600;
 const SIGNUP_TTL_SECONDS = 600;
 const REFRESH_TTL_SECONDS = 30 * 24 * 3600;
 
@@ -87,6 +90,14 @@ export class RegistrationService {
   async requestOtp(phone: string) {
     if (!this.smsOtpEnabled) return { phoneNumber: phone, expiresIn: OTP_TTL_SECONDS, retryAfter: 0 };
     return this.withLock(phone, async () => {
+      const sends = RedisService.key('registrationSends', phone);
+      if (Number(await this.redis.get(sends)) >= MAX_SENDS) {
+        const retryAfter = Math.max(1, await this.redis.ttl(sends));
+        throw new HttpException(
+          { statusCode: 429, message: `Too many codes requested. Try again in ${Math.ceil(retryAfter / 60)} minutes.`, retryAfter },
+          429,
+        );
+      }
       const cooldown = RedisService.key('registrationCooldown', phone);
       if (!(await this.redis.setIfAbsent(cooldown, '1', OTP_COOLDOWN_SECONDS))) {
         throw new HttpException(`Wait ${OTP_COOLDOWN_SECONDS} seconds before requesting another code.`, 429);
@@ -97,6 +108,8 @@ export class RegistrationService {
         const code = await this.sms.sendOtp(phone);
         const pending: PendingOtp = { codeHash: this.digest(phone, code), expiresAt: Date.now() + OTP_TTL_SECONDS * 1000, attempts: 0 };
         await this.redis.setJson(key, pending, OTP_TTL_SECONDS);
+        await this.redis.increment(sends, SENDS_BLOCK_SECONDS);
+        await this.redis.expire(sends, SENDS_BLOCK_SECONDS);
         return { phoneNumber: phone, expiresIn: OTP_TTL_SECONDS, retryAfter: OTP_COOLDOWN_SECONDS };
       } catch (error) {
         await this.redis.delete(key, cooldown);
@@ -121,7 +134,7 @@ export class RegistrationService {
           await this.redis.setJson(key, pending, Math.max(1, Math.ceil((pending.expiresAt - Date.now()) / 1000)));
           throw new BadRequestException('Invalid verification code.');
         }
-        await this.redis.delete(key);
+        await this.redis.delete(key, RedisService.key('registrationSends', phone));
       }
 
       const user = await this.accounts.findByPhone(phone);

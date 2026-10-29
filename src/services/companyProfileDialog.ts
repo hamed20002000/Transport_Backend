@@ -14,9 +14,7 @@ import { UserService } from './UserService';
 const SHOW = 'cp:show';
 const CLOSE = 'cp:close';
 const EDIT = 'cp:edit:';
-const TYPE = 'cp:type:';
 const fields = {
-  firstName: 'نام', lastName: 'نام خانوادگی', nationalCode: 'کد ملی',
   companyName: 'نام شرکت', domesticCompanyName: 'نام شرکت داخلی', internationalCompanyName: 'نام شرکت بین‌المللی',
   companyNationalId: 'شناسه ملی شرکت',
   economicCode: 'کد اقتصادی', registrationNo: 'شماره ثبت',
@@ -55,15 +53,6 @@ export class CompanyProfileDialog implements BotDialog, OnModuleInit {
     if (!(await this.allowed(ctx))) return { text: 'این بخش فقط برای حساب شرکت است.', actions: [], closed: 'denied' };
     await this.redis.delete(this.key(ctx));
     if (id === CLOSE) return { text: '', actions: [], closed: 'exit' };
-    if (id === `${EDIT}profileType`) return {
-      text: 'نوع حساب را انتخاب کنید.',
-      actions: [{ id: `${TYPE}0`, label: 'حقیقی' }, { id: `${TYPE}1`, label: 'حقوقی' }, { id: SHOW, label: '↩️ بازگشت' }],
-    };
-    if (id === `${TYPE}0` || id === `${TYPE}1`) {
-      await this.users.updateProfile(ctx.userId, { profileType: id === `${TYPE}0` ? CustomerType.Person : CustomerType.Company });
-      await this.gateway.broadcastDomainChange(ctx.userId, 'company_profile', {});
-      return this.view(ctx, 'نوع حساب ذخیره شد.');
-    }
     const field = id.slice(EDIT.length) as Field;
     if (id.startsWith(EDIT) && Object.hasOwn(fields, field)) {
       await this.redis.setJson(this.key(ctx), { field }, 15 * 60);
@@ -84,7 +73,8 @@ export class CompanyProfileDialog implements BotDialog, OnModuleInit {
     if ((await validate(dto, { whitelist: true, forbidNonWhitelisted: true })).length) {
       return { text: `${fields[session.field]} معتبر نیست. مقدار درست را دوباره بفرستید.`, actions: [{ id: SHOW, label: 'انصراف' }] };
     }
-    await this.users.updateProfile(ctx.userId, dto);
+    // شرکت همیشه حقوقی است؛ پروفایل قدیمیِ «حقیقی» با اولین ذخیره درست می‌شود
+    await this.users.updateProfile(ctx.userId, Object.assign(dto, { profileType: CustomerType.Company }));
     await this.redis.delete(this.key(ctx));
     await this.gateway.broadcastDomainChange(ctx.userId, 'company_profile', {});
     return this.view(ctx, 'اطلاعات پروفایل ذخیره شد.');
@@ -92,12 +82,11 @@ export class CompanyProfileDialog implements BotDialog, OnModuleInit {
   private async view(ctx: BotContext, notice?: string): Promise<BotReply> {
     const profile = await this.users.getProfile(ctx.userId);
     return {
-      text: [notice, '🏢 پروفایل شرکت', `نوع حساب: ${profile.profileType === CustomerType.Company ? 'حقوقی' : 'حقیقی'}`,
+      text: [notice, '🏢 پروفایل شرکت',
         ...Object.entries(fields).map(([key, label]) => `${label}: ${profile[key as Field] || 'ثبت نشده'}`),
         `موبایل: ${profile.mobile || 'ثبت نشده'}`, `ایمیل: ${profile.email || 'ثبت نشده'}`,
       ].filter(Boolean).join('\n'),
-      actions: [{ id: `${EDIT}profileType`, label: 'ویرایش نوع حساب' },
-        ...Object.entries(fields).map(([key, label], index) => ({ id: `${EDIT}${key}`, label: `ویرایش ${label}`, row: Math.floor(index / 2) + 1 })),
+      actions: [...Object.entries(fields).map(([key, label], index) => ({ id: `${EDIT}${key}`, label: `ویرایش ${label}`, row: Math.floor(index / 2) + 1 })),
         { id: CLOSE, label: '↩️ بازگشت', row: 10 }],
     };
   }

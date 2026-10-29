@@ -2,6 +2,7 @@ import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { QueryFailedError } from 'typeorm';
 
 import { User } from 'src/domain/entities/auth/User';
+import { CustomerType } from 'src/domain/enums/company.enum';
 import { RecordStatus } from 'src/domain/enums/RecordStatus';
 import { AccountType } from 'src/domain/enums/subscription';
 import { IUserRepository } from 'src/domain/repositories/IUserRepopsitory';
@@ -16,6 +17,9 @@ export const SELF_SERVICE_ACCOUNT_TYPES = [AccountType.Driver, AccountType.Compa
 
 /** a transport company, factory or broker that signs up on its own is checked by a parent company (AccountVerificationService) */
 export const VERIFIED_ACCOUNT_TYPES: readonly AccountType[] = [AccountType.Company, AccountType.Factory, AccountType.Broker];
+
+/** a transport company or factory is always a legal entity (حقوقی); there is no «حقیقی» company */
+const LEGAL_ACCOUNT_TYPES: readonly AccountType[] = [AccountType.Company, AccountType.Factory];
 
 /**
  * حساب فقط با شماره موبایل تأییدشده (OTP وب، دکمه‌ی «ارسال شماره» ربات‌ها، شماره‌ی واتساپ):
@@ -38,6 +42,7 @@ export class PhoneAccountService {
       mobile: phone,
       recordStatus: RecordStatus.Active,
       verificationStatus: VERIFIED_ACCOUNT_TYPES.includes(accountType) ? 'NONE' : 'APPROVED',
+      ...(LEGAL_ACCOUNT_TYPES.includes(accountType) ? { profileType: CustomerType.Company } : {}),
     });
     try {
       return await this.users.createWithRole(user, accountType);
@@ -61,11 +66,16 @@ export class PhoneAccountService {
   async assignRole(userId: string, accountType: AccountType): Promise<User> {
     await this.users.assignInitialRole(userId, accountType);
     const user = (await this.users.findById(userId))!;
+    let changed = false;
     // the account had no role: a company or factory it becomes now is checked like any other that signs up
     if (VERIFIED_ACCOUNT_TYPES.includes(accountType) && user.verificationStatus === 'APPROVED' && !user.verificationRequests) {
       user.verificationStatus = 'NONE';
-      return this.users.update(user);
+      changed = true;
     }
-    return user;
+    if (LEGAL_ACCOUNT_TYPES.includes(accountType) && user.profileType !== CustomerType.Company) {
+      user.profileType = CustomerType.Company;
+      changed = true;
+    }
+    return changed ? this.users.update(user) : user;
   }
 }

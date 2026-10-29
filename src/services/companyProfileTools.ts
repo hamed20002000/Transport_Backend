@@ -19,10 +19,6 @@ import { UserService } from './UserService';
 
 // ترتیب و عنوان فیلدها همان صفحه‌ی پروفایل در وب
 const FIELD_LABELS: Record<string, string> = {
-  profileType: 'نوع حساب',
-  firstName: 'نام',
-  lastName: 'نام خانوادگی',
-  nationalCode: 'کد ملی',
   companyName: 'نام شرکت',
   domesticCompanyName: 'نام شرکت داخلی',
   internationalCompanyName: 'نام شرکت بین‌المللی',
@@ -36,8 +32,6 @@ const FIELD_LABELS: Record<string, string> = {
   email: 'ایمیل',
 };
 const EDITABLE = Object.keys(FIELD_LABELS).filter((key) => key !== 'mobile' && key !== 'email');
-
-const PROFILE_TYPES: Record<string, CustomerType> = { PERSON: CustomerType.Person, COMPANY: CustomerType.Company };
 
 /**
  * ابزارهای agent برای پروفایل (domain company_profile)، روی همان
@@ -79,11 +73,7 @@ export class CompanyProfileTools implements OnModuleInit {
         for (const key of EDITABLE) {
           const value = textParam(param[key]);
           if (value === undefined) continue;
-          if (key === 'profileType') {
-            if (value in PROFILE_TYPES) changes.profileType = PROFILE_TYPES[value];
-          } else {
-            changes[key] = value;
-          }
+          changes[key] = value;
         }
         if (Object.keys(changes).length === 0) ctx.fail(messages.profile.nothingToChange);
         //#endregion
@@ -114,7 +104,8 @@ export class CompanyProfileTools implements OnModuleInit {
         if (answer !== 'yes') return ctx.done({ saved: 'false' }, messages.profile.notSaved);
         //#endregion
 
-        const saved = await self.users.updateProfile(ctx.userId, dto);
+        // شرکت همیشه حقوقی است؛ پروفایل قدیمیِ «حقیقی» با اولین ذخیره درست می‌شود
+        const saved = await self.users.updateProfile(ctx.userId, Object.assign(dto, { profileType: CustomerType.Company }));
         const savedLines = self.lines(saved as unknown as Record<string, unknown>, Object.keys(changes)).join('\n');
         return ctx.done(
           { saved: 'true', fields: Object.keys(changes).join(',') },
@@ -129,11 +120,7 @@ export class CompanyProfileTools implements OnModuleInit {
       .filter((key) => values[key] !== undefined && values[key] !== null && values[key] !== '')
       .map(
         (key) =>
-          `${FIELD_LABELS[key]}: ${key === 'profileType' ? this.profileTypeTitle(values[key]) : String(values[key])}`,
+          `${FIELD_LABELS[key]}: ${String(values[key])}`,
       );
-  }
-
-  private profileTypeTitle(value: unknown): string {
-    return value === CustomerType.Company ? 'حقوقی' : 'حقیقی';
   }
 }

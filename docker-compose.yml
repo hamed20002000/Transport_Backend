@@ -1,0 +1,28 @@
+# Postgres for the backend (with pgvector, used by the agent's embeddings).
+# The user, password and database come from .env (DB_USERNAME, DB_PASSWORD, DB_DATABASE); docker compose reads it.
+# Port 5433 on this machine only, so it does not clash with a local Postgres on 5432: DB_PORT=5433 in .env.
+#   docker compose up -d postgres
+#   scripts/db-to-docker.sh   (once: copies the local database into the container)
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.0-pg16
+    container_name: transport-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_DATABASE}
+      TZ: Asia/Tehran
+    ports:
+      - '127.0.0.1:${DB_DOCKER_PORT:-5433}:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  pgdata:
+    name: transport-pgdata

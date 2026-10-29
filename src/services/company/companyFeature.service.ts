@@ -151,10 +151,10 @@ export class CompanyFeatureService {
 
   /** شرکت‌های حمل‌ونقل فعال برای صفحه‌ی ادمین، مادرها اول. */
   async listCompanies() {
-    const rows: Array<{ userId: string; name: string | null; mobile: string | null; accountCode: string | null; isParentCompany: boolean }> = await this.dataSource.query(
+    const rows: Array<{ userId: string; name: string | null; mobile: string | null; accountCode: string | null; isParentCompany: boolean; invitedByCompanyUserId: string | null }> = await this.dataSource.query(
       `SELECT DISTINCT u.id AS "userId",
          COALESCE(NULLIF(u."companyName", ''), NULLIF(concat_ws(' ', u."firstName", u."lastName"), ''), u.username) AS name,
-         u.mobile, u."accountCode", u."isParentCompany"
+         u.mobile, u."accountCode", u."isParentCompany", u."invitedByCompanyUserId"
        FROM "User" u
        JOIN "UserRole" ur ON ur."userId" = u.id
        JOIN "Role" r ON r.id = ur."roleId"

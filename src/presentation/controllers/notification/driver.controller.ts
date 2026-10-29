@@ -311,9 +311,10 @@ export class DriverController {
     return this.requestView(await this.trips.cancel(await this.requester(request), id));
   }
 
+  // the driver of the trip, or the broker that took the load (it answers for it)
   @Patch('requests/:id/deliver')
   async deliver(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string) {
-    return this.requestView(await this.trips.deliver(currentDriverId(request), id));
+    return this.requestView(await this.trips.deliver(await this.requester(request), id));
   }
 
   // «سفرهای رفته»: days = تحویل در چند روز اخیر؛ q = کد، مبدأ، مقصد یا نام شرکت

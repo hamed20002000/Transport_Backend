@@ -5,6 +5,7 @@ import { Transform } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsUUID } from 'class-validator';
 
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
+import { AccountVerificationService } from 'src/services/company/accountVerification.service';
 import { BrokerAccessService } from 'src/services/company/brokerAccess.service';
 import { BROKER_ROLE } from 'src/services/notification/loadRequesters';
 import { receiptUploadOptions } from './company-feature.controller';
@@ -35,15 +36,19 @@ function brokerUserId(request: AuthRequest): string {
 export class BrokerAccessController {
   constructor(
     private readonly access: BrokerAccessService,
+    private readonly verification: AccountVerificationService,
     private readonly config: ConfigService,
   ) {}
 
-  /** قیمت‌ها، دوره‌ی باز، شرکت‌های قابل انتخاب، کارت پرداخت و آخرین خریدها. */
+  /** قیمت‌ها، دوره‌ی باز، شرکت‌های قابل انتخاب، کارت پرداخت، آخرین خریدها و باز بودن دستیار. */
   @Get()
   async status(@Req() request: AuthRequest) {
-    const status = await this.access.status(brokerUserId(request));
+    const userId = brokerUserId(request);
+    const [status, approved, open] = await Promise.all([this.access.status(userId), this.verification.isApproved(userId), this.access.hasOpenAccess(userId)]);
     return {
       ...status,
+      // the assistant: after the parent company's approval, and while brokers pay, with companies bought
+      agent: approved && open,
       payment: {
         cardNumber: this.config.get<string>('CARD_NO', ''),
         cardOwner: this.config.get<string>('CARD_OWNER', ''),

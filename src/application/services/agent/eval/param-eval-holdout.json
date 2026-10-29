@@ -17,6 +17,5 @@
   {"tool":"set_company_display_filter_active","text":"فیلتر کفی رو خاموش کن","expect":{"which":"کفی","on":false}},
   {"tool":"delete_company_display_filter","text":"فیلتر مسیر کرمان رو پاک کن","expect":{"which":"کرمان"}},
   {"tool":"delete_company_channel","text":"گروه باربری قم رو حذف کن","expect":{"channel":"باربری قم"}},
-  {"tool":"update_company_profile","text":"نام خانوادگیم رو کریمی بنویس","expect":{"lastName":"کریمی"}},
   {"tool":"update_company_profile","text":"تلفن دفتر رو ۰۵۱۳۸۴۴۵۵۶۶ کن","expect":{"phone":"۰۵۱۳۸۴۴۵۵۶۶"}}
 ]

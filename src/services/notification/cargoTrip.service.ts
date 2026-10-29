@@ -365,7 +365,11 @@ export class CargoTripService {
       ? this.t(broker ? 'notify.acceptedBroker' : 'notify.accepted', { cargo, company: this.describe(company) })
       : this.t('notify.rejected', { cargo });
     if (broker) {
-      await this.notify(request.driverUserId, text, [{ id: `${TripAction.DriverRequests}1`, label: this.t('actions.myRequests'), row: 0 }]);
+      // the broker answers for the load: it reports the delivery, the company confirms it
+      await this.notify(request.driverUserId, text, [
+        { id: `${TripAction.Deliver}${request.id}`, label: this.t('actions.delivered'), row: 0 },
+        { id: `${TripAction.DriverRequests}1`, label: this.t('actions.myRequests'), row: 0 },
+      ]);
       await this.completeAssignment(request);
     } else if (accept) {
       await this.notify(request.driverUserId, text, [
@@ -560,7 +564,7 @@ export class CargoTripService {
       if (request.deliveryReportedAt) return request;
       request.deliveryReportedAt = new Date();
       await this.requests.save(request);
-      const text = this.t('notify.deliveryReported', { cargo, by: this.describe(by) });
+      const text = this.t((await this.isBroker(userId)) ? 'notify.deliveryReportedBroker' : 'notify.deliveryReported', { cargo, by: this.describe(by) });
       // پنل وب باز شرکت: همان خبر به شکل اعلان
       this.changed(request, { type: 'deliveryReported', text });
       await this.notify(request.companyUserId, text, [
@@ -595,7 +599,10 @@ export class CargoTripService {
     await this.requests.save(request);
     const company = await this.contact(companyUserId);
     const text = this.t('notify.deliveryRejected', { cargo: this.cargoTitle(request), by: this.describe(company) });
-    await this.notify(request.driverUserId, text, [{ id: TripAction.ActiveTrip, label: this.t('actions.activeTrip') }]);
+    const back = (await this.isBroker(request.driverUserId))
+      ? { id: `${TripAction.DriverRequests}1`, label: this.t('actions.myRequests') }
+      : { id: TripAction.ActiveTrip, label: this.t('actions.activeTrip') };
+    await this.notify(request.driverUserId, text, [back]);
     this.changed(request, undefined, text);
     return request;
   }
@@ -614,6 +621,8 @@ export class CargoTripService {
     if (![CargoRequestStatus.Pending, CargoRequestStatus.Accepted].includes(request.status)) {
       throw new ConflictException('notActive');
     }
+    // a broker has no vehicle to locate
+    if (await this.isBroker(request.driverUserId)) throw new ConflictException('broker');
     const key = RedisService.key('locationRequest', request.driverUserId);
     const waiting = (await this.redis.getJson<string[]>(key)) ?? [];
     if (!waiting.includes(request.id)) waiting.push(request.id);
@@ -718,7 +727,8 @@ export class CargoTripService {
     return { name: draft.companyName || this.t('unknownName'), phones: draft.contactPhones };
   }
 
-  private async isBroker(userId: string): Promise<boolean> {
+  /** A broker (واسط) asked for the load: it is the company's party for the trip, there is no driver to follow. */
+  async isBroker(userId: string): Promise<boolean> {
     return !!(await this.profiles.cards([userId]))[0]?.broker;
   }
 

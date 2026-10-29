@@ -59,7 +59,16 @@ export class MultiBot extends EventEmitter {
     typed.on('keyboard_shown', (chatId: string, messageId: string, buttons: MenuButton[]) => {
       this.emit('keyboard_shown', toBotId(platform, chatId), messageId, buttons);
     });
-    typed.on('polling_error', (error: Error) => {
+    typed.on('polling_error', (error: Error & { response?: { statusCode?: number } }) => {
+      // a rejected token (401) never recovers: stop asking every second and say it once
+      if (error?.response?.statusCode === 401 || /\b401\b/.test(error?.message ?? '')) {
+        const stop = (client as { stopPolling?: () => Promise<unknown> }).stopPolling;
+        if (stop) {
+          void stop.call(client).catch(() => undefined);
+          this.logger.error(`${platform} bot token was rejected (401 Unauthorized); polling stopped. Fix the token in .env and restart.`);
+          return;
+        }
+      }
       this.logger.error(`${platform} polling error: ${error?.message}`);
     });
   }
