@@ -60,12 +60,14 @@ export class MultiBot extends EventEmitter {
       this.emit('keyboard_shown', toBotId(platform, chatId), messageId, buttons);
     });
     typed.on('polling_error', (error: Error & { response?: { statusCode?: number } }) => {
-      // a rejected token (401) never recovers: stop asking every second and say it once
-      if (error?.response?.statusCode === 401 || /\b401\b/.test(error?.message ?? '')) {
+      // a rejected token never recovers: stop asking every second and say it once. Telegram answers 401; Bale answers
+      // 404 for a token it doesn't know.
+      const status = error?.response?.statusCode ?? Number(/\b(401|404)\b/.exec(error?.message ?? '')?.[1]);
+      if (status === 401 || status === 404) {
         const stop = (client as { stopPolling?: () => Promise<unknown> }).stopPolling;
         if (stop) {
           void stop.call(client).catch(() => undefined);
-          this.logger.error(`${platform} bot token was rejected (401 Unauthorized); polling stopped. Fix the token in .env and restart.`);
+          this.logger.error(`${platform} bot token was rejected (${status}); polling stopped. Fix the token in .env and restart.`);
           return;
         }
       }
