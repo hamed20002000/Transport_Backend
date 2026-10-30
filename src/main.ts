@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { AppLogger } from './middlewares/logger.service';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ResponseInterceptor } from './interceptors/response.interceptor';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
@@ -36,7 +37,8 @@ process.on('unhandledRejection', (reason: unknown) => {
 
 async function bootstrap() {
   // rawBody: webhooks signed over the exact bytes (GoOmni for the Eitaa bot) are checked before parsing
-  const app = await NestFactory.create(AppModule, { rawBody: true });
+  // logs go to files per messenger and app (AppLogger), not the console
+  const app = await NestFactory.create(AppModule, { rawBody: true, logger: new AppLogger() });
   const configService = app.get(ConfigService);
 
   // Payment receipts once lived in the public uploads folder; they are private now (receiptStorage) and that
