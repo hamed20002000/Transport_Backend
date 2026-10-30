@@ -8,7 +8,9 @@ import type {
 } from '@whiskeysockets/baileys' with { 'resolution-mode': 'import' };
 import { Boom } from '@hapi/boom';
 import { Agent as HttpsAgent } from 'node:https';
+import { outboundAgent, outboundDispatcher } from 'src/services/common/outboundProxy';
 import { pino } from 'pino';
+import { messengerLog } from 'src/middlewares/logger.service';
 import * as qrcode from 'qrcode-terminal';
 import { join } from 'node:path';
 import { mkdir, unlink, writeFile } from 'node:fs/promises';
@@ -133,6 +135,25 @@ const WHATSAPP_TRIAL_ENDED_TEXT =
   '⏳ دوره‌ی رایگان شما تمام شده است.\nبرای ادامه‌ی کار، اشتراک را از بخش «اشتراک» در برنامه‌ی ترابوت یا از ربات تلگرام/بله بخرید.';
 const WHATSAPP_SUBSCRIPTION_REQUIRED_TEXT =
   'برای ادامه‌ی کار اشتراک لازم است. اشتراک را از بخش «اشتراک» در برنامه‌ی ترابوت یا از ربات تلگرام/بله بخرید.';
+
+/** Media downloads go through Node's fetch: on the server through the VPN proxy too. */
+const mediaDownloadOptions = () => {
+  const dispatcher = outboundDispatcher();
+  return dispatcher ? { options: { dispatcher } as RequestInit } : {};
+};
+
+/** Baileys' own log (pino) into the WhatsApp log file, not the console. */
+const baileysLog = () => ({
+  write(line: string) {
+    let level = 'warn';
+    try {
+      if (JSON.parse(line).level >= 50) level = 'error';
+    } catch {
+      /* not JSON: keep it as a warning */
+    }
+    messengerLog('whatsapp').log(level, line.trim(), { context: 'Baileys' });
+  },
+});
 
 @Injectable()
 export class WhatsappService implements OnModuleInit, OnModuleDestroy {
@@ -306,13 +327,15 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       // the QR on a web panel/admin screen instead of the terminal, we only
       // need to change that one event handler.
       printQRInTerminal: false, // خودمون دستی مدیریتش می‌کنیم
-      // DNS returns IPv6 first for web.whatsapp.com; on a network without
-      // IPv6 the websocket failed with ENETUNREACH (code 408) and no QR ever
-      // appeared. Force IPv4.
-      agent: new HttpsAgent({ family: 4 }),
+      // On the server through the VPN proxy (OUTBOUND_PROXY_URL), media
+      // uploads too. Without it: DNS returns IPv6 first for web.whatsapp.com;
+      // on a network without IPv6 the websocket failed with ENETUNREACH (code
+      // 408) and no QR ever appeared. Force IPv4.
+      agent: outboundAgent() ?? new HttpsAgent({ family: 4 }),
+      fetchAgent: outboundAgent(),
       // Baileys' default logger is at info level and printed a JSON line for
       // every message/event; only its warnings and errors are shown now.
-      logger: pino({ level: process.env.WHATSAPP_LOG_LEVEL || 'warn' }),
+      logger: pino({ level: process.env.WHATSAPP_LOG_LEVEL || 'warn' }, baileysLog()),
     });
     // Every outgoing text/caption (replies, notifications, edits, polls) goes
     // through here: phone numbers become +98… so a tap starts a call.
@@ -1066,7 +1089,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       const buffer = (await downloadMediaMessage(
         msg,
         'buffer',
-        {},
+        mediaDownloadOptions(),
         { logger: this.logger as any, reuploadRequest: this.sock.updateMediaMessage },
       )) as Buffer;
 
@@ -1192,7 +1215,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         fileName: document?.fileName ?? (image ? `photo.${image.mimetype?.split('/')[1]?.split(';')[0] || 'jpg'}` : 'file'),
         size: length ? Number(length) : undefined,
         download: async () =>
-          (await downloadMediaMessage(msg, 'buffer', {}, { logger: this.logger as any, reuploadRequest: sock.updateMediaMessage })) as Buffer,
+          (await downloadMediaMessage(msg, 'buffer', mediaDownloadOptions(), { logger: this.logger as any, reuploadRequest: sock.updateMediaMessage })) as Buffer,
       });
       if (handled) return;
     }
@@ -1219,7 +1242,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       const buffer = (await downloadMediaMessage(
         msg,
         'buffer',
-        {},
+        mediaDownloadOptions(),
         { logger: this.logger as any, reuploadRequest: this.sock.updateMediaMessage },
       )) as Buffer;
 

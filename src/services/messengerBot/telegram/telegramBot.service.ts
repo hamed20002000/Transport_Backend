@@ -9,6 +9,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Agent } from 'https';
 import TelegramBot from 'node-telegram-bot-api';
+import { outboundAgent } from 'src/services/common/outboundProxy';
 import { MessengerBotService } from '../core/messengerBot.service';
 import { MultiBot } from '../core/multiBot';
 import { TelegramTransport } from './telegramTransport';
@@ -44,9 +45,10 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     this.transport = new TelegramTransport(this.config);
     const bot = new TelegramBot(token, {
       polling: false,
-      // فقط IPv4: Node هر آدرس را ۲۵۰ms امتحان می‌کند؛ IPv6 تلگرام وصل نمی‌شود و
-      // اتصال IPv4 کند (فیلتر/VPN) از این بیشتر طول می‌کشد → EFATAL: AggregateError.
-      request: { agent: new Agent({ family: 4, keepAlive: true }) } as TelegramBot.ConstructorOptions['request'],
+      // روی سرور از پراکسی VPN (OUTBOUND_PROXY_URL)؛ بی آن فقط IPv4: Node هر آدرس را ۲۵۰ms امتحان می‌کند؛ IPv6
+      // تلگرام وصل نمی‌شود و اتصال IPv4 کند (فیلتر/VPN) از این بیشتر طول می‌کشد → EFATAL: AggregateError.
+      // فایل‌ها (downloadFile/getFileStream) هم از همین request می‌روند.
+      request: { agent: outboundAgent() ?? new Agent({ family: 4, keepAlive: true }) } as TelegramBot.ConstructorOptions['request'],
     });
     this.bot = bot;
     this.multiBot.register('telegram', bot);

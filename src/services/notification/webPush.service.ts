@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import webpush from 'web-push';
+import { proxyUrl } from '../common/outboundProxy';
 
 import { WebPushSubscription } from '../../domain/entities/notification/WebPushSubscription';
 
@@ -88,7 +89,9 @@ export class WebPushService {
           await webpush.sendNotification(
             { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } },
             JSON.stringify(message),
-            { TTL: TTL_SECONDS, timeout: 10_000 },
+            // the push services (FCM, Mozilla, Apple) are abroad: on the server through the VPN proxy
+            // (web-push takes only its own https.Agent, so the proxy goes by its address)
+            { TTL: TTL_SECONDS, timeout: 10_000, ...(proxyUrl() && { proxy: proxyUrl()! }) },
           );
         } catch (error) {
           const status = (error as { statusCode?: number }).statusCode;
