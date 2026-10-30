@@ -1,0 +1,17 @@
+node_modules
+dist
+.git
+.env
+.env.*
+keys
+uploads
+private-uploads
+whatsapp-auth
+deploy
+docs
+test
+coverage
+*.md
+*.log
+tool_embedding_docs.json
+src/application/services/agent/eval/stt-samples

@@ -1,0 +1,294 @@
+# The whole of Trabot, the same file on the dev machine and on the server: databases, queue, AI, the VPN exit for the
+# filtered services, Eitaa's gateway, both backends and the web panel behind Caddy (HTTPS).
+#
+# Images are built and tested on the dev machine (./release.sh), then the same images go to the server (./ship.sh);
+# the server never builds. What differs between the two machines is only deploy/.env (see .env.example): paths of
+# each backend's .env, keys and uploads, the domain, the GPU, the network MTU.
+#
+#   docker compose up -d          (cd deploy first)
+name: trabot
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: 20m, max-file: '5' }
+
+networks:
+  default:
+    driver_opts:
+      # below a VPN tunnel's MTU (1420 for WireGuard) when the whole machine is behind one, or large transfers hang
+      com.docker.network.driver.mtu: '${NETWORK_MTU:-1500}'
+
+services:
+  #region ---------------- data ----------------------------------------------
+  postgres:
+    image: pgvector/pgvector:0.8.0-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: Transport
+      TZ: Asia/Tehran
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # first start only: creates the Tarabari database next to Transport
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    # this machine only (DBeaver; on the server through an SSH tunnel), never the internet
+    ports: ['127.0.0.1:5433:5432']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d Transport']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging: *logging
+
+  # Every night (BACKUP_AT) both databases and the Eitaa session into BACKUP_DIR/<date>/, checked restorable, the last
+  # BACKUP_KEEP_DAYS days kept; unhealthy when the last good one is older than 26 hours. A copy off the server:
+  # ./pull-backups.sh. One now: docker compose exec backup /backup.sh now
+  backup:
+    image: pgvector/pgvector:0.8.0-pg16
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    entrypoint: ['/backup.sh']
+    environment:
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      BACKUP_AT: ${BACKUP_AT:-03:30}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+      # the backups belong to this user on the machine (the one that pulls them), readable by nobody else
+      BACKUP_UID: ${BACKUP_UID:-1000}
+      BACKUP_GID: ${BACKUP_GID:-1000}
+      TZ: Asia/Tehran
+    volumes:
+      - ./backup/backup.sh:/backup.sh:ro
+      - ${BACKUP_DIR:-./data/backups}:/backups
+      - goomni-data:/goomni-data:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'test -n "$$(find /backups/.last-ok -mmin -1560 2>/dev/null)"']
+      interval: 10m
+      timeout: 10s
+      start_period: 10m
+    logging: *logging
+
+  redis:
+    image: redis:7.4.1-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging: *logging
+
+  rabbitmq:
+    image: rabbitmq:3.13.7-management-alpine
+    restart: unless-stopped
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    volumes: [rabbitmqdata:/var/lib/rabbitmq]
+    # management page on this machine only (the server: ssh -L 15673:127.0.0.1:15673)
+    ports: ['127.0.0.1:15673:15672']
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 10s
+      timeout: 10s
+      retries: 20
+    logging: *logging
+  #endregion
+
+  #region ---------------- VPN exit: only Telegram, WhatsApp, OpenAI, push and model downloads go through it -----
+  # The tunnel lives inside this container: the machine's own routes, SSH and the site never touch it.
+  # VPN_TYPE=wireguard: vpn/wireguard/wg0.conf; VPN_TYPE=openvpn: vpn/openvpn/custom.ovpn (+ OPENVPN_USER/PASSWORD).
+  # Its HTTP proxy (8888) is OUTBOUND_PROXY_URL of the backends; nothing leaves without the VPN (kill switch).
+  # COMPOSE_PROFILES=vpn (with a VPN config in vpn/); without it the backends go straight out (OUTBOUND_PROXY_URL=).
+  gluetun:
+    image: qmcgaw/gluetun:v3.40.0
+    profiles: [vpn]
+    restart: unless-stopped
+    cap_add: [NET_ADMIN]
+    devices: ['/dev/net/tun:/dev/net/tun']
+    environment:
+      VPN_SERVICE_PROVIDER: custom
+      VPN_TYPE: ${VPN_TYPE:-wireguard}
+      WIREGUARD_MTU: ${WIREGUARD_MTU:-1280}
+      OPENVPN_CUSTOM_CONFIG: /gluetun/openvpn/custom.ovpn
+      OPENVPN_USER: ${OPENVPN_USER:-}
+      OPENVPN_PASSWORD: ${OPENVPN_PASSWORD:-}
+      HTTPPROXY: 'on'
+      HTTPPROXY_LISTENING_ADDRESS: ':8888'
+      # the SOCKS5 proxy beside it (Telegram channels of Tarabari)
+      FIREWALL_INPUT_PORTS: '1080'
+      UPDATER_PERIOD: '0'
+      TZ: Asia/Tehran
+    volumes:
+      - ./vpn/wireguard:/gluetun/wireguard:ro
+      - ./vpn/openvpn:/gluetun/openvpn:ro
+    logging: *logging
+
+  # SOCKS5 for GramJS (MTProto takes no HTTP proxy); it shares gluetun's network, so it leaves through the tunnel
+  socks5:
+    image: ginuerzh/gost:2.11.5
+    profiles: [vpn]
+    restart: unless-stopped
+    network_mode: service:gluetun
+    command: ['-L', 'socks5://:1080']
+    depends_on: [gluetun]
+    logging: *logging
+  #endregion
+
+  #region ---------------- AI ------------------------------------------------
+  # embeddings (bge-m3) pick the assistant's tools; vision reads payment receipts; local fallback of OpenAI.
+  # Models: docker compose exec ollama ollama pull bge-m3 (downloads go through the VPN).
+  # A machine with an NVIDIA GPU adds docker-compose.gpu.yml (COMPOSE_FILE in deploy/.env).
+  ollama:
+    image: ollama/ollama:0.31.1
+    restart: unless-stopped
+    environment:
+      HTTPS_PROXY: ${OUTBOUND_PROXY_URL-http://gluetun:8888}
+      NO_PROXY: localhost,127.0.0.1
+    volumes: [ollama:/root/.ollama]
+    logging: *logging
+  #endregion
+
+  #region ---------------- Eitaa gateway ---------------------------------------
+  # goomni: the Eitaa account behind the Eitaa bot. Its session lives in the goomni-data volume.
+  # Settings: the file GOOMNI_ENV (APP_BASIC_AUTH, APP_MASTER_KEY, EITAA_ENABLED, …).
+  goomni:
+    image: mimalef70/goomni:v2.4.1
+    restart: unless-stopped
+    env_file: ['${GOOMNI_ENV:-./config/goomni.env}']
+    environment:
+      APP_HOST: 0.0.0.0
+      APP_PORT: '3000'
+      APP_DATABASE: /app/storages/goomni.db
+      APP_MEDIA_ROOT: /app/storages/media
+    volumes: [goomni-data:/app/storages]
+    # its admin page on this machine only
+    ports: ['127.0.0.1:3000:3000']
+    read_only: true
+    tmpfs: ['/tmp:size=67108864,mode=1777']
+    security_opt: ['no-new-privileges:true']
+    cap_drop: [ALL]
+    stop_grace_period: 30s
+    logging: *logging
+  #endregion
+
+  #region ---------------- backends --------------------------------------------
+  transport:
+    image: ${REGISTRY:-}trabot/transport:${TAG:-latest}
+    build:
+      context: ${TRANSPORT_SRC:-..}
+      args:
+        NPM_REGISTRY: '${NPM_REGISTRY:-https://registry.npmjs.org/}'
+        DEBIAN_MIRROR: '${DEBIAN_MIRROR:-http://deb.debian.org}'
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    environment:
+      PORT: '3006'
+      DB_HOST: postgres
+      DB_PORT: '5432'
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_DATABASE: Transport
+      REDIS_HOST: redis
+      REDIS_PORT: '6379'
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      OLLAMA_URL: http://ollama:11434
+      TARABARI_API_URL: http://tarabari:3001/
+      OUTBOUND_PROXY_URL: ${OUTBOUND_PROXY_URL-http://gluetun:8888}
+      # only errors on the console (docker compose logs); everything in the log files
+      LOG_CONSOLE: ${LOG_CONSOLE:-error}
+      # webhooks from Telegram can't reach a server in Iran; polling goes out through the VPN
+      TELEGRAM_BOT_MODE: polling
+    volumes:
+      - ${TRANSPORT_ENV:-./config/transport.env}:/app/.env:ro
+      - ${TRANSPORT_KEYS:-./config/transport-keys}:/app/keys:ro
+      - ${TRANSPORT_UPLOADS:-./data/transport/uploads}:/app/uploads
+      - ${TRANSPORT_PRIVATE_UPLOADS:-./data/transport/private-uploads}:/app/private-uploads
+      # log files per messenger and app (telegram, bale, rubika, eitaa, whatsapp, app, error), 14 days
+      - ${TRANSPORT_LOGS:-./data/transport/logs}:/app/logs
+    logging: *logging
+
+  tarabari:
+    image: ${REGISTRY:-}trabot/tarabari:${TAG:-latest}
+    build:
+      context: ${TARABARI_SRC:-../../tarabari_backend}
+      args:
+        NPM_REGISTRY: '${NPM_REGISTRY:-https://registry.npmjs.org/}'
+        DEBIAN_MIRROR: '${DEBIAN_MIRROR:-http://deb.debian.org}'
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    environment:
+      PORT: '3001'
+      DB_HOST: postgres
+      DB_PORT: '5432'
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_DATABASE: Tarabari
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      OLLAMA_URL: http://ollama:11434
+      OUTBOUND_PROXY_URL: ${OUTBOUND_PROXY_URL-http://gluetun:8888}
+      OUTBOUND_SOCKS_URL: ${OUTBOUND_SOCKS_URL-socks5://gluetun:1080}
+      LOG_CONSOLE: ${LOG_CONSOLE:-error}
+    volumes:
+      - ${TARABARI_ENV:-./config/tarabari.env}:/app/.env:ro
+      - ${TARABARI_KEYS:-./config/tarabari-keys}:/app/keys:ro
+      - ${TARABARI_UPLOADS:-./data/tarabari/uploads}:/app/uploads
+      - ${TARABARI_LOGS:-./data/tarabari/logs}:/app/logs
+    logging: *logging
+  #endregion
+
+  #region ---------------- image registry (server only: COMPOSE_PROFILES=registry) ------------------------------
+  # ./ship.sh pushes the images built on the dev machine here through an SSH tunnel: only the layers that changed
+  # travel. This machine only, never the internet.
+  registry:
+    image: registry:2.8.3
+    profiles: [registry]
+    restart: unless-stopped
+    ports: ['127.0.0.1:5000:5000']
+    volumes: [registry:/var/lib/registry]
+    logging: *logging
+  #endregion
+
+  #region ---------------- web panel -------------------------------------------
+  # The panel and the routes to the backends; HTTPS for SITE_ADDRESS (a domain) by Let's Encrypt.
+  web:
+    image: ${REGISTRY:-}trabot/web:${TAG:-latest}
+    build:
+      context: ${FRONT_SRC:-../../transport_front}
+      args:
+        NPM_REGISTRY: '${NPM_REGISTRY:-https://registry.npmjs.org/}'
+    restart: unless-stopped
+    depends_on: [transport, tarabari]
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    ports: ['80:80', '443:443', '443:443/udp']
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging: *logging
+  #endregion
+
+volumes:
+  pgdata:
+  redisdata:
+  rabbitmqdata:
+  ollama:
+    # the models this machine already had (bge-m3, qwen2.5vl, qwen3)
+    name: ollama
+  caddy_data:
+  caddy_config:
+  registry:
+  goomni-data:
+    # the same volume the Eitaa gateway had before it joined this stack (its session)
+    name: goomni-data

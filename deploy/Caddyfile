@@ -1,0 +1,29 @@
+# SITE_ADDRESS: the domain (trabot.ir: HTTPS by itself) or :80 while there is none.
+# The same routes as the dev server (transport_front/vite.config.ts).
+{$SITE_ADDRESS}
+
+encode zstd gzip
+
+# Transport backend: its API, sockets (notifications, agent) and the files it serves
+@transport path /api/* /socket.io/* /uploads/* /cdn/*
+handle @transport {
+	reverse_proxy transport:3006
+}
+
+# Tarabari backend: /tarabari-api/… is its /api/…
+handle_path /tarabari-api/* {
+	rewrite * /api{uri}
+	reverse_proxy tarabari:3001
+}
+
+# The panel: a single-page app. Built files under /assets/ carry their hash and never change; everything else (the page
+# on every panel route, the service workers, the manifest) is checked each time, so a new version reaches users at once.
+handle {
+	root * /srv
+	@hashed path /assets/*
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+	@noCache not path /assets/*
+	header @noCache Cache-Control "no-cache"
+	try_files {path} /index.html
+	file_server
+}

@@ -1,0 +1,11 @@
+# A machine with an NVIDIA GPU (and the NVIDIA container toolkit): Ollama runs on it.
+# deploy/.env: COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
