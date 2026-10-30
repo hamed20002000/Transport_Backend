@@ -22,12 +22,16 @@ export interface InviteSmsResult {
 }
 
 /**
- * پیامک دعوت (راننده، کارخانه، شرکت) با ملی‌پیامک (send/simple): هر شماره لینک وب شخصی خودش را می‌گیرد (inviteText)؛
- * لینک ربات‌ها در صفحه‌ی ورودی است که همان لینک باز می‌کند. دعوت چندتایی هم شماره‌به‌شماره فرستاده می‌شود.
- * فقط وقتی SMS_OTP_ENABLED=true است ارسال می‌شود؛ وگرنه متن در لاگ می‌آید. خطای ارسال دعوت را خراب نمی‌کند.
+ * پیامک دعوت (راننده، کارخانه، شرکت) با ملی‌پیامک: هر شماره لینک وب شخصی خودش را می‌گیرد؛ لینک ربات‌ها در صفحه‌ی
+ * ورودی است که همان لینک باز می‌کند. دعوت چندتایی هم شماره‌به‌شماره فرستاده می‌شود. فقط وقتی SMS_OTP_ENABLED=true
+ * است ارسال می‌شود؛ وگرنه متن در لاگ می‌آید. خطای ارسال دعوت را خراب نمی‌کند.
  *
- * تنظیمات: WEB_PANEL_URL (آدرس پنل وب، مثلاً https://trabot.ir)، MELIPAYAMAK_FROM (خط فرستنده) و
- * MELIPAYAMAK_CONSOLE_KEY (کلید API کنسول؛ اگر نباشد همان MELIPAYAMAK_OTP_TOKEN).
+ * با MELIPAYAMAK_INVITE_BODY_ID (الگوی تأییدشده، send/shared): دامنه در متن خود الگو ثابت است و لینک آخر متن است،
+ * مثلاً «{0} شما را به ترابوت دعوت کرده است:\nhttps://trabot.ir/{1}»؛ {0} دعوت‌کننده و {1} مسیر لینک
+ * (مثلاً join/…). بی آن، متن آزاد (send/simple) با MELIPAYAMAK_FROM.
+ *
+ * تنظیمات: WEB_PANEL_URL (آدرس پنل وب، مثلاً https://trabot.ir)، MELIPAYAMAK_CONSOLE_KEY (کلید API کنسول؛ اگر
+ * نباشد همان MELIPAYAMAK_OTP_TOKEN).
  */
 @Injectable()
 export class InviteSmsService {
@@ -47,27 +51,39 @@ export class InviteSmsService {
   async sendInvite(mobile: string, webPath: string, inviter: string): Promise<InviteSmsResult> {
     const panel = this.panelUrl();
     if (!panel) return { status: 'notConfigured', count: 1 };
+    const bodyId = Number(this.config.get<string>('MELIPAYAMAK_INVITE_BODY_ID')?.trim());
+    if (bodyId > 0) return this.sendPattern(mobile, bodyId, [inviter, webPath.replace(/^\/+/, '')], inviteText(`${panel}${webPath}`, inviter));
     return this.sendOne(mobile, inviteText(`${panel}${webPath}`, inviter));
   }
 
-  /** One number, one text. */
+  /** One number through an approved pattern (send/shared); text: what it reads like, for the log while SMS is off. */
+  private async sendPattern(to: string, bodyId: number, args: string[], text: string): Promise<InviteSmsResult> {
+    return this.post(to, text, 'shared', { bodyId, to, args });
+  }
+
+  /** One number, one text (send/simple). */
   async sendOne(to: string, text: string): Promise<InviteSmsResult> {
+    const from = this.config.get<string>('MELIPAYAMAK_FROM')?.trim();
+    return this.post(to, text, 'simple', from ? { from, to, text } : null);
+  }
+
+  /** body null: not configured (no sender line). */
+  private async post(to: string, text: string, api: 'simple' | 'shared', body: object | null): Promise<InviteSmsResult> {
     const count = 1;
     if (this.config.get<string>('SMS_OTP_ENABLED')?.trim().toLowerCase() !== 'true') {
       this.logger.log(`Invite SMS is off; would send to ${to}: ${text}`);
       return { status: 'off', count };
     }
     const key = (this.config.get<string>('MELIPAYAMAK_CONSOLE_KEY') ?? this.config.get<string>('MELIPAYAMAK_OTP_TOKEN'))?.trim();
-    const from = this.config.get<string>('MELIPAYAMAK_FROM')?.trim();
-    if (!key || !from) {
+    if (!key || !body) {
       this.logger.warn('Invite SMS not sent: MELIPAYAMAK_FROM or the console API key is not configured.');
       return { status: 'notConfigured', count };
     }
     try {
       const response = await firstValueFrom(
         this.http.post<{ status?: string }>(
-          `https://console.melipayamak.com/api/send/simple/${encodeURIComponent(key)}`,
-          { from, to, text },
+          `https://console.melipayamak.com/api/send/${api}/${encodeURIComponent(key)}`,
+          body,
           { headers: { 'Content-Type': 'application/json' }, timeout: 15000, maxRedirects: 0 },
         ),
       );
