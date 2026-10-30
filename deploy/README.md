@@ -11,7 +11,6 @@
 | `goomni` | درگاه ایتا (نشست حساب ایتا در volume `goomni-data`) |
 | `transport`، `tarabari` | دو بک‌اند |
 | `web` | پنل وب + Caddy (HTTPS خودکار، مسیرهای `/api`، `/socket.io`، `/tarabari-api`) |
-| `registry` | فقط سرور: ایمیج‌هایی که از سیستم توسعه می‌آیند (`COMPOSE_PROFILES=registry`) |
 | `backup` | پشتیبان شبانه از هر دو دیتابیس و نشست ایتا |
 
 خود دستگاه VPN سراسری لازم ندارد. تونل فقط داخل کانتینر `gluetun` است و بقیه‌ی ترافیک مستقیم می‌رود.
@@ -19,11 +18,11 @@
 ## روند کار
 
 ```
-سیستم توسعه: کد ← ./release.sh (ساخت ایمیج با نسخه) ← docker compose up -d (تست) ← تأیید
-           ← ./ship.sh user@server (فقط لایه‌های تغییرکرده از تونل SSH) ← سرور همان نسخه را اجرا می‌کند
+سیستم توسعه: کد ← ./release.sh و docker compose up -d (تست) ← تأیید ← commit و git push
+           ← ./ship.sh deploy@server ← سرور همان commitها را از GitHub می‌گیرد، می‌سازد و اجرا می‌کند
 ```
 
-روی سرور نه کد هست و نه build. برگشت به نسخه‌ی قبل: `./ship.sh user@server <نسخه‌ی قبلی>`.
+جزئیات و دلیلش در [SERVER-BUILD.md](SERVER-BUILD.md). برگشت به نسخه‌ی قبل: `./ship.sh deploy@server <نسخه‌ی قبلی>`.
 
 ## سیستم توسعه
 
@@ -44,11 +43,10 @@ docker compose up -d    # اجرای همان نسخه
    ```json
    { "registry-mirrors": ["https://docker.arvancloud.ir"] }
    ```
-2. **پوشه:** `sudo mkdir -p /opt/trabot && sudo chown $USER /opt/trabot`. بعد از سیستم توسعه یک بار `./ship.sh user@server` بزنید تا فایل‌های `deploy/` بروند. اولین بار در قدم «run» خطا می‌دهد، چون `.env` سرور هنوز نیست.
+2. **پوشه:** `sudo mkdir -p /opt/trabot && sudo chown $USER /opt/trabot`. فایل‌های `deploy/` با اولین `./ship.sh` می‌روند.
 3. **`/opt/trabot/deploy/.env`** را از `.env.example` بسازید:
    - `SITE_ADDRESS`: دامنه
-   - `REGISTRY=127.0.0.1:5000/`
-   - `COMPOSE_PROFILES=vpn,registry`
+   - `COMPOSE_PROFILES=vpn`
    - `NETWORK_MTU=1500`
    - رمزها (بدون `$`)
 4. **`/opt/trabot/deploy/config/`:**
@@ -59,7 +57,7 @@ docker compose up -d    # اجرای همان نسخه
    - WireGuard: `vpn/wireguard/wg0.conf` با `VPN_TYPE=wireguard`
    - OpenVPN: `vpn/openvpn/custom.ovpn` با `VPN_TYPE=openvpn`
 6. **پوشه‌ها و فایروال:**
-   - `mkdir -p data/transport/uploads data/transport/private-uploads data/tarabari/uploads data/backups && sudo chown -R 1000:1000 data`
+   - `mkdir -p data/transport/uploads data/transport/private-uploads data/transport/cdn data/tarabari/uploads data/tarabari/cdn data/backups && sudo chown -R 1000:1000 data`
    - فقط پورت‌های ۲۲، ۸۰ و ۴۴۳ باز باشند.
 7. **اطلاعات** (دیتابیس‌ها خالی‌اند؛ migrationهای Tarabari از صفر کامل اجرا نمی‌شوند، پس حتماً از پشتیبان):
    ```bash
@@ -73,8 +71,8 @@ docker compose up -d    # اجرای همان نسخه
    docker compose exec postgres pg_restore -U postgres -d Transport --no-owner /tmp/Transport.dump
    docker compose exec postgres pg_restore -U postgres -d Tarabari --no-owner /tmp/Tarabari.dump
    ```
-   فایل‌های آپلودی را با `rsync` به `data/` بفرستید. نشست ایتا (volume `goomni-data`) را هم با `docker run --rm -v goomni-data:/d alpine tar c -C /d .` منتقل کنید.
-8. **اجرا:** از سیستم توسعه `./ship.sh user@server`. بعد روی سرور:
+   فایل‌های آپلودی و پوشه‌های `cdn` را با `rsync` به `data/` بفرستید. نشست ایتا (volume `goomni-data`) را هم با `docker run --rm -v goomni-data:/d alpine tar c -C /d .` منتقل کنید.
+8. **اجرا:** از سیستم توسعه `./ship.sh deploy@server`. بعد روی سرور:
    ```bash
    docker compose exec ollama ollama pull bge-m3
    ```

@@ -27,10 +27,9 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 # read at run time from src/: the agent's JSON files and prompts, the Excel template; and the migrations
 COPY --from=build /app/src ./src
-COPY --from=build /app/cdn ./cdn
 COPY package.json tsconfig.json tsconfig.build.json ./
-# .env, keys/ and the upload folders come from the server (volumes), never from the image
-RUN mkdir -p uploads private-uploads keys logs && chown -R node:node /app
+# .env, keys/, cdn/ (files the panel serves) and the upload folders come from the machine (volumes), never from the image
+RUN mkdir -p uploads private-uploads keys logs cdn && chown -R node:node /app
 USER node
 EXPOSE 3006
 CMD ["node", "dist/main"]

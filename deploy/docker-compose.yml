@@ -1,9 +1,9 @@
 # The whole of Trabot, the same file on the dev machine and on the server: databases, queue, AI, the VPN exit for the
 # filtered services, Eitaa's gateway, both backends and the web panel behind Caddy (HTTPS).
 #
-# Images are built and tested on the dev machine (./release.sh), then the same images go to the server (./ship.sh);
-# the server never builds. What differs between the two machines is only deploy/.env (see .env.example): paths of
-# each backend's .env, keys and uploads, the domain, the GPU, the network MTU.
+# Here: ./release.sh builds the images from the working copies and docker compose up -d runs them, to test. The server:
+# ./ship.sh has it build the very commits you pushed (from GitHub) and run them (deploy/SERVER-BUILD.md). What differs
+# between the two machines is only deploy/.env (see .env.example): paths, the domain, the GPU, the network MTU.
 #
 #   docker compose up -d          (cd deploy first)
 name: trabot
@@ -179,7 +179,7 @@ services:
 
   #region ---------------- backends --------------------------------------------
   transport:
-    image: ${REGISTRY:-}trabot/transport:${TAG:-latest}
+    image: trabot/transport:${TAG:-latest}
     build:
       context: ${TRANSPORT_SRC:-..}
       args:
@@ -214,10 +214,12 @@ services:
       - ${TRANSPORT_PRIVATE_UPLOADS:-./data/transport/private-uploads}:/app/private-uploads
       # log files per messenger and app (telegram, bale, rubika, eitaa, whatsapp, app, error), 14 days
       - ${TRANSPORT_LOGS:-./data/transport/logs}:/app/logs
+      # files served at /cdn (templates, images): data, not code
+      - ${TRANSPORT_CDN:-./data/transport/cdn}:/app/cdn
     logging: *logging
 
   tarabari:
-    image: ${REGISTRY:-}trabot/tarabari:${TAG:-latest}
+    image: trabot/tarabari:${TAG:-latest}
     build:
       context: ${TARABARI_SRC:-../../tarabari_backend}
       args:
@@ -244,25 +246,14 @@ services:
       - ${TARABARI_KEYS:-./config/tarabari-keys}:/app/keys:ro
       - ${TARABARI_UPLOADS:-./data/tarabari/uploads}:/app/uploads
       - ${TARABARI_LOGS:-./data/tarabari/logs}:/app/logs
-    logging: *logging
-  #endregion
-
-  #region ---------------- image registry (server only: COMPOSE_PROFILES=registry) ------------------------------
-  # ./ship.sh pushes the images built on the dev machine here through an SSH tunnel: only the layers that changed
-  # travel. This machine only, never the internet.
-  registry:
-    image: registry:2.8.3
-    profiles: [registry]
-    restart: unless-stopped
-    ports: ['127.0.0.1:5000:5000']
-    volumes: [registry:/var/lib/registry]
+      - ${TARABARI_CDN:-./data/tarabari/cdn}:/app/cdn
     logging: *logging
   #endregion
 
   #region ---------------- web panel -------------------------------------------
   # The panel and the routes to the backends; HTTPS for SITE_ADDRESS (a domain) by Let's Encrypt.
   web:
-    image: ${REGISTRY:-}trabot/web:${TAG:-latest}
+    image: trabot/web:${TAG:-latest}
     build:
       context: ${FRONT_SRC:-../../transport_front}
       args:
@@ -288,7 +279,6 @@ volumes:
     name: ollama
   caddy_data:
   caddy_config:
-  registry:
   goomni-data:
     # the same volume the Eitaa gateway had before it joined this stack (its session)
     name: goomni-data

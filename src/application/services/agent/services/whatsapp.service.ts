@@ -237,6 +237,12 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   ) { }
 
   async onModuleInit() {
+    // WHATSAPP_ENABLED=off: never connects -- a dev machine while the server owns the session (two connections with
+    // one session throw each other out, and repeated it can get the number banned).
+    if (process.env.WHATSAPP_ENABLED === 'off') {
+      this.logger.warn('WhatsApp is off (WHATSAPP_ENABLED=off).');
+      return;
+    }
     // App startup doesn't wait for WhatsApp; if the first connect fails, it is retried.
     this.connect().catch((error) => {
       this.logger.error('WhatsApp connection failed', error as Error);

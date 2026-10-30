@@ -33,7 +33,6 @@
 │              └─ gluetun ══ تونل VPN ══► تلگرام، واتساپ، OpenAI               │
 │                                                                              │
 │   backup: هر شب ← پشتیبان دیتابیس‌ها و نشست ایتا                             │
-│   registry: ایمیج‌هایی که از سیستم توسعه می‌آیند                             │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -106,13 +105,12 @@
 | profile | سرویس | سیستم توسعه | سرور |
 |---|---|---|---|
 | `vpn` | `gluetun` + `socks5` | وقتی کانفیگ VPN جدای این سیستم را گذاشتید | ✅ |
-| `registry` | `registry` | — | ✅ |
 
 ### نسخه‌ها
 
 هر بار `./release.sh` ایمیج‌ها را با یک شماره‌ی نسخه می‌سازد: تاریخ + commit، مثلاً `20261030-1931-defc1d2`.
 - **سیستم توسعه:** همیشه `latest` (آخرین ساخته‌شده) را اجرا می‌کند.
-- **سرور:** همان نسخه‌ای را اجرا می‌کند که در `TAG` فایل `deploy/.env` آن نوشته شده. `ship.sh` این مقدار را خودش تنظیم می‌کند.
+- **سرور:** `ship.sh` روی خود سرور، از همان commitهایی که push کرده‌اید، ایمیج‌ها را با یک شماره‌ی نسخه می‌سازد و آن را در `TAG` فایل `deploy/.env` سرور می‌گذارد.
 
 ---
 
@@ -131,7 +129,6 @@
 | `gluetun` | تونل VPN + پراکسی HTTP | ۸۸۸۸ | — |
 | `socks5` | پراکسی SOCKS5 داخل تونل | ۱۰۸۰ | — |
 | `backup` | پشتیبان شبانه | — | — |
-| `registry` | ایمیج‌های رسیده از سیستم توسعه (فقط سرور) | ۵۰۰۰ | `127.0.0.1:5000` |
 
 - **ترتیب روشن شدن:** بک‌اندها صبر می‌کنند تا Postgres، Redis و RabbitMQ سالم شوند.
 - **روشن ماندن:** همه‌ی سرویس‌ها `restart: unless-stopped` دارند. اگر برنامه‌ای خطا بدهد و بسته شود یا دستگاه ری‌استارت شود، Docker خودش دوباره روشنشان می‌کند.
@@ -159,28 +156,25 @@
 ## ۴. روند کار: از کد تا سرور
 
 ```
-سیستم توسعه                                                     سرور
-───────────                                                     ────
+سیستم توسعه                                              سرور
+───────────                                              ────
 کد را تغییر می‌دهید
    │
-./release.sh                ← ایمیج‌ها با شماره‌ی نسخه
+./release.sh + docker compose up -d   ← اینجا ساخته و تست می‌شود
    │
-docker compose up -d        ← همان نسخه اینجا اجرا و تست می‌شود
-   │
-تأیید
-   │
-./ship.sh user@server  ──── تونل SSH، فقط لایه‌های تغییرکرده ────►  registry
-                                                                    │
-                                                    TAG در deploy/.env
-                                                    pull + up + migrations
-                                                                    │
-                                                        نسخه‌ی تازه اجرا می‌شود
+تأیید ← commit ← git push  ───► GitHub
+   │                               │
+./ship.sh deploy@server ─────────► سرور همان commitها را از GitHub می‌گیرد
+                                   │
+                                   ایمیج‌ها را خودش می‌سازد (اینترنت سریع)
+                                   TAG در deploy/.env ← up ← migrations
+                                   │
+                                   نسخه‌ی تازه اجرا می‌شود
 ```
 
-- **سرور هیچ‌وقت کد نمی‌سازد** و کد منبع هم رویش نیست. همان ایمیجی را اجرا می‌کند که اینجا تست شده.
-- **فقط لایه‌های تغییرکرده:** در یک تغییر معمولی کد فقط چند مگابایت فرستاده می‌شود، نه ۴٫۵ گیگابایت.
-- **فقط سرویس تغییرکرده:** `./release.sh transport` فقط Transport را دوباره می‌سازد. بقیه همان نسخه‌ی قبلی را با شماره‌ی جدید می‌گیرند.
-- **برگشت به نسخه‌ی قبل:** `./ship.sh user@server <نسخه‌ی قبلی>`.
+- **سرور دقیقاً همان commitها را می‌سازد** که اینجا تست و push کرده‌اید. `ship.sh` اگر تغییر commitنشده یا commit pushنشده ببیند، کاری نمی‌کند. جزئیات: `deploy/SERVER-BUILD.md`.
+- **چرا ساخت روی سرور:** آپلود این سیستم به سرور حدود ۰٫۲ مگابایت در ثانیه است (ایمیج‌ها ۴٫۵ گیگابایت، یعنی ساعت‌ها). سرور npm، دبیان و Docker Hub را مستقیم و سریع می‌گیرد و هر ساخت چند دقیقه طول می‌کشد.
+- **برگشت به نسخه‌ی قبل:** `./ship.sh deploy@server <نسخه‌ی قبلی>`. ایمیج‌های قبلی روی سرور می‌مانند و چیزی دوباره ساخته نمی‌شود.
 - **migrationها:** دیتابیس با هر `ship.sh` خودکار به‌روز می‌شود.
 
 ---
@@ -228,7 +222,7 @@ sudo systemctl restart docker
 docker pull hello-world        # آزمایش
 ```
 
-اگر این mirror کار نکرد، یکی از mirrorهای دیگر ایرانی را امتحان کنید. ایمیج‌های خود ترابوت (`transport`، `tarabari`، `web`) از این راه نمی‌آیند. آن‌ها را `ship.sh` مستقیم از سیستم توسعه می‌فرستد.
+اگر این mirror کار نکرد، یکی از mirrorهای دیگر ایرانی را امتحان کنید. ایمیج‌های خود ترابوت (`transport`، `tarabari`، `web`) را `ship.sh` روی همین سرور از کد GitHub می‌سازد.
 
 ### ۵.۴ دامنه و DNS
 
@@ -289,10 +283,10 @@ sudo ufw enable
 sudo mkdir -p /opt/trabot && sudo chown $USER /opt/trabot
 ```
 
-**از سیستم توسعه:** یک بار `ship.sh` را بزنید تا فایل‌های `deploy/` بروند. این بار قدم آخرش خطا می‌دهد، چون `.env` سرور هنوز نیست.
+**از سیستم توسعه:** فایل‌های `deploy/` را یک بار بفرستید (`ship.sh` هم با هر اجرا همین کار را می‌کند):
 
 ```bash
-cd ~/Transport/transport_backend/deploy && ./ship.sh user@IP_سرور
+cd ~/Transport/transport_backend/deploy && rsync -a --exclude .env --exclude config/ --exclude data/ --exclude 'vpn/wireguard/*.conf' ./ deploy@IP_سرور:/opt/trabot/deploy/
 ```
 
 **روی سرور، `/opt/trabot/deploy/.env`** را از `.env.example` بسازید:
@@ -304,8 +298,7 @@ cd /opt/trabot/deploy && cp .env.example .env && chmod 600 .env && nano .env
 | تنظیم | مقدار روی سرور |
 |---|---|
 | `SITE_ADDRESS` | `trabot.ir, www.trabot.ir` |
-| `REGISTRY` | `127.0.0.1:5000/` |
-| `COMPOSE_PROFILES` | `vpn,registry` |
+| `COMPOSE_PROFILES` | `vpn` |
 | `COMPOSE_FILE` | `docker-compose.yml` (GPU ندارد) |
 | `NETWORK_MTU` | `1500` |
 | `DB_PASSWORD`، `RABBITMQ_PASSWORD` | رمزهای قوی و تازه (بدون `$`) |
@@ -351,7 +344,7 @@ scp wg0.conf user@server:/opt/trabot/deploy/vpn/wireguard/wg0.conf      # WireGu
 
 ```bash
 cd /opt/trabot/deploy
-mkdir -p data/transport/uploads data/transport/private-uploads data/tarabari/uploads data/backups
+mkdir -p data/transport/uploads data/transport/private-uploads data/transport/cdn data/tarabari/uploads data/tarabari/cdn data/backups
 sudo chown -R 1000:1000 data
 ```
 
@@ -386,6 +379,8 @@ docker run --rm -v goomni-data:/d -v /opt/trabot:/b alpine tar -xzf /b/goomni-da
 rsync -a ~/Transport/transport_backend/uploads/          user@server:/opt/trabot/deploy/data/transport/uploads/
 rsync -a ~/Transport/transport_backend/private-uploads/  user@server:/opt/trabot/deploy/data/transport/private-uploads/
 rsync -a "/home/hamed/ trabari -backend/uploads/"        user@server:/opt/trabot/deploy/data/tarabari/uploads/
+rsync -a ~/Transport/transport_backend/cdn/              user@server:/opt/trabot/deploy/data/transport/cdn/
+rsync -a "/home/hamed/ trabari -backend/cdn/"            user@server:/opt/trabot/deploy/data/tarabari/cdn/
 ```
 
 `uploads` روی سیستم توسعه ۴ گیگابایت است و بخش زیادی از آن احتمالاً فایل‌های آزمایشی و مدل‌های whisper است. قبل از انتقال ببینید چه چیزی لازم است.
@@ -401,7 +396,7 @@ rsync -a "/home/hamed/ trabari -backend/uploads/"        user@server:/opt/trabot
 از سیستم توسعه:
 
 ```bash
-cd ~/Transport/transport_backend/deploy && ./ship.sh user@IP_سرور
+cd ~/Transport/transport_backend/deploy && ./ship.sh deploy@IP_سرور
 ```
 
 روی سرور، فقط بار اول:
@@ -443,7 +438,7 @@ cd ~/Transport/transport_backend/deploy
 ./release.sh                      # بعد از هر تغییر کد (یا ./release.sh transport برای یکی)
 docker compose up -d              # اجرای نسخه‌ی تازه اینجا
 docker compose logs -f transport  # لاگ
-./ship.sh user@server             # فرستادن نسخه‌ی تست‌شده به سرور
+./ship.sh deploy@server           # ساخت commitهای pushشده روی سرور و اجرا
 ./pull-backups.sh user@server     # کپی پشتیبان‌های سرور (مثلاً روزانه با cron)
 ```
 
@@ -469,7 +464,7 @@ ssh -L 5434:127.0.0.1:5433 -L 15674:127.0.0.1:15673 user@server
 ### برگشت به نسخه‌ی قبل
 
 ```bash
-./ship.sh user@server 20261030-1821-defc1d2      # یک نسخه‌ی قبلی
+./ship.sh deploy@server 20261030-1821-defc1d2      # یک نسخه‌ی قبلی (روی سرور ساخته شده باشد)
 ```
 
 اگر نسخه‌ی جدید migration داشته، برگشت کد کافی نیست و ممکن است لازم باشد دیتابیس هم از پشتیبان برگردد. پس قبل از `ship.sh` نسخه‌هایی که migration دارند، روی سرور یک `backup.sh now` بزنید.
@@ -513,14 +508,14 @@ ssh -L 5434:127.0.0.1:5433 -L 15674:127.0.0.1:15673 user@server
 - [ ] mirror برای Docker Hub
 - [ ] رکوردهای `A` دامنه به IP سرور (بدون `AAAA` نادرست، CDN خاموش)
 - [ ] فایروال: ۲۲، ۸۰، ۴۴۳
-- [ ] `/opt/trabot/deploy/.env` (دامنه، رمزهای تازه، `REGISTRY`، `COMPOSE_PROFILES=vpn,registry`)
+- [ ] `/opt/trabot/deploy/.env` (دامنه، رمزهای تازه، `COMPOSE_PROFILES=vpn`)
 - [ ] `config/`: `transport.env`، `tarabari.env`، کلیدها، `goomni.env`
 - [ ] در `.env` سرور: `SMS_OTP_ENABLED=true`، آدرس‌های دامنه، `LLM_LOCAL_FALLBACK=off`
 - [ ] کانفیگ VPN جدای سرور در `vpn/`
 - [ ] پوشه‌های `data/` با مالکیت ۱۰۰۰
 - [ ] دیتابیس‌ها، نشست ایتا و آپلودها منتقل شدند
 - [ ] پیام‌رسان‌های سیستم توسعه خاموش شدند یا حساب تستی گرفتند
-- [ ] `./ship.sh user@server`
+- [ ] `./ship.sh deploy@server`
 - [ ] `ollama pull bge-m3`
 - [ ] بررسی‌های بخش ۵.۱۰
 - [ ] cron برای `pull-backups.sh` روی سیستم توسعه

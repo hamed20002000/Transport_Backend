@@ -1,0 +1,19 @@
+# A machine whose messengers must stay off (the dev machine, once the server runs the real bots and accounts): one bot,
+# WhatsApp number or Eitaa account on two machines at once throws both off, and WhatsApp may ban the number.
+# The tokens stay in each backend's .env; empty values here win over them.
+# deploy/.env: COMPOSE_FILE=docker-compose.yml:docker-compose.no-messengers.yml (with the GPU file if any)
+services:
+  transport:
+    environment:
+      TELEGRAM_BOT_TOKEN: ''
+      BALE_BOT_TOKEN: ''
+      RUBIKA_BOT_TOKEN: ''
+      EITAA_GOOMNI_URL: ''
+      WHATSAPP_ENABLED: 'off'
+  tarabari:
+    environment:
+      CHANNEL_MONITORING_ENABLED: 'false'
+      WHATSAPP_ENABLED: 'off'
+  # the Eitaa gateway holds the Eitaa account's session: not started here at all
+  goomni:
+    profiles: !override [messengers]
