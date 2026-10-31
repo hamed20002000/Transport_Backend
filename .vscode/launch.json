@@ -10,6 +10,14 @@
       "name": "Debug NestJS",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "start:debug"],
+      // the server runs the bots and the WhatsApp/Eitaa accounts; two copies of one bot or session cut each other off
+      "env": {
+        "TELEGRAM_BOT_TOKEN": "",
+        "BALE_BOT_TOKEN": "",
+        "RUBIKA_BOT_TOKEN": "",
+        "EITAA_GOOMNI_URL": "",
+        "WHATSAPP_ENABLED": "off"
+      },
       "console": "integratedTerminal",
       "restart": true,
       "autoAttachChildProcesses": true,

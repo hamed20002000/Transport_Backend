@@ -1,0 +1,7 @@
+# Development machine only (COMPOSE_FILE in deploy/.env): Redis and RabbitMQ on this machine's localhost too, so a
+# backend started outside Docker (F5 in VS Code, npm run start:dev) reaches them like Postgres on 5433.
+services:
+  redis:
+    ports: ['127.0.0.1:6379:6379']
+  rabbitmq:
+    ports: ['127.0.0.1:5672:5672', '127.0.0.1:15673:15672']
