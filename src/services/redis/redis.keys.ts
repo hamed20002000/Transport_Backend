@@ -147,7 +147,20 @@ export const REDIS_CHANNELS = {
   accountVerificationDecided: 'account-verification:decided:v1',
   /** نام یا شماره‌ای که روی بارهای اعلام‌شده نوشته می‌شود عوض شد: بارهای قبلی هم مقدار تازه را می‌گیرند. */
   profileContactChanged: 'profile:contact-changed:v1',
+  /** someone signed in to an account with its SMS code: the account's other phones hear of it */
+  accountSignedIn: 'auth:signed-in:v1',
 } as const;
+
+/** a sign-in (RegistrationService.verifyOtp), for the notification to the account's phones */
+export interface AccountSignedInEvent {
+  userId: string;
+  /** what signed in, e.g. «Android · Chrome» */
+  device: string;
+  at: string;
+  /** the push endpoint of the device that signed in, if it already had one: it is not told about itself */
+  endpoint?: string;
+  noticeId: string;
+}
 
 /** the profile fields a cargo's company name and phones are made of, as they were before the change */
 export interface ProfileContactFields {

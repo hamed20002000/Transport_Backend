@@ -9,7 +9,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { normalizePhoneNumber } from 'src/dto/auth/phone-number';
 import { IUserRepository } from 'src/domain/repositories/IUserRepopsitory';
 import { USER_REPOSITORY } from 'src/domain/repositories/repository.tokens';
@@ -18,6 +18,8 @@ import { JwtPayload } from 'src/domain/entities/auth/jwt-payload.dto';
 import { RecordStatus } from 'src/domain/enums/RecordStatus';
 import { AccountType } from 'src/domain/enums/subscription';
 import { RedisService } from '../redis/redis.service';
+import { AccountSignedInEvent, REDIS_CHANNELS } from '../redis/redis.keys';
+import { deviceName } from './deviceName';
 import { PhoneAccountService, SELF_SERVICE_ACCOUNT_TYPES } from './phoneAccount.service';
 import { SmsService } from './sms.service';
 
@@ -135,8 +137,11 @@ export class RegistrationService {
     });
   }
 
-  /** کد درست: حساب فعال با نقش → توکن‌ها؛ وگرنه registrationToken برای انتخاب نوع حساب. */
-  async verifyOtp(phone: string, code: string) {
+  /**
+   * کد درست: حساب فعال با نقش → توکن‌ها؛ وگرنه registrationToken برای انتخاب نوع حساب.
+   * ورود به حساب موجود به گوشی‌های دیگر همان حساب اعلان می‌شود (signedIn)؛ device: دستگاهی که وارد شد.
+   */
+  async verifyOtp(phone: string, code: string, device: { userAgent?: string; pushEndpoint?: string } = {}) {
     return this.withLock(phone, async () => {
       if (this.smsOtpEnabled) {
         const key = RedisService.key('registration', phone);
@@ -157,7 +162,11 @@ export class RegistrationService {
       const user = await this.accounts.findByPhone(phone);
       if (user && user.recordStatus !== RecordStatus.Active) throw new UnauthorizedException('This account is inactive.');
       const full = user ? await this.users.findById(user.id) : null;
-      if (full && new JwtPayload(full).roles.length) return this.issueTokens(full);
+      if (full && new JwtPayload(full).roles.length) {
+        const tokens = await this.issueTokens(full);
+        await this.signedIn(full.id, device);
+        return tokens;
+      }
 
       const registrationToken = randomBytes(32).toString('hex');
       const signup: PendingSignup = { phone, ...(full ? { userId: full.id } : {}) };
@@ -183,6 +192,22 @@ export class RegistrationService {
           : await this.accounts.create(signup.phone, accountType);
       return this.issueTokens(user);
     });
+  }
+
+  /** best effort: a sign-in never fails because the notice could not be published */
+  private async signedIn(userId: string, device: { userAgent?: string; pushEndpoint?: string }): Promise<void> {
+    const event: AccountSignedInEvent = {
+      userId,
+      device: deviceName(device.userAgent),
+      at: new Date().toISOString(),
+      ...(device.pushEndpoint ? { endpoint: device.pushEndpoint } : {}),
+      noticeId: randomUUID(),
+    };
+    try {
+      await this.redis.publish(REDIS_CHANNELS.accountSignedIn, JSON.stringify(event));
+    } catch {
+      // Redis down: the sign-in itself already succeeded
+    }
   }
 
   private async issueTokens(user: User) {

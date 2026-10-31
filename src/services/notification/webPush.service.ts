@@ -80,9 +80,10 @@ export class WebPushService {
     await this.subscriptions.delete({ userId, endpoint });
   }
 
-  async sendToUser(userId: string, message: PushMessage): Promise<void> {
+  /** exceptEndpoint: a device of the account that is not to get this one (the one it is about) */
+  async sendToUser(userId: string, message: PushMessage, exceptEndpoint?: string): Promise<void> {
     if (!this.enabled) return;
-    const rows = await this.subscriptions.find({ where: { userId } });
+    const rows = (await this.subscriptions.find({ where: { userId } })).filter((row) => row.endpoint !== exceptEndpoint);
     await Promise.all(
       rows.map(async (row) => {
         try {

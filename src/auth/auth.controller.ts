@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CompleteRegistrationDto, RequestOtpDto } from 'src/dto/auth/register-dto';
 import { RegistrationService } from 'src/services/auth/registration.service';
@@ -35,8 +35,8 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiTags('Auth')
   @ApiOperation({ summary: 'Verify the code: tokens for an existing account, otherwise a registrationToken' })
-  async verifyOtp(@Body() dto: VerifyRegistrationDto) {
-    return this.registration.verifyOtp(dto.phoneNumber, dto.code);
+  async verifyOtp(@Body() dto: VerifyRegistrationDto, @Headers('user-agent') userAgent?: string) {
+    return this.registration.verifyOtp(dto.phoneNumber, dto.code, { userAgent, pushEndpoint: dto.pushEndpoint });
   }
 
   @Post('otp/complete')

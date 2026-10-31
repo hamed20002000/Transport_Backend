@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsString, Matches } from 'class-validator';
+import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { normalizePhoneNumber } from './phone-number';
 
@@ -14,6 +14,13 @@ export class VerifyRegistrationDto {
   @IsString()
   @Matches(/^[0-9]{4,10}$/)
   code!: string;
+
+  /** the push endpoint this device already has, if any: the sign-in notice goes to the account's other devices */
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  pushEndpoint?: string;
 }
 
 export class RefreshTokenDto {

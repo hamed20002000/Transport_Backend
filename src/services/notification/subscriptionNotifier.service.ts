@@ -8,7 +8,7 @@ import { RecordStatus } from '../../domain/enums/RecordStatus';
 import { MessengerBotService } from '../messengerBot/core/messengerBot.service';
 import { RedisService } from '../redis/redis.service';
 import { VERIFICATION_PROFILE_PATH, VerifiedKind } from '../company/accountVerification.service';
-import { AccountVerificationEvent, BrokerAccessOrderEvent, CompanyFeatureOrderEvent, PaymentReceiptSubmittedEvent, REDIS_CHANNELS, SubscriptionDecidedEvent } from '../redis/redis.keys';
+import { AccountSignedInEvent, AccountVerificationEvent, BrokerAccessOrderEvent, CompanyFeatureOrderEvent, PaymentReceiptSubmittedEvent, REDIS_CHANNELS, SubscriptionDecidedEvent } from '../redis/redis.keys';
 import { NotificationsGateway } from './notifications.gateway';
 import { WebPushService } from './webPush.service';
 import { WhatsappDialogBridge } from './whatsappDialogBridge';
@@ -86,6 +86,8 @@ export class SubscriptionNotifier implements OnModuleInit {
         void this.handle('verification-request', this.withNoticeId(message), (event: AccountVerificationEvent & { orderId: string }) => this.verificationRequested(event)));
       await this.redis.subscribe(REDIS_CHANNELS.accountVerificationDecided, (message) =>
         void this.handle('verification-decision', this.withNoticeId(message), (event: AccountVerificationEvent & { orderId: string }) => this.verificationDecided(event)));
+      await this.redis.subscribe(REDIS_CHANNELS.accountSignedIn, (message) =>
+        void this.handle('signed-in', this.signInNotice(message), (event: AccountSignedInEvent & { orderId: string }) => this.signedIn(event)));
     } catch (error) {
       this.logger.warn(`Could not listen for payment events: ${(error as Error).message}`);
     }
@@ -233,6 +235,32 @@ export class SubscriptionNotifier implements OnModuleInit {
   }
 
   /** The parent company decided: the account hears of it in the app, its bots and WhatsApp. */
+  private signInNotice(message: string): string {
+    const event = JSON.parse(message) as AccountSignedInEvent;
+    return JSON.stringify({ ...event, orderId: event.noticeId });
+  }
+
+  /**
+   * Someone signed in to the account with its SMS code: a phone notification to the account's other devices only
+   * (the app's own notifications; many use no messenger), so the owner hears of a sign-in that was not theirs.
+   */
+  async signedIn(event: AccountSignedInEvent): Promise<void> {
+    const time = new Date(event.at).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tehran' });
+    await this.push
+      .sendToUser(
+        event.userId,
+        {
+          title: 'ترابوت · ورود تازه به حساب شما',
+          body: `${event.device} · ساعت ${time}\nاگر شما نبودید، با پشتیبانی تماس بگیرید.`,
+          url: '/',
+          tag: 'sign-in',
+          renotify: true,
+        },
+        event.endpoint,
+      )
+      .catch((error: Error) => this.logger.warn(`Sign-in push to ${event.userId} failed: ${error.message}`));
+  }
+
   async verificationDecided(event: AccountVerificationEvent): Promise<void> {
     const text = event.approved
       ? `✅ حساب شما تأیید شد.\n${APPROVED_NEXT[event.kind ?? 'COMPANY']}\nبرای دیدن منو، «منو» را بفرستید.`
