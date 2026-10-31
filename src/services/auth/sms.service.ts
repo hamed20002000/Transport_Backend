@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { randomInt } from 'node:crypto';
-import { sendSmsIr, smsIrSelected } from 'src/services/common/smsIr';
+import { sendSmsIr, sendSmsIrVerify, smsIrSelected, smsIrTemplate } from 'src/services/common/smsIr';
 
 @Injectable()
 export class SmsService {
@@ -15,8 +15,8 @@ export class SmsService {
   ) {}
 
   /**
-   * Sends a one-time code and returns it for verification. SMS_PROVIDER=smsir: our own code in a plain SMS
-   * through sms.ir (smsIr.ts). Otherwise Melipayamak, the first that is configured:
+   * Sends a one-time code and returns it for verification. SMS_PROVIDER=smsir: our own code through sms.ir
+   * (smsIr.ts), in the template SMSIR_OTP_TEMPLATE_ID (its variable #CODE#) or else a plain SMS. Otherwise Melipayamak, the first that is configured:
    *   MELIPAYAMAK_OTP_BODY_ID  an approved pattern (send/shared), the code its only variable;
    *   MELIPAYAMAK_FROM         a plain SMS from that line (send/simple): our own text, the panel link last;
    *   otherwise                Melipayamak makes the code and sends its own text (send/otp).
@@ -24,7 +24,10 @@ export class SmsService {
   async sendOtp(phoneNumber: string): Promise<string> {
     if (smsIrSelected(this.config)) {
       const code = String(randomInt(10000, 100000));
-      const sent = await sendSmsIr(this.http, this.config, phoneNumber, this.otpText(code));
+      const templateId = smsIrTemplate(this.config, 'SMSIR_OTP_TEMPLATE_ID');
+      const sent = templateId
+        ? await sendSmsIrVerify(this.http, this.config, phoneNumber, templateId, { CODE: code })
+        : await sendSmsIr(this.http, this.config, phoneNumber, this.otpText(code));
       if (sent.ok) return code;
       this.logger.error(`sms.ir OTP request failed: ${sent.reason}`);
       throw new ServiceUnavailableException('Unable to send verification SMS. Please try again later.');

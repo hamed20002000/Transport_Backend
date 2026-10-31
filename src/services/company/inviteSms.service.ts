@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 
-import { sendSmsIr, smsIrSelected } from 'src/services/common/smsIr';
+import { sendSmsIr, sendSmsIrVerify, smsIrSelected, smsIrTemplate } from 'src/services/common/smsIr';
 import { inviteText } from './inviteLinks';
 
 /** what happened to the invite SMS, shown to the inviting company */
@@ -31,7 +31,8 @@ export interface InviteSmsResult {
  * مثلاً «{0} شما را به ترابوت دعوت کرده است:\nhttps://trabot.ir/{1}»؛ {0} دعوت‌کننده و {1} مسیر لینک
  * (مثلاً join/…). بی آن، متن آزاد (send/simple) با MELIPAYAMAK_FROM.
  *
- * با SMS_PROVIDER=smsir همه‌ی دعوت‌ها متن آزاد از sms.ir می‌روند (smsIr.ts) و الگوی ملی‌پیامک کنار می‌رود.
+ * با SMS_PROVIDER=smsir دعوت از sms.ir می‌رود (smsIr.ts) و الگوی ملی‌پیامک کنار می‌رود: با SMSIR_INVITE_TEMPLATE_ID
+ * قالب «ارسال سریع» با متغیرهای #INVITER# (دعوت‌کننده) و #LINK# (مسیر لینک، مثلاً join/…؛ دامنه در خود قالب)، وگرنه متن آزاد.
  *
  * تنظیمات: WEB_PANEL_URL (آدرس پنل وب، مثلاً https://trabot.ir)، MELIPAYAMAK_CONSOLE_KEY (کلید API کنسول؛ اگر
  * نباشد همان MELIPAYAMAK_OTP_TOKEN).
@@ -54,6 +55,11 @@ export class InviteSmsService {
   async sendInvite(mobile: string, webPath: string, inviter: string): Promise<InviteSmsResult> {
     const panel = this.panelUrl();
     if (!panel) return { status: 'notConfigured', count: 1 };
+    const templateId = smsIrSelected(this.config) ? smsIrTemplate(this.config, 'SMSIR_INVITE_TEMPLATE_ID') : null;
+    if (templateId) {
+      const parameters = { INVITER: inviter, LINK: webPath.replace(/^\/+/, '') };
+      return this.post(mobile, inviteText(`${panel}${webPath}`, inviter), 'simple', null, { templateId, parameters });
+    }
     const bodyId = Number(this.config.get<string>('MELIPAYAMAK_INVITE_BODY_ID')?.trim());
     if (bodyId > 0 && !smsIrSelected(this.config)) return this.sendPattern(mobile, bodyId, [inviter, webPath.replace(/^\/+/, '')], inviteText(`${panel}${webPath}`, inviter));
     return this.sendOne(mobile, inviteText(`${panel}${webPath}`, inviter));
@@ -71,15 +77,23 @@ export class InviteSmsService {
     return this.post(to, text, 'simple', from && /^\+?\d{4,20}$/.test(from) ? { from, to, text } : null);
   }
 
-  /** body null: not configured (no sender line). */
-  private async post(to: string, text: string, api: 'simple' | 'shared', body: object | null): Promise<InviteSmsResult> {
+  /** body null: not configured (no sender line). template: an sms.ir «ارسال سریع» template instead of text. */
+  private async post(
+    to: string,
+    text: string,
+    api: 'simple' | 'shared',
+    body: object | null,
+    template?: { templateId: number; parameters: Record<string, string> },
+  ): Promise<InviteSmsResult> {
     const count = 1;
     if (this.config.get<string>('SMS_OTP_ENABLED')?.trim().toLowerCase() !== 'true') {
       this.logger.log(`Invite SMS is off; would send to ${to}: ${text}`);
       return { status: 'off', count };
     }
     if (smsIrSelected(this.config)) {
-      const sent = await sendSmsIr(this.http, this.config, to, text);
+      const sent = template
+        ? await sendSmsIrVerify(this.http, this.config, to, template.templateId, template.parameters)
+        : await sendSmsIr(this.http, this.config, to, text);
       if (sent.ok) return { status: 'sent', count };
       this.logger[sent.notConfigured ? 'warn' : 'error'](`Invite SMS via sms.ir not sent: ${sent.reason}`);
       return { status: sent.notConfigured ? 'notConfigured' : 'failed', count };
