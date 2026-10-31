@@ -7,8 +7,10 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { DataSource } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { normalizePhoneNumber } from 'src/dto/auth/phone-number';
 import { IUserRepository } from 'src/domain/repositories/IUserRepopsitory';
 import { USER_REPOSITORY } from 'src/domain/repositories/repository.tokens';
 import { User } from 'src/domain/entities/auth/User';
@@ -58,6 +60,7 @@ export class RegistrationService {
     private readonly sms: SmsService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly dataSource: DataSource,
   ) {}
 
   /**
@@ -66,6 +69,20 @@ export class RegistrationService {
    */
   private get smsOtpEnabled(): boolean {
     return this.config.get<string>('SMS_OTP_ENABLED')?.trim().toLowerCase() === 'true';
+  }
+
+  /**
+   * Accounts for whoever reviews the app (SMS providers, app stores): OTP_REVIEW_LOGINS="09120000000:12345,…".
+   * Such a number gets no SMS; its fixed code (5–8 digits) is the code, with the same expiry and attempt limits.
+   * Its company, factory or broker account is approved on login, so the reviewer sees the menus at once
+   * (never a parent company: that one sees other accounts' profiles).
+   */
+  private reviewCode(phone: string): string | null {
+    for (const entry of this.config.get<string>('OTP_REVIEW_LOGINS')?.split(',') ?? []) {
+      const [number, code] = entry.split(':').map((part) => normalizePhoneNumber(part?.trim() ?? '') as string);
+      if (number === phone && /^\d{5,8}$/.test(code ?? '')) return code;
+    }
+    return null;
   }
 
   private digest(phone: string, code: string): string {
@@ -105,7 +122,7 @@ export class RegistrationService {
       const key = RedisService.key('registration', phone);
       try {
         // The SMS provider generates the code; only its digest is kept.
-        const code = await this.sms.sendOtp(phone);
+        const code = this.reviewCode(phone) ?? (await this.sms.sendOtp(phone));
         const pending: PendingOtp = { codeHash: this.digest(phone, code), expiresAt: Date.now() + OTP_TTL_SECONDS * 1000, attempts: 0 };
         await this.redis.setJson(key, pending, OTP_TTL_SECONDS);
         await this.redis.increment(sends, SENDS_BLOCK_SECONDS);
@@ -171,6 +188,12 @@ export class RegistrationService {
   private async issueTokens(user: User) {
     const payload = new JwtPayload(user);
     if (!payload.isActive || payload.roles.length === 0) throw new UnauthorizedException();
+    if (user.mobile && user.verificationStatus !== 'APPROVED' && this.reviewCode(user.mobile)) {
+      await this.dataSource.getRepository(User).update(
+        { id: user.id },
+        { verificationStatus: 'APPROVED', verificationDecidedAt: new Date(), verificationNote: null },
+      );
+    }
     const accessToken = this.jwt.sign({ ...payload });
     const refreshToken = randomBytes(48).toString('hex');
     await this.redis.set(RedisService.key('refreshToken', refreshToken), user.id, REFRESH_TTL_SECONDS);
