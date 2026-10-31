@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 
+import { sendSmsIr, smsIrSelected } from 'src/services/common/smsIr';
 import { inviteText } from './inviteLinks';
 
 /** what happened to the invite SMS, shown to the inviting company */
@@ -30,6 +31,8 @@ export interface InviteSmsResult {
  * مثلاً «{0} شما را به ترابوت دعوت کرده است:\nhttps://trabot.ir/{1}»؛ {0} دعوت‌کننده و {1} مسیر لینک
  * (مثلاً join/…). بی آن، متن آزاد (send/simple) با MELIPAYAMAK_FROM.
  *
+ * با SMS_PROVIDER=smsir همه‌ی دعوت‌ها متن آزاد از sms.ir می‌روند (smsIr.ts) و الگوی ملی‌پیامک کنار می‌رود.
+ *
  * تنظیمات: WEB_PANEL_URL (آدرس پنل وب، مثلاً https://trabot.ir)، MELIPAYAMAK_CONSOLE_KEY (کلید API کنسول؛ اگر
  * نباشد همان MELIPAYAMAK_OTP_TOKEN).
  */
@@ -52,7 +55,7 @@ export class InviteSmsService {
     const panel = this.panelUrl();
     if (!panel) return { status: 'notConfigured', count: 1 };
     const bodyId = Number(this.config.get<string>('MELIPAYAMAK_INVITE_BODY_ID')?.trim());
-    if (bodyId > 0) return this.sendPattern(mobile, bodyId, [inviter, webPath.replace(/^\/+/, '')], inviteText(`${panel}${webPath}`, inviter));
+    if (bodyId > 0 && !smsIrSelected(this.config)) return this.sendPattern(mobile, bodyId, [inviter, webPath.replace(/^\/+/, '')], inviteText(`${panel}${webPath}`, inviter));
     return this.sendOne(mobile, inviteText(`${panel}${webPath}`, inviter));
   }
 
@@ -64,7 +67,8 @@ export class InviteSmsService {
   /** One number, one text (send/simple). */
   async sendOne(to: string, text: string): Promise<InviteSmsResult> {
     const from = this.config.get<string>('MELIPAYAMAK_FROM')?.trim();
-    return this.post(to, text, 'simple', from ? { from, to, text } : null);
+    // a placeholder left in .env is not a line number
+    return this.post(to, text, 'simple', from && /^\+?\d{4,20}$/.test(from) ? { from, to, text } : null);
   }
 
   /** body null: not configured (no sender line). */
@@ -74,7 +78,15 @@ export class InviteSmsService {
       this.logger.log(`Invite SMS is off; would send to ${to}: ${text}`);
       return { status: 'off', count };
     }
-    const key = (this.config.get<string>('MELIPAYAMAK_CONSOLE_KEY') ?? this.config.get<string>('MELIPAYAMAK_OTP_TOKEN'))?.trim();
+    if (smsIrSelected(this.config)) {
+      const sent = await sendSmsIr(this.http, this.config, to, text);
+      if (sent.ok) return { status: 'sent', count };
+      this.logger[sent.notConfigured ? 'warn' : 'error'](`Invite SMS via sms.ir not sent: ${sent.reason}`);
+      return { status: sent.notConfigured ? 'notConfigured' : 'failed', count };
+    }
+    // a console key that is empty or a placeholder falls back to the OTP token (the same console key)
+    const consoleKey = this.config.get<string>('MELIPAYAMAK_CONSOLE_KEY')?.trim();
+    const key = consoleKey && /^[0-9a-fA-F-]{16,}$/.test(consoleKey) ? consoleKey : this.config.get<string>('MELIPAYAMAK_OTP_TOKEN')?.trim();
     if (!key || !body) {
       this.logger.warn('Invite SMS not sent: MELIPAYAMAK_FROM or the console API key is not configured.');
       return { status: 'notConfigured', count };
