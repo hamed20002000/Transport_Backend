@@ -55,9 +55,10 @@ describe('AuthController (mobile + SMS code only)', () => {
     verifyOtp.mockResolvedValue({ accessToken: 'access', refreshToken: 'refresh' });
     const response = await request(app.getHttpServer())
       .post('/api/auth/otp/verify')
-      .send({ phoneNumber: '۰۹۱۲۳۴۵۶۷۸۹', code: '123456' })
+      .set('User-Agent', 'test-phone')
+      .send({ phoneNumber: '۰۹۱۲۳۴۵۶۷۸۹', code: '123456', pushEndpoint: 'https://push.example/this' })
       .expect(200);
-    expect(verifyOtp).toHaveBeenCalledWith('09123456789', '123456');
+    expect(verifyOtp).toHaveBeenCalledWith('09123456789', '123456', { userAgent: 'test-phone', pushEndpoint: 'https://push.example/this' });
     expect(response.body.data.accessToken).toBe('access');
   });
 
