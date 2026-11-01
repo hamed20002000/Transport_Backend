@@ -150,8 +150,9 @@ export class CompanyChannelTools implements OnModuleInit {
     if (membership === 'removed') return messages.channel.statusRemoved;
     if (!channel.isActive) return messages.channel.statusInactive;
     if (channel.isMember) return messages.channel.statusActive;
+    // a sent join request keeps its note in lastError: waiting, not failed
+    if (channel.joinRequestPending || membership === 'pending') return messages.channel.statusPending;
     if (channel.lastError) return messages.channel.statusFailed;
-    if (channel.joinRequestPending) return messages.channel.statusPending;
     return messages.channel.statusQueued;
   }
 }

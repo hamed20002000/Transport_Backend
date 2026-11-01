@@ -232,7 +232,7 @@ ${this.t('count', { count: channels.length })}`;
       this.t('details.status', { status: this.t(`status.${this.status(channel)}`) }),
       channel.identifier ? this.t('details.identifier', { identifier: channel.identifier }) : '',
       this.t('details.createdAt', { date: this.date(channel.createdAt) }),
-      channel.lastError && !channel.isMember ? this.t('details.error', { error: channel.lastError }) : '',
+      channel.lastError && !channel.isMember && !channel.joinRequestPending ? this.t('details.error', { error: channel.lastError }) : '',
     ];
     const actions: BotAction[] = [
       { id: this.channelAction(Action.Remove, channel), label: this.t('actions.removeShort'), row: 0 },
@@ -306,8 +306,9 @@ ${this.t('count', { count: channels.length })}`;
   private status(channel: UserChannel): string {
     if (!channel.isActive) return 'inactive';
     if (channel.isMember) return 'active';
-    if (channel.lastError) return 'failed';
-    return channel.joinRequestPending ? 'pendingApproval' : 'queued';
+    // a sent join request keeps its note in lastError: waiting, not failed
+    if (channel.joinRequestPending) return 'pendingApproval';
+    return channel.lastError ? 'failed' : 'queued';
   }
 
   private channelName(channel: UserChannel): string {
