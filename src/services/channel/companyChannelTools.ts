@@ -17,13 +17,14 @@ import { CompanyChannelsService, UserChannel } from './companyChannels.service';
 import { ChannelServiceError } from './tarabariChannels.client';
 
 // بررسی دقیق هر پلتفرم در tarabari_backend (channelRegistry) انجام می‌شود.
-const INVITE_LINK = /^https:\/\/(www\.)?(t\.me|telegram\.me|chat\.whatsapp\.com|whatsapp\.com\/channel|ble\.ir|rubika\.ir)\/\S+$/i;
+const INVITE_LINK = /^https:\/\/(www\.)?(t\.me|telegram\.me|chat\.whatsapp\.com|whatsapp\.com\/channel|ble\.ir|rubika\.ir|eitaa\.com|eitaa\.ir)\/\S+$/i;
 
 const PLATFORM_NAMES: Record<string, string> = {
   whatsapp: 'واتس‌اپ',
   telegram: 'تلگرام',
   bale: 'بله',
   rubika: 'روبیکا',
+  eitaa: 'ایتا',
 };
 
 /**
