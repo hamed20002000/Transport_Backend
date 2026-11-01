@@ -12,7 +12,7 @@ export const MAX_CARGO_PHOTO_BYTES = 8 * 1024 * 1024;
 /** a stored photo's name: what CargoImageService.store gives back */
 export const CARGO_PHOTO_NAME = /^[0-9a-f-]{36}\.jpg$/;
 
-/** Where the photo of each kind of cargo is (one JPEG per CargoKind; sources in SOURCES.md). */
+/** Where the photos of cargo and of vehicles are (one JPEG each, by the names below; sources in SOURCES.md). */
 const KIND_PHOTO_DIR = join(__dirname, '..', '..', 'assets', 'cargo-kinds');
 
 /**
@@ -27,23 +27,53 @@ const SIZES: Record<CargoImageSize, { width: number; height: number; quality: nu
 // resized pictures, by photo (or kind) and size: a load's picture goes to many drivers
 const CACHE_SIZE = 300;
 
-export type CargoKind = 'general' | 'sacks' | 'steel' | 'produce' | 'liquid' | 'building' | 'container' | 'cold' | 'wood' | 'machinery';
-
 /**
- * The words of a cargo type (or vehicle) that tell its kind; checked in this order, so «سیمان» is sacks, not building,
- * and «تخته سنگ» building, not wood. A load none of them fits gets the general photo (boxes on pallets).
+ * The photo a load gets from its cargo type: the cargo itself. Checked in this order, so the narrow ones come before
+ * the wide ones («کیسه جامبو» is jumbo, not sacks; «تخته سنگ» stone, not wood). A photo only for words it really
+ * shows: a near miss (apples for dates) misleads more than a truck.
  */
-const KIND_WORDS: Array<[CargoKind, string[]]> = [
-  ['cold', ['یخچال', 'منجمد', 'گوشت', 'مرغ', 'جوجه', 'لبنیات', 'ماهی', 'بستنی', 'سردخانه']],
-  ['liquid', ['تانکر', 'سوخت', 'گازوئیل', 'بنزین', 'نفت', 'قیر', 'روغن', 'مایع', 'اسید', 'مازوت']],
+const CARGO_PHOTOS: Array<[string, string[]]> = [
+  ['jumbo', ['جامبو', 'جامبوبگ', 'بیگ بگ', 'بیگبگ']],
+  ['petrochemical', ['پتروشیمی', 'گرانول', 'پلی اتیلن', 'پلی‌اتیلن', 'پلی پروپیلن', 'پلیمر', 'پی وی سی', 'pvc']],
+  ['ingot', ['شمش']],
+  ['rebar', ['میلگرد', 'مش', 'مفتول']],
+  ['coil', ['ورق', 'کلاف', 'رول ورق']],
+  ['pipe', ['لوله', 'لوله‌های', 'داربست']],
+  ['barrel', ['بشکه', 'قیر', 'وازلین']],
+  ['cotton', ['پنبه', 'الیاف']],
+  ['pistachio', ['پسته']],
+  ['raisins', ['کشمش']],
+  ['dates', ['خرما']],
+  // before apples: «سیب زمینی» is not «سیب»
+  ['potato', ['سیب زمینی', 'سیب‌زمینی', 'سیبزمینی']],
+  ['apples', ['سیب']],
+  ['watermelon', ['هندوانه', 'خربزه', 'طالبی']],
+  ['onion', ['پیاز']],
+  ['chicken', ['مرغ', 'جوجه', 'گوشت', 'گوشت قرمز']],
+  ['ibc', ['روغن', 'اسید', 'مایع', 'شیمیایی', 'مواد شیمیایی']],
+  ['sacks', ['سیمان', 'گچ', 'آهک', 'کیسه', 'آرد', 'شکر', 'گندم', 'جو', 'برنج', 'ذرت', 'غلات', 'کود', 'نمک', 'سویا', 'خوراک دام', 'کنجاله']],
+  ['bricks', ['آجر']],
+  ['wood', ['چوب', 'الوار', 'تخته', 'نئوپان', 'ام دی اف', 'mdf', 'فیبر']],
   ['container', ['کانتینر', 'کانتینری']],
-  ['machinery', ['ماشین‌آلات', 'دستگاه', 'ژنراتور', 'بیل مکانیکی', 'لودر', 'بولدوزر', 'تراکتور', 'کمباین', 'گریدر']],
-  ['sacks', ['سیمان', 'گچ', 'آهک', 'کیسه', 'آرد', 'شکر', 'گندم', 'جو', 'برنج', 'ذرت', 'غلات', 'کود', 'پودر', 'نمک']],
-  ['steel', ['میلگرد', 'آهن', 'تیرآهن', 'ورق', 'لوله', 'پروفیل', 'فولاد', 'نبشی', 'ناودانی', 'مس', 'آلومینیوم', 'کلاف', 'شمش']],
-  ['produce', ['میوه', 'سیب', 'پرتقال', 'صیفی', 'گوجه', 'سبزی', 'خرما', 'هندوانه', 'پیاز', 'موز', 'خیار', 'انگور', 'لیمو']],
-  ['building', ['سنگ', 'کاشی', 'سرامیک', 'آجر', 'ماسه', 'شن', 'بلوک', 'موزاییک', 'خاک', 'کمپرسی', 'مصالح']],
-  ['wood', ['چوب', 'الوار', 'تخته', 'نئوپان', 'ام دی اف', 'mdf', 'فیبر', 'کابینت']],
+  ['machinery', ['ماشین‌آلات', 'ماشین آلات', 'بیل مکانیکی', 'لودر', 'بولدوزر', 'تراکتور', 'کمباین', 'گریدر']],
+  ['boxes', ['پالت', 'کارتن', 'کارتنی', 'بیسکویت', 'کیک', 'شکلات', 'مواد غذایی', 'لوازم خانگی', 'لوازم']],
 ];
+
+/** The photo a load gets from its vehicle when its cargo type has none: the truck it goes on. */
+const VEHICLE_PHOTOS: Array<[string, string[]]> = [
+  ['reefer', ['یخچال', 'یخچالی', 'یخچالدار', 'سردخانه']],
+  ['tanker', ['تانکر', 'تانکردار']],
+  ['tipper', ['کمپرسی', 'کمپرس']],
+  ['container', ['کانتینر', 'کانتینری']],
+  ['flatbed', ['کفی', 'کفی‌دار', 'لبه‌دار', 'لبه دار', 'بغل‌باز', 'بغل باز', 'تریلی', 'تریلر']],
+  ['boxtruck', ['خاور', 'نیسان', 'کامیونت', 'وانت', 'ایسوزو', 'جک', 'ده چرخ', 'تک', 'جفت', 'کامیون']],
+];
+
+/** a load neither of them tells: a truck on the road, true of every load */
+const FALLBACK_PHOTO = 'truck';
+
+/** every photo cargoPhoto can name: each needs its JPEG in KIND_PHOTO_DIR */
+export const CARGO_PHOTO_NAMES = [...new Set([...CARGO_PHOTOS, ...VEHICLE_PHOTOS].map(([photo]) => photo).concat(FALLBACK_PHOTO))];
 
 // a word with one of these endings is still the word: «میلگردها»، «کانتینری»، «یخچالدار»، «صیفی‌جات»
 const SUFFIXES = ['', 'ها', 'های', 'ی', 'ای', 'دار', 'جات', 'ات'];
@@ -58,7 +88,9 @@ function words(text?: string | null): string[] {
     .filter(Boolean);
 }
 
-const KIND_TOKENS: Array<[CargoKind, string[][]]> = KIND_WORDS.map(([kind, list]) => [kind, list.map(words)]);
+const tokenize = (list: Array<[string, string[]]>): Array<[string, string[][]]> => list.map(([photo, phrases]) => [photo, phrases.map(words)]);
+const CARGO_TOKENS = tokenize(CARGO_PHOTOS);
+const VEHICLE_TOKENS = tokenize(VEHICLE_PHOTOS);
 
 /** the phrase's words one after another in the text, its last word with one of SUFFIXES */
 function hasPhrase(tokens: string[], phrase: string[]): boolean {
@@ -110,7 +142,7 @@ export class CargoImageService {
       if (photo) return this.keep(key, await this.resize(photo, size));
       this.logger.warn(`Cargo photo ${fields.photo} is missing; the picture of its kind is shown`);
     }
-    const kind = cargoKind(fields.cargoType, fields.vehicleType);
+    const kind = cargoPhoto(fields.cargoType, fields.vehicleType);
     const key = `${kind}:${size}`;
     return this.cache.get(key) ?? this.keep(key, await this.resize(await readFile(join(KIND_PHOTO_DIR, `${kind}.jpg`)), size));
   }
@@ -127,13 +159,11 @@ export class CargoImageService {
   }
 }
 
-/** The kind of a load from its cargo type, then its vehicle; general boxes when neither tells. */
-export function cargoKind(cargoType?: string | null, vehicleType?: string | null): CargoKind {
-  for (const text of [cargoType, vehicleType]) {
+/** The photo of a load: of its cargo type, else of its vehicle, else a truck (file name in KIND_PHOTO_DIR, no .jpg). */
+export function cargoPhoto(cargoType?: string | null, vehicleType?: string | null): string {
+  const match = (text: string | null | undefined, list: Array<[string, string[][]]>) => {
     const tokens = words(text);
-    if (!tokens.length) continue;
-    const found = KIND_TOKENS.find(([, phrases]) => phrases.some((phrase) => hasPhrase(tokens, phrase)));
-    if (found) return found[0];
-  }
-  return 'general';
+    return tokens.length ? list.find(([, phrases]) => phrases.some((phrase) => hasPhrase(tokens, phrase)))?.[0] : undefined;
+  };
+  return match(cargoType, CARGO_TOKENS) ?? match(vehicleType, VEHICLE_TOKENS) ?? FALLBACK_PHOTO;
 }
