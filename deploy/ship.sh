@@ -14,7 +14,9 @@ cd "$(dirname "$0")"
 SERVER=${1:?usage: ./ship.sh deploy@server [TAG]}
 SERVER_DIR=${SERVER_DIR:-/opt/trabot/deploy}
 SSH_KEY=${SSH_KEY:-$HOME/.ssh/id_ed25519_vps}
-ssh_() { ssh -i "$SSH_KEY" -o IdentitiesOnly=yes -o BatchMode=yes "$SERVER" "$@"; }
+# keepalive: a build prints nothing for minutes (vite), and a quiet connection is dropped on the way
+SSH_OPTS="-i $SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes -o ServerAliveInterval=20 -o ServerAliveCountMax=9"
+ssh_() { ssh $SSH_OPTS "$SERVER" "$@"; }
 
 # a version the server already built: switch to it, nothing to build
 if [ -n "${2:-}" ]; then
@@ -51,14 +53,17 @@ TAG="$(date +%Y%m%d-%H%M)-${COMMIT[transport]:0:7}"
 echo "version $TAG → $SERVER"
 
 echo "2/3 files"
-rsync -a -e "ssh -i $SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes" \
+rsync -a -e "ssh $SSH_OPTS" \
   --exclude .env --exclude 'config/' --exclude 'data/' --exclude 'vpn/wireguard/*.conf' \
   --exclude 'vpn/openvpn/*.ovpn' --exclude 'vpn/openvpn/*.key' --exclude 'vpn/openvpn/*.crt' ./ "$SERVER:$SERVER_DIR/"
 
-echo "3/3 build and run on the server"
-ssh_ bash -s -- "$SERVER_DIR" "$TAG" \
-  "${URL[transport]}" "${COMMIT[transport]}" "${URL[tarabari]}" "${COMMIT[tarabari]}" "${URL[web]}" "${COMMIT[web]}" <<'REMOTE'
+# The build runs on the server by itself (nohup), into a log there; this only follows the log. A dropped connection
+# used to end the build mid-way: images built and up, migrations never run.
+LOGS="$SERVER_DIR/ship-logs"
+echo "3/3 build and run on the server (its log: $LOGS/$TAG.log)"
+ssh_ "mkdir -p '$LOGS' && cat > '$LOGS/$TAG.sh'" <<'REMOTE'
 set -euo pipefail
+trap 'echo "SHIP_RESULT failed (line $LINENO)"' ERR
 dir=$1 tag=$2
 src=$(dirname "$dir")/src
 checkout() { # name url commit
@@ -78,10 +83,21 @@ for pair in "TRANSPORT_SRC=$src/transport_backend" "TARABARI_SRC=$src/tarabari_b
   grep -q "^$key=" .env && sed -i -E "s#^$key=.*#$pair#" .env || echo "$pair" >> .env
 done
 sed -i -E "s/^TAG=.*/TAG=$tag/" .env
-docker compose build transport tarabari web
+docker compose build --progress plain transport tarabari web
 docker compose up -d
 docker compose exec -T transport npm run typeorm -- migration:run
 docker compose exec -T tarabari npm run typeorm -- migration:run
 docker compose ps
+echo "SHIP_RESULT ok"
 REMOTE
+args=$(printf '%q ' "$SERVER_DIR" "$TAG" "${URL[transport]}" "${COMMIT[transport]}" "${URL[tarabari]}" "${COMMIT[tarabari]}" "${URL[web]}" "${COMMIT[web]}")
+ssh_ "cd '$LOGS' && nohup bash '$TAG.sh' $args > '$TAG.log' 2>&1 < /dev/null & echo \$! > '$LOGS/$TAG.pid'"
+ssh_ "tail -n +1 -f --pid=\$(cat '$LOGS/$TAG.pid') '$LOGS/$TAG.log'" || {
+  echo "the connection dropped; the server goes on. Its log: ssh -i $SSH_KEY $SERVER tail -f $LOGS/$TAG.log" >&2
+  exit 1
+}
+if ! ssh_ "grep -q '^SHIP_RESULT ok' '$LOGS/$TAG.log'"; then
+  echo "the build or a migration failed on the server: $LOGS/$TAG.log (the running version is unchanged unless 'up' ran)" >&2
+  exit 1
+fi
 echo "done: $SERVER runs $TAG (back to an older one: ./ship.sh $SERVER <older TAG>)"
