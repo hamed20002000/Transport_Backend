@@ -34,9 +34,9 @@ import {
 } from './notifications.gateway';
 
 // واتساپ ویرایش را تا ۱۵ دقیقه قبول می‌کند؛ با کمی حاشیه‌ی اطمینان.
-/** The phones a load gets from the publisher's profile when none are typed for it: the mobile, then the office phone. */
+/** The phones a load gets from the publisher's profile when none are typed for it: the mobiles, then the office phone. */
 export function publisherPhones(contact: PublisherContact): string[] {
-  return [...new Set([contact.mobile, contact.company?.phone].filter((p): p is string => !!p?.trim()))];
+  return [...new Set([...contact.mobiles, contact.company?.phone].filter((p): p is string => !!p?.trim()))];
 }
 
 /**
@@ -134,7 +134,7 @@ export class CargoListingService {
       vehicleType: cargo.vehicleType ?? null,
       price: cargo.price ?? null,
       extraNotes: cargo.extraNotes ?? null,
-      contactPhones: [...new Set([contact.mobile, contact.company?.phone].filter((p): p is string => !!p?.trim()))],
+      contactPhones: publisherPhones(contact),
     };
 
     return { ...fields, text: buildCargoListingText(fields) };

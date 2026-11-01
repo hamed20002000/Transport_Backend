@@ -13,8 +13,15 @@ import { DRIVER_KIND_TRIP_TYPES, driverKindForLoad } from '../../../services/not
 export const DRIVER_ROLE = 'DRIVER';
 export const COMPANY_ROLES = ['COMPANY', 'COMPANY_ADMIN'];
 
+/** the mobiles a publisher's loads show: «موبایل اعلام بار» of the profile, else the mobile it signs in with */
+export function contactMobilesOf(user: Pick<User, 'mobile' | 'contactMobiles'> | null | undefined): string[] {
+  const set = (user?.contactMobiles ?? '').split(',').map((mobile) => mobile.trim()).filter(Boolean);
+  return set.length ? set : user?.mobile ? [user.mobile] : [];
+}
+
 export interface PublisherContact {
-  mobile: string | null;
+  /** the mobiles its loads show: those set in the profile, else the one it signs in with */
+  mobiles: string[];
   // id is null when the name/phone come only from the user's profile and no TransportCompany is linked.
   company: {
     id: string | null;
@@ -116,7 +123,7 @@ export class CargoAudienceRepository {
    */
   async findPublisherContact(
     userId: string,
-    profile?: Partial<Pick<User, 'profileType' | 'firstName' | 'lastName' | 'companyName' | 'phone' | 'contactMobile' | 'domesticCompanyName' | 'internationalCompanyName'>>,
+    profile?: Partial<Pick<User, 'profileType' | 'firstName' | 'lastName' | 'companyName' | 'phone' | 'contactMobiles' | 'domesticCompanyName' | 'internationalCompanyName'>>,
   ): Promise<PublisherContact> {
     const stored = await this.dataSource.getRepository(User).findOne({ where: { id: userId } });
     const user = stored && profile ? { ...stored, ...profile } : stored;
@@ -138,8 +145,7 @@ export class CargoAudienceRepository {
     const phone = user?.phone ?? company?.phone ?? null;
 
     return {
-      // the mobile set for loads in the profile, else the one the account signs in with
-      mobile: user?.contactMobile?.trim() || user?.mobile || null,
+      mobiles: contactMobilesOf(user),
       company: name || company
         ? {
             id: company?.id ?? null,

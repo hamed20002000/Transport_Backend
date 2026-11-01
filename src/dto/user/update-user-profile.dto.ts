@@ -1,4 +1,4 @@
-import { normalizePhoneNumber } from 'src/dto/auth/phone-number';
+import { MAX_CONTACT_MOBILES, parseMobileList } from 'src/dto/auth/phone-number';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsEnum, IsIn, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
@@ -110,12 +110,19 @@ export class UpdateUserProfileDto {
   @Matches(/^[0-9+\-\s]{4,20}$/, { message: 'phone is invalid' })
   phone?: string | null;
 
-  /** the mobile announced loads show; empty: the mobile the account signs in with */
-  @ApiPropertyOptional({ example: '09121234567', nullable: true })
-  @Transform(({ value }) => (typeof value === 'string' ? (normalizePhoneNumber(value) as string) || null : value))
+  /** the mobiles announced loads show, comma-separated (parseMobileList); empty: the mobile the account signs in with */
+  @ApiPropertyOptional({ example: '09121234567, 09351234567', nullable: true })
+  @Transform(({ value }) => {
+    if (typeof value !== 'string') return value;
+    const mobiles = parseMobileList(value);
+    // a piece that is not a mobile stays as typed, and the pattern below refuses it
+    return mobiles ? mobiles.join(',') || null : value;
+  })
   @IsOptional()
-  @Matches(/^09[0-9]{9}$/, { message: 'contactMobile is invalid' })
-  contactMobile?: string | null;
+  @Matches(new RegExp(`^09[0-9]{9}(,09[0-9]{9}){0,${MAX_CONTACT_MOBILES - 1}}$`), {
+    message: `contactMobiles: up to ${MAX_CONTACT_MOBILES} mobiles like 09121234567, separated by commas`,
+  })
+  contactMobiles?: string | null;
 
   @ApiPropertyOptional({ example: '1234567890', nullable: true })
   @Transform(digitsToNull)

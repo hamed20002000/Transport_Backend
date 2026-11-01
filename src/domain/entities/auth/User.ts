@@ -127,9 +127,9 @@ export class User {
   @Column({ type: 'varchar', length: 20, nullable: true })
   phone?: string | null;
 
-  /** the mobile its announced loads show, when not the one it signs in with (mobile) */
-  @Column({ type: 'varchar', length: 20, nullable: true })
-  contactMobile?: string | null;
+  /** the mobiles its announced loads show, comma-separated (09…,09…); null: the one it signs in with (mobile) */
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  contactMobiles?: string | null;
 
   @Column({ type: 'varchar', length: 10, nullable: true })
   postalCode?: string | null;

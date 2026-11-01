@@ -25,14 +25,14 @@ const PROFILE_FIELDS = [
   'economicCode',
   'registrationNo',
   'phone',
-  'contactMobile',
+  'contactMobiles',
   'postalCode',
   'address',
   'cargoDisplay',
 ] as const;
 
 // what a published cargo shows of its company (CargoAudienceRepository.findPublisherContact)
-const CONTACT_FIELDS = ['profileType', 'firstName', 'lastName', 'companyName', 'domesticCompanyName', 'internationalCompanyName', 'phone', 'contactMobile'] as const;
+const CONTACT_FIELDS = ['profileType', 'firstName', 'lastName', 'companyName', 'domesticCompanyName', 'internationalCompanyName', 'phone', 'contactMobiles'] as const;
 
 export type UserProfile = Pick<User, 'id' | 'username' | 'email' | 'mobile' | 'accountCode' | (typeof PROFILE_FIELDS)[number]>;
 
