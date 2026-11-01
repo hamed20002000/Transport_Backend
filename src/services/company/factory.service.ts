@@ -298,7 +298,7 @@ export class FactoryService {
     const user = await this.dataSource.getRepository(User).findOne({ where: { id: factoryUserId } });
     if (!user) throw new BadRequestException('حساب کارخانه پیدا نشد.');
     const name = user.companyName?.trim() || [user.firstName, user.lastName].filter(Boolean).join(' ') || user.mobile || 'کارخانه';
-    const phones = [...new Set([user.phone, user.mobile].filter((phone): phone is string => !!phone?.trim()))];
+    const phones = [...new Set([user.phone, user.contactMobile?.trim() || user.mobile].filter((phone): phone is string => !!phone?.trim()))];
     return { name, phones };
   }
 }
