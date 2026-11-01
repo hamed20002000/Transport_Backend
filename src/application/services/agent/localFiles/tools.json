@@ -232,9 +232,10 @@
               "telegram",
               "whatsapp",
               "bale",
-              "rubika"
+              "rubika",
+              "eitaa"
             ],
-            "description": "فقط اگر کاربر پیام‌رسانی گفت؛ وگرنه خالی. «کانال‌های تلگرامم» → telegram، «گروه‌های واتس‌اپ» → whatsapp، «بله» → bale، «روبیکا» → rubika"
+            "description": "فقط اگر کاربر پیام‌رسانی گفت؛ وگرنه خالی. «کانال‌های تلگرامم» → telegram، «گروه‌های واتس‌اپ» → whatsapp، «بله» → bale، «روبیکا» → rubika، «ایتا» → eitaa"
           }
         },
         "required": []
@@ -242,7 +243,7 @@
     },
     {
       "name": "add_company_channel",
-      "description": "لینک گروه یا کانال تلگرام یا واتس‌اپ را می‌گیرد تا ربات عضو شود و آگهی‌هایش را بخواند.",
+      "description": "لینک گروه یا کانال تلگرام، واتس‌اپ، بله، روبیکا یا ایتا را می‌گیرد تا ربات عضو شود و آگهی‌هایش را بخواند.",
       "parameters": {
         "type": "object",
         "properties": {

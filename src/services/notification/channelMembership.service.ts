@@ -9,7 +9,7 @@ import { BotPlatform } from '../messengerBot/core/botPlatform';
 import { CHANNEL_STATUS_SOCKET_EVENT, NotificationsGateway } from './notifications.gateway';
 
 type DeliveryRoute = ChannelPlatform;
-const DELIVERY_ORDER: DeliveryRoute[] = ['telegram', 'whatsapp', 'bale', 'rubika'];
+const DELIVERY_ORDER: DeliveryRoute[] = ['telegram', 'whatsapp', 'bale', 'rubika', 'eitaa'];
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -18,6 +18,7 @@ const PLATFORM_LABEL: Record<ChannelPlatform, string> = {
   telegram: 'تلگرام',
   bale: 'بله',
   rubika: 'روبیکا',
+  eitaa: 'ایتا',
 };
 
 // فقط نتیجه‌ی نهایی عضویت بیرون از پنل (پیام‌رسان‌ها) خبر داده می‌شود؛
@@ -107,7 +108,7 @@ export class ChannelMembershipNotifier {
         const sent =
           platform === 'whatsapp'
             ? await this.sendViaWhatsapp(userId, text)
-            : await this.sendViaBot(platform, userId, text); // telegram، bale، rubika
+            : await this.sendViaBot(platform, userId, text); // telegram، bale، rubika، eitaa
         if (sent) return;
       } catch (error) {
         this.logger.warn(

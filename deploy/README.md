@@ -53,6 +53,7 @@ docker compose up -d    # اجرای همان نسخه
    - `transport.env` و `tarabari.env`: از سیستم توسعه کپی کنید و این‌ها را به دامنه‌ی سرور تغییر دهید: `WEB_PANEL_URL`، `API_MAIN_URL`، `CORS_ORIGIN`، `GOOGLE_REDIRECT_URI`. در هر دو `LLM_LOCAL_FALLBACK=off` بگذارید (مدل متنی محلی روی سرور نیست).
    - `transport-keys/` (هر دو کلید JWT) و `tarabari-keys/jwt-public.pem`
    - `goomni.env` (همان فایل سیستم توسعه)
+   - کانال‌های ایتا: در `tarabari.env` همان `EITAA_GOOMNI_AUTH`، `EITAA_DEVICE_ID` و `EITAA_DEVICE_INSTANCE` فایل `transport.env`، به‌اضافه‌ی `EITAA_GOOMNI_URL=http://goomni:3000`، و `eitaa` در `CHANNEL_MONITORING_ENABLED`
 5. **VPN** با کانفیگ **جدا برای سرور**:
    - WireGuard: `vpn/wireguard/wg0.conf` با `VPN_TYPE=wireguard`
    - OpenVPN: `vpn/openvpn/custom.ovpn` با `VPN_TYPE=openvpn`

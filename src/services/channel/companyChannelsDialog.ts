@@ -26,11 +26,11 @@ const Action = {
 
 // متن پیام فقط ایموجی قبول می‌کند (نه لوگو)؛ نزدیک به رنگ/شکل هر پیام‌رسان.
 // Record باعث می‌شود پیام‌رسان جدید بدون ایموجی کامپایل نشود.
-const platformIcon: Record<ChannelPlatform, string> = { telegram: '✈️', whatsapp: '🟢', bale: '🔵', rubika: '🟣' };
+const platformIcon: Record<ChannelPlatform, string> = { telegram: '✈️', whatsapp: '🟢', bale: '🔵', rubika: '🟣', eitaa: '🟠' };
 
 // callback_data تلگرام حداکثر ۶۴ بایت است؛ پلتفرم با یک حرف ذخیره می‌شود.
-const platformCode: Record<ChannelPlatform, string> = { telegram: 't', whatsapp: 'w', bale: 'b', rubika: 'r' };
-const codePlatform: Record<string, ChannelPlatform> = { t: 'telegram', w: 'whatsapp', b: 'bale', r: 'rubika' };
+const platformCode: Record<ChannelPlatform, string> = { telegram: 't', whatsapp: 'w', bale: 'b', rubika: 'r', eitaa: 'e' };
+const codePlatform: Record<string, ChannelPlatform> = { t: 'telegram', w: 'whatsapp', b: 'bale', r: 'rubika', e: 'eitaa' };
 
 // کانال‌ها در ربات‌ها دوتایی در هر ردیف؛ اسم بلند دکمه را از دو ستون بیرون می‌زند.
 const CHANNELS_PER_ROW = 2;

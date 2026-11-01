@@ -8,7 +8,8 @@
     "telegram": "تلگرام",
     "whatsapp": "واتساپ",
     "bale": "بله",
-    "rubika": "روبیکا"
+    "rubika": "روبیکا",
+    "eitaa": "ایتا"
   },
   "typeName": {
     "group": "گروه",
@@ -38,12 +39,12 @@
     "removeShort": "🗑 حذف",
     "backToList": "↩️ برگشت به لیست"
   },
-  "askLink": "لینک گروه یا کانال واتساپ یا تلگرام را بفرستید.\n\nنمونه‌ها:\nhttps://chat.whatsapp.com/…\nhttps://whatsapp.com/channel/…\nhttps://t.me/username\nhttps://t.me/+invite\n@username",
+  "askLink": "لینک گروه یا کانال واتساپ، تلگرام، بله، روبیکا یا ایتا را بفرستید.\n\nنمونه‌ها:\nhttps://chat.whatsapp.com/…\nhttps://whatsapp.com/channel/…\nhttps://t.me/username\nhttps://t.me/+invite\nhttps://ble.ir/username\nhttps://rubika.ir/username\nhttps://eitaa.com/username\nhttps://eitaa.com/joinchat/…",
   "confirmRemove": "«{name}» از لیست شما حذف شود؟\nدیگر باری از آن برای شما فرستاده نمی‌شود.",
   "created": "✅ لینک ثبت شد. عضویت در گروه/کانال به‌زودی انجام می‌شود.",
   "alreadyRegistered": "✅ این گروه/کانال قبلاً ثبت شده بود و به لیست شما اضافه شد.",
   "removed": "🗑 «{name}» از لیست شما حذف شد.",
-  "invalidLink": "❌ این لینک معتبر نیست. لینک گروه یا کانال واتساپ یا تلگرام بفرستید.",
+  "invalidLink": "❌ این لینک معتبر نیست. لینک گروه یا کانال واتساپ، تلگرام، بله، روبیکا یا ایتا بفرستید.",
   "notFound": "این گروه/کانال پیدا نشد؛ احتمالاً قبلاً حذف شده است.",
   "unavailable": "⚠️ سرویس گروه‌ها و کانال‌ها الان در دسترس نیست. کمی بعد دوباره تلاش کنید.",
   "onlyCompany": "این بخش فقط برای حساب شرکت حمل‌ونقل در دسترس است.",

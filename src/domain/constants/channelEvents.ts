@@ -16,7 +16,7 @@ export const CHANNEL_MEMBERSHIP_DLQ = `${CHANNEL_MEMBERSHIP_QUEUE}.dlq`;
 export type ChannelMembershipStatus = 'queued' | 'pending' | 'joined' | 'failed' | 'removed';
 
 // باید با CHANNEL_PLATFORMS در tarabari_backend یکی باشد -- رویداد پلتفرم ناشناخته رد می‌شود.
-export const CHANNEL_PLATFORMS = ['whatsapp', 'telegram', 'bale', 'rubika'] as const;
+export const CHANNEL_PLATFORMS = ['whatsapp', 'telegram', 'bale', 'rubika', 'eitaa'] as const;
 export type ChannelPlatform = (typeof CHANNEL_PLATFORMS)[number];
 
 export interface ChannelMembershipChangedEvent {
