@@ -1,3 +1,4 @@
+import { normalizePhoneNumber } from 'src/dto/auth/phone-number';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsEnum, IsIn, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
@@ -108,6 +109,13 @@ export class UpdateUserProfileDto {
   @IsOptional()
   @Matches(/^[0-9+\-\s]{4,20}$/, { message: 'phone is invalid' })
   phone?: string | null;
+
+  /** the mobile announced loads show; empty: the mobile the account signs in with */
+  @ApiPropertyOptional({ example: '09121234567', nullable: true })
+  @Transform(({ value }) => (typeof value === 'string' ? (normalizePhoneNumber(value) as string) || null : value))
+  @IsOptional()
+  @Matches(/^09[0-9]{9}$/, { message: 'contactMobile is invalid' })
+  contactMobile?: string | null;
 
   @ApiPropertyOptional({ example: '1234567890', nullable: true })
   @Transform(digitsToNull)

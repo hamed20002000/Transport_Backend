@@ -171,6 +171,7 @@ export interface ProfileContactFields {
   domesticCompanyName?: string | null;
   internationalCompanyName?: string | null;
   phone?: string | null;
+  contactMobile?: string | null;
 }
 
 export interface ProfileContactChangedEvent {

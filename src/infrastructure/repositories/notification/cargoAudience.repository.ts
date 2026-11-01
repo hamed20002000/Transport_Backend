@@ -116,7 +116,7 @@ export class CargoAudienceRepository {
    */
   async findPublisherContact(
     userId: string,
-    profile?: Partial<Pick<User, 'profileType' | 'firstName' | 'lastName' | 'companyName' | 'phone' | 'domesticCompanyName' | 'internationalCompanyName'>>,
+    profile?: Partial<Pick<User, 'profileType' | 'firstName' | 'lastName' | 'companyName' | 'phone' | 'contactMobile' | 'domesticCompanyName' | 'internationalCompanyName'>>,
   ): Promise<PublisherContact> {
     const stored = await this.dataSource.getRepository(User).findOne({ where: { id: userId } });
     const user = stored && profile ? { ...stored, ...profile } : stored;
@@ -138,7 +138,8 @@ export class CargoAudienceRepository {
     const phone = user?.phone ?? company?.phone ?? null;
 
     return {
-      mobile: user?.mobile ?? null,
+      // the mobile set for loads in the profile, else the one the account signs in with
+      mobile: user?.contactMobile?.trim() || user?.mobile || null,
       company: name || company
         ? {
             id: company?.id ?? null,
