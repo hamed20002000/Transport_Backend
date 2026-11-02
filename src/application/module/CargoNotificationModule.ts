@@ -85,6 +85,7 @@ import { CompanyFilterTools } from '../../services/notification/companyFilterToo
 import { DriverCargoTools } from '../../services/notification/driverCargoTools';
 import { AppSectionTools } from '../../services/notification/appSectionTools';
 import { CargoContactSync } from '../../services/notification/cargoContactSync.service';
+import { InviteUsageNotifier } from '../../services/notification/inviteUsageNotifier.service';
 import { DriverProfileTools } from '../../services/driver/driverProfileTools';
 
 /**
@@ -156,6 +157,7 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
     DriverCargoTools,
     AppSectionTools,
     CargoContactSync,
+    InviteUsageNotifier,
     WebPushService,
     // خبر رسید پرداخت تازه به ادمین‌ها و نتیجه‌ی بررسی به خریدار
     SubscriptionNotifier,
