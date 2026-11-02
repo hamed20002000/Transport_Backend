@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, IsNull, Repository } from 'typeorm';
@@ -22,6 +21,7 @@ import { CompanyFeature } from 'src/domain/enums/companyFeature';
 import { CompanyFeatureService } from './companyFeature.service';
 import { CargoNotificationService } from '../notification/cargoNotification.service';
 import { contactMobilesOf } from '../../infrastructure/repositories/notification/cargoAudience.repository';
+import { inviteToken } from './inviteLinks';
 
 export const FACTORY_ROLE = 'FACTORY';
 
@@ -305,7 +305,7 @@ export class FactoryService {
 }
 
 function newToken(): string {
-  return randomBytes(18).toString('base64url');
+  return inviteToken();
 }
 
 const displayName = (alias: string) =>

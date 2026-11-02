@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, IsNull, Repository } from 'typeorm';
@@ -12,6 +11,7 @@ import { RecordStatus } from 'src/domain/enums/RecordStatus';
 import { normalizePhoneNumber } from 'src/dto/auth/phone-number';
 import { CompanyFeatureService } from './companyFeature.service';
 import { InviteSmsService } from './inviteSms.service';
+import { inviteToken } from './inviteLinks';
 
 const currencyNames: Record<string, string> = { IRR: 'ریال', IRT: 'تومان', GBP: 'پوند', EUR: 'یورو', SAR: 'ریال سعودی', CNY: 'یوان' };
 const fa = (value: number | string) => Number(value).toLocaleString('fa-IR');
@@ -68,7 +68,7 @@ export class CompanyInviteService {
       if (name) Object.assign(company, { companyName: name, profileType: CustomerType.Company });
       const saved = await manager.save(User, company);
       await manager.save(UserRole, manager.create(UserRole, { userId: saved.id, roleId: role.id }));
-      return manager.save(CompanyInvite, manager.create(CompanyInvite, { parentUserId, companyUserId: saved.id, mobile, token: randomBytes(18).toString('base64url') }));
+      return manager.save(CompanyInvite, manager.create(CompanyInvite, { parentUserId, companyUserId: saved.id, mobile, token: inviteToken() }));
     });
     const sms = await this.sms.sendInvite(invite.mobile, `/join/${invite.token}`, await this.name(parentUserId));
     return { ...this.view(invite, name ?? (await this.name(invite.companyUserId))), sms };

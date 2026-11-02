@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
@@ -17,6 +16,7 @@ import { DriverInviteResult } from '../messengerBot/core/factoryInvite';
 import { CompanyFeatureService } from './companyFeature.service';
 import { maskMobile } from './companyInvite.service';
 import { InviteSmsResult, InviteSmsService } from './inviteSms.service';
+import { inviteToken } from './inviteLinks';
 
 const DRIVER_ROLE = 'DRIVER';
 /** at most this many drivers in one batch */
@@ -118,7 +118,7 @@ export class DriverInviteService {
     const existing = await manager.findOne(DriverInvite, { where: { companyUserId, driverUserId } });
     const invite = existing?.revokedAt
       ? await manager.save(DriverInvite, Object.assign(existing, { revokedAt: null }))
-      : existing ?? (await manager.save(DriverInvite, manager.create(DriverInvite, { companyUserId, driverUserId, mobile, token: randomBytes(18).toString('base64url') })));
+      : existing ?? (await manager.save(DriverInvite, manager.create(DriverInvite, { companyUserId, driverUserId, mobile, token: inviteToken() })));
     return { status: created ? ('created' as const) : ('added' as const), driverUserId, token: invite.token };
   }
 

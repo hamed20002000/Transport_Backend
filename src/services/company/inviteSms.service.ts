@@ -6,6 +6,25 @@ import { firstValueFrom } from 'rxjs';
 import { sendSmsIr, sendSmsIrVerify, smsIrSelected, smsIrTemplate } from 'src/services/common/smsIr';
 import { inviteText } from './inviteLinks';
 
+/** the most sms.ir takes in one template variable */
+const TEMPLATE_VALUE_MAX = 25;
+
+/**
+ * The invite page's short path, for a template variable: /driver-invite/T → d/T, /invite/T → f/T, /join/T → j/T
+ * (transport_front has the same short routes). A 16-character token makes it 18 characters.
+ */
+export function shortInvitePath(webPath: string): string {
+  const path = webPath.replace(/^\/+/, '');
+  const short = path.replace(/^driver-invite\//, 'd/').replace(/^invite\//, 'f/').replace(/^join\//, 'j/');
+  return short;
+}
+
+/** a value cut to what sms.ir takes: 24 characters and «…» */
+export function fitTemplateValue(value: string): string {
+  const chars = [...value.trim()];
+  return chars.length <= TEMPLATE_VALUE_MAX ? chars.join('') : `${chars.slice(0, TEMPLATE_VALUE_MAX - 1).join('')}…`;
+}
+
 /** what happened to the invite SMS, shown to the inviting company */
 export type InviteSmsStatus =
   /** sent to the provider */
@@ -58,8 +77,9 @@ export class InviteSmsService {
     if (!panel) return { status: 'notConfigured', count: 1 };
     const templateId = smsIrSelected(this.config) ? smsIrTemplate(this.config, 'SMSIR_INVITE_TEMPLATE_ID') : null;
     if (templateId) {
-      // the approved template's own variable names: a name it lacks is left in the SMS as it is (#NAME#)
-      const parameters = { NAME: inviter, INVITECODE: webPath.replace(/^\/+/, '') };
+      // the approved template's own variable names (a name it lacks is left in the SMS as it is: #NAME#); sms.ir
+      // takes at most 25 characters a variable: the link's short path (d/…) and the name cut short
+      const parameters = { NAME: fitTemplateValue(inviter), INVITECODE: shortInvitePath(webPath) };
       return this.post(mobile, inviteText(`${panel}${webPath}`, inviter), 'simple', null, { templateId, parameters });
     }
     const bodyId = Number(this.config.get<string>('MELIPAYAMAK_INVITE_BODY_ID')?.trim());
