@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InviteUsedEvent, REDIS_CHANNELS } from '../redis/redis.keys';
 import { RedisService } from '../redis/redis.service';
-import { INVITE_USED_SOCKET_EVENT, NotificationsGateway } from './notifications.gateway';
+import { INVITE_EXPIRED_SOCKET_EVENT, INVITE_USED_SOCKET_EVENT, NotificationsGateway } from './notifications.gateway';
 
 /**
  * An invited driver, factory or company came in (markInvitesUsed, from any way in): the inviter's open page hears of
@@ -27,7 +27,10 @@ export class InviteUsageNotifier implements OnModuleInit {
   handle(message: string): void {
     try {
       const event = JSON.parse(message) as InviteUsedEvent;
-      this.gateway.sendToUser(event.inviterUserId, INVITE_USED_SOCKET_EVENT, { kind: event.kind, userId: event.inviteeUserId });
+      this.gateway.sendToUser(event.inviterUserId, event.expired ? INVITE_EXPIRED_SOCKET_EVENT : INVITE_USED_SOCKET_EVENT, {
+        kind: event.kind,
+        userId: event.inviteeUserId,
+      });
     } catch (error) {
       this.logger.warn(`Used invite notice failed: ${(error as Error).message}`);
     }

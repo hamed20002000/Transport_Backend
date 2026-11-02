@@ -17,6 +17,8 @@ import { CompanyFeatureService } from './companyFeature.service';
 import { maskMobile } from './companyInvite.service';
 import { InviteSmsResult, InviteSmsService } from './inviteSms.service';
 import { inviteToken } from './inviteLinks';
+import { RedisService } from '../redis/redis.service';
+import { InviteUsedEvent, REDIS_CHANNELS } from '../redis/redis.keys';
 
 const DRIVER_ROLE = 'DRIVER';
 /** at most this many drivers in one batch */
@@ -38,6 +40,13 @@ export type DriverInviteOutcome =
  * شماره وارد وب یا پیام‌رسان‌ها می‌شود؛ لینک (/driver-invite/…) و کد (drv_…) فقط برای همان شماره کار می‌کنند.
  * جزو بخش «رانندگان» پنل شرکت است (CompanyFeature.Drivers).
  */
+/** how long an invite waits for its driver (DRIVER_INVITE_EXPIRY_HOURS, a day by default) */
+export const driverInviteExpiryHours = () => Number(process.env.DRIVER_INVITE_EXPIRY_HOURS) || 24;
+
+/** an invite nobody used within its time is over: its link stops, and a sweep revokes it (expireStale) */
+const isExpired = (invite: Pick<DriverInvite, 'usedAt' | 'createdAt'>) =>
+  !invite.usedAt && Date.now() - new Date(invite.createdAt!).getTime() > driverInviteExpiryHours() * 60 * 60_000;
+
 @Injectable()
 export class DriverInviteService {
   constructor(
@@ -46,6 +55,7 @@ export class DriverInviteService {
     private readonly audience: CargoAudienceRepository,
     private readonly features: CompanyFeatureService,
     private readonly sms: InviteSmsService,
+    private readonly redis: RedisService,
   ) {}
 
   //#region ----------- Company side ----------------------------------------------
@@ -114,12 +124,32 @@ export class DriverInviteService {
       await manager.save(UserRole, manager.create(UserRole, { userId: driver.id, roleId: role.id }));
     }
     const driverUserId = driver!.id;
+    if (!created) await this.assertInvitable(manager, companyUserId, driver!);
     await this.join(manager, driverUserId, companyUserId);
     const existing = await manager.findOne(DriverInvite, { where: { companyUserId, driverUserId } });
     const invite = existing?.revokedAt
       ? await manager.save(DriverInvite, Object.assign(existing, { revokedAt: null }))
       : existing ?? (await manager.save(DriverInvite, manager.create(DriverInvite, { companyUserId, driverUserId, mobile, token: inviteToken() })));
     return { status: created ? ('created' as const) : ('added' as const), driverUserId, token: invite.token };
+  }
+
+  /**
+   * A driver account that is there already: one more invite only for this company's own invite still waiting (the
+   * SMS goes again). A driver who came in (by an invite or by finding Trabot alone) needs none; one another company's
+   * invite is waiting for belongs to it until that invite is used or its day is over.
+   */
+  private async assertInvitable(manager: EntityManager, companyUserId: string, driver: User): Promise<void> {
+    const invites = await manager.find(DriverInvite, { where: { driverUserId: driver.id } });
+    const live = invites.filter((invite) => !invite.revokedAt);
+    const waiting = live.filter((invite) => !invite.usedAt && !isExpired(invite));
+    if (waiting.some((invite) => invite.companyUserId === companyUserId)) return;
+    if (waiting.length) {
+      throw new ConflictException(`این راننده را شرکت دیگری دعوت کرده است؛ اگر تا ${driverInviteExpiryHours()} ساعت وارد نشود، می‌توانید دعوتش کنید.`);
+    }
+    // an account only an invite made and nobody came in with (its invite's day over): free for a new invite
+    const madeByInvite = invites.some((invite) => Math.abs(new Date(invite.createdAt!).getTime() - new Date(driver.createdAt!).getTime()) < 60_000);
+    if (madeByInvite && !invites.some((invite) => invite.usedAt)) return;
+    throw new ConflictException('این راننده خودش در ترابوت است و دعوت لازم ندارد.');
   }
 
   /** The company joins the driver's companies, so its loads are announced to the driver. */
@@ -142,7 +172,58 @@ export class DriverInviteService {
        ORDER BY i."createdAt" DESC`,
       [companyUserId],
     );
-    return rows;
+    // an invite past its day is gone already for the company, even before the sweep revokes it
+    return rows
+      .filter((row) => !isExpired(row))
+      .map((row) => ({
+        ...row,
+        expiresAt: row.usedAt ? null : new Date(new Date(row.createdAt).getTime() + driverInviteExpiryHours() * 60 * 60_000),
+      }));
+  }
+
+  /**
+   * Invites nobody used within their day: revoked, the company leaves the driver's companies, and the account the
+   * invite made goes too when its driver never came in and no one else invited them. The inviting company's open
+   * page hears of each. Returns how many expired.
+   */
+  async expireStale(): Promise<number> {
+    const stale: Array<{ id: string }> = await this.dataSource.query(
+      `SELECT id FROM "DriverInvite"
+        WHERE "usedAt" IS NULL AND "revokedAt" IS NULL AND "createdAt" < now() - make_interval(hours => $1)`,
+      [driverInviteExpiryHours()],
+    );
+    let expired = 0;
+    for (const { id } of stale) {
+      const gone = await this.dataSource.transaction(async (manager) => {
+        const rows = (await manager.query(
+          `UPDATE "DriverInvite" SET "revokedAt" = now() WHERE id = $1 AND "usedAt" IS NULL AND "revokedAt" IS NULL
+           RETURNING "companyUserId", "driverUserId"`,
+          [id],
+        )) as [Array<{ companyUserId: string; driverUserId: string }>, number];
+        const invite = rows[0][0];
+        if (!invite) return null;
+        await manager.query(
+          `UPDATE "DriverProfile" SET "companyUserIds" = array_remove("companyUserIds", $2) WHERE "userId" = $1`,
+          [invite.driverUserId, invite.companyUserId],
+        );
+        // the account only this invite made, and nobody ever used: nothing of the driver is in it
+        await manager.query(
+          `DELETE FROM "User" u USING "DriverInvite" made
+            WHERE u.id = $1 AND made.id = $2
+              AND made."createdAt" BETWEEN u."createdAt" - interval '1 minute' AND u."createdAt" + interval '1 minute'
+              AND NOT EXISTS (SELECT 1 FROM "DriverInvite" i WHERE i."driverUserId" = u.id AND (i."usedAt" IS NOT NULL OR i."revokedAt" IS NULL))
+              AND NOT EXISTS (SELECT 1 FROM "BotLink" b WHERE b."userId" = u.id)
+              AND NOT EXISTS (SELECT 1 FROM "WhatsappUserMapping" w WHERE w.userid::text = u.id::text)`,
+          [invite.driverUserId, id],
+        );
+        return invite;
+      });
+      if (!gone) continue;
+      expired += 1;
+      const event: InviteUsedEvent = { kind: 'driver', inviterUserId: gone.companyUserId, inviteeUserId: gone.driverUserId, expired: true };
+      await this.redis.publish(REDIS_CHANNELS.inviteUsed, JSON.stringify(event)).catch(() => undefined);
+    }
+    return expired;
   }
 
   /** دعوت باطل و شرکت از لیست شرکت‌های راننده برداشته می‌شود؛ حساب راننده می‌ماند. */
@@ -193,7 +274,8 @@ export class DriverInviteService {
   private async activeInvite(token: string): Promise<DriverInvite | null> {
     if (!/^[A-Za-z0-9_-]{16,64}$/.test(token)) return null;
     const invite = await this.invites.findOne({ where: { token, revokedAt: IsNull() } });
-    return invite && (await this.features.hasFeature(invite.companyUserId, CompanyFeature.Drivers)) ? invite : null;
+    if (!invite || isExpired(invite)) return null;
+    return (await this.features.hasFeature(invite.companyUserId, CompanyFeature.Drivers)) ? invite : null;
   }
 
   private async companyName(companyUserId: string): Promise<string> {

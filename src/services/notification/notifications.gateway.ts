@@ -27,6 +27,8 @@ export const CARGO_LISTING_CONTACT_SOCKET_EVENT = 'cargo-listing-contact';
 export const DRIVERS_CHANGED_SOCKET_EVENT = 'drivers-changed';
 // an invited driver, factory or company came in (InviteUsageNotifier): the inviter's invite list updates
 export const INVITE_USED_SOCKET_EVENT = 'invite-used';
+// an invite nobody used within its time was revoked (DriverInviteService.expireStale): it leaves the inviter's list
+export const INVITE_EXPIRED_SOCKET_EVENT = 'invite-expired';
 
 /**
  * اعلان لحظه‌ای برای کاربرهای آنلاین پنل وب. کلاینت باید token را بفرستد:
