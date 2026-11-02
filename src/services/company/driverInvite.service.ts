@@ -17,6 +17,8 @@ import { CompanyFeatureService } from './companyFeature.service';
 import { maskMobile } from './companyInvite.service';
 import { InviteSmsResult, InviteSmsService } from './inviteSms.service';
 import { inviteToken } from './inviteLinks';
+import { RedisService } from '../redis/redis.service';
+import { InviteUsedEvent, REDIS_CHANNELS } from '../redis/redis.keys';
 import { assertInvitable, inviteExpiresAt, isInviteExpired, isInviteWaiting, renewedInvite } from './inviteRules';
 
 const DRIVER_ROLE = 'DRIVER';
@@ -47,6 +49,7 @@ export class DriverInviteService {
     private readonly audience: CargoAudienceRepository,
     private readonly features: CompanyFeatureService,
     private readonly sms: InviteSmsService,
+    private readonly redis: RedisService,
   ) {}
 
   //#region ----------- Company side ----------------------------------------------
@@ -191,7 +194,13 @@ export class DriverInviteService {
   async isInvited(userId: string, token: string): Promise<boolean> {
     const invite = await this.activeInvite(token);
     if (!invite || invite.driverUserId !== userId) return false;
-    if (!invite.usedAt || !invite.usedByLink) await this.invites.update({ id: invite.id }, { usedAt: invite.usedAt ?? new Date(), usedByLink: true });
+    if (!invite.usedAt || !invite.usedByLink) {
+      await this.invites.update({ id: invite.id }, { usedAt: invite.usedAt ?? new Date(), usedByLink: true });
+      // signing in marked it used a moment ago (markInvitesUsed), before the link was known: the company's drivers
+      // list hears again, now with «با لینک دعوت شما»
+      const event: InviteUsedEvent = { kind: 'driver', inviterUserId: invite.companyUserId, inviteeUserId: userId, byLink: true };
+      await this.redis.publish(REDIS_CHANNELS.inviteUsed, JSON.stringify(event)).catch(() => undefined);
+    }
     return true;
   }
 

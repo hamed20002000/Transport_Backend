@@ -14,7 +14,7 @@ export const TRIP_TYPE_LABELS: Record<CargoTripType, string> = {
 };
 
 /**
- * A driver is either domestic or international: an international driver takes both export and import loads.
+ * A driver is domestic, international, or both: an international driver takes both export and import loads.
  * The load keeps its own type (export / import / domestic) for its label and the statistics; the driver keeps
  * the load types it takes in DriverProfile.tripTypes, so matching a load to drivers stays one array test.
  */
@@ -37,9 +37,15 @@ export function driverKindOf(tripTypes: readonly (CargoTripType | null | undefin
   return tripTypes.some((type) => driverKindForLoad(type) === 'INTERNATIONAL') ? 'INTERNATIONAL' : 'DOMESTIC';
 }
 
-/** What a driver profile stores for these load types: all the types of its kind. */
+/** A driver's kinds from the load types it takes: domestic, international, or both (domestic when none). */
+export function driverKindsOf(tripTypes: readonly (CargoTripType | null | undefined)[]): DriverKind[] {
+  const kinds = (['DOMESTIC', 'INTERNATIONAL'] as const).filter((kind) => tripTypes.some((type) => type && driverKindForLoad(type) === kind));
+  return kinds.length ? kinds : ['DOMESTIC'];
+}
+
+/** What a driver profile stores for these load types: all the types of each of its kinds (one or both). */
 export function driverTripTypes(tripTypes: readonly (CargoTripType | null | undefined)[]): CargoTripType[] {
-  return DRIVER_KIND_TRIP_TYPES[driverKindOf(tripTypes)];
+  return driverKindsOf(tripTypes).flatMap((kind) => DRIVER_KIND_TRIP_TYPES[kind]);
 }
 
 /** «بین‌المللی»، «خارجی»، «صادرات/واردات» → INTERNATIONAL؛ «داخلی» → DOMESTIC (agent، ربات). */

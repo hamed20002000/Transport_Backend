@@ -19,7 +19,7 @@ import { User } from 'src/domain/entities/auth/User';
 import { DRIVERS_CHANGED_SOCKET_EVENT, NotificationsGateway } from '../notification/notifications.gateway';
 import { evaluateVerification } from './driverVerification.service';
 import { isBrokerOnly } from '../notification/loadRequesters';
-import { DRIVER_KIND_TRIP_TYPES, driverKindForLoad, driverKindOf, driverTripTypes } from '../notification/cargoTripType';
+import { DRIVER_KIND_TRIP_TYPES, driverKindForLoad, driverKindOf, driverKindsOf, driverTripTypes } from '../notification/cargoTripType';
 
 // خارج از پوشه‌ی uploads که به‌صورت عمومی سرو می‌شود؛ فقط از راه API با توکن.
 export const DRIVER_PHOTO_DIR = join(process.cwd(), 'private-uploads', 'driver-photos');
@@ -276,7 +276,7 @@ export class DriverProfileService {
       this.dataSource.getRepository(User).findOne({ where: { id: publisherUserId }, select: { id: true, isParentCompany: true } }),
     ]);
     const member = !!publisher?.isParentCompany || !!driver?.companyUserIds?.includes(publisherUserId);
-    return !!driver && member && driverKindOf(driver.tripTypes ?? [driver.tripType]) === driverKindForLoad(tripType);
+    return !!driver && member && driverKindsOf(driver.tripTypes ?? [driver.tripType]).includes(driverKindForLoad(tripType));
   }
 
   async availableCompanies(ids?: string[]): Promise<DriverCompanyOption[]> {
@@ -411,6 +411,8 @@ export class DriverProfileService {
       tripType: driver?.tripType ?? CargoTripType.Domestic,
       tripTypes: driverTripTypes(driver?.tripTypes?.length ? driver.tripTypes : [driver?.tripType]),
       driverKind: driverKindOf(driver?.tripTypes?.length ? driver.tripTypes : [driver?.tripType]),
+      // domestic, international, or both
+      driverKinds: driverKindsOf(driver?.tripTypes?.length ? driver.tripTypes : [driver?.tripType]),
       companyUserIds: driver?.companyUserIds ?? [],
       // فقط وجود عکس (و نسخه برای کش مرورگر)؛ خود فایل از GET profile/photos/:kind با توکن
       photos: {

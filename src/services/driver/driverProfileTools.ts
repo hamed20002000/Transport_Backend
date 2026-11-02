@@ -85,6 +85,11 @@ export class DriverProfileTools implements OnModuleInit {
           // «بین‌المللی»/«صادراتی» → international, «داخلی» → domestic; the profile keeps all the load types of
           // that kind. An unknown value stays for the DTO validation to reject.
           else if (key === 'tripType') {
+            // «هر دو» / «داخلی و بین‌المللی»: a driver can take both kinds of loads
+            if (/هر\s*دو|both|داخلی.*بین.?الملل|بین.?الملل.*داخلی/i.test(value)) {
+              changes.tripTypes = [...DRIVER_KIND_TRIP_TYPES.DOMESTIC, ...DRIVER_KIND_TRIP_TYPES.INTERNATIONAL];
+              continue;
+            }
             const kind = parseDriverKind(value);
             changes[key] = kind ? DRIVER_KIND_TRIP_TYPES[kind][0] : value;
           }

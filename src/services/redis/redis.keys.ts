@@ -157,8 +157,10 @@ export interface InviteUsedEvent {
   kind: 'driver' | 'factory' | 'company';
   inviterUserId: string;
   inviteeUserId: string;
-  /** not used within its time: revoked (DriverInviteService.expireStale), not come in */
+  /** not used within its time: revoked (inviteRules.expireStaleInvites), not come in */
   expired?: boolean;
+  /** came in with the invite's own link or code (DriverInviteService.isInvited), told after signing in already was */
+  byLink?: boolean;
 }
 
 /** a sign-in (RegistrationService.verifyOtp), for the notification to the account's phones */

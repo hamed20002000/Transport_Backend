@@ -8,7 +8,8 @@ import { BotCallback } from 'src/domain/constants/bot/BotCallback';
 import { CargoAlertFilter } from 'src/domain/entities/notification/CargoAlertFilter';
 import { CargoListingStatus, CargoRequestStatus, CargoTripType } from 'src/domain/enums/notification';
 import { persianTime } from 'src/domain/helper/persianDate';
-import { DRIVER_KIND_LABELS, DRIVER_KIND_TRIP_TYPES, DriverKind, driverKindForLoad, driverKindOf, TRIP_TYPE_LABELS } from './cargoTripType';
+import { DRIVER_KIND_LABELS, DRIVER_KIND_TRIP_TYPES, DriverKind, driverKindForLoad,
+  driverKindsOf, TRIP_TYPE_LABELS } from './cargoTripType';
 import { parsePriceToman } from 'src/domain/helper/price';
 import { IUserRepository } from 'src/domain/repositories/IUserRepopsitory';
 import { USER_REPOSITORY } from 'src/domain/repositories/repository.tokens';
@@ -810,12 +811,13 @@ export class CargoDialog implements BotDialog, OnModuleInit {
       .grid(open)
       .add({ id: Action.FilterNew, label: this.t('actions.newFilter') })
       .add({ id: Action.FilterTemplate, label: this.t('actions.filterTemplate') });
-    const kind = tripTypes ? driverKindOf(tripTypes) : null;
-    if (kind) {
+    // domestic, international, or both: each button turns its kind on or off
+    const kinds = tripTypes ? driverKindsOf(tripTypes) : null;
+    if (kinds) {
       rows.add(
         ...(Object.keys(DRIVER_KIND_LABELS) as DriverKind[]).map((value) => ({
           id: `${Action.DriverTripType}${value}`,
-          label: this.selected(DRIVER_KIND_LABELS[value], value === kind),
+          label: this.selected(DRIVER_KIND_LABELS[value], kinds.includes(value)),
         })),
       );
     }
@@ -833,7 +835,7 @@ export class CargoDialog implements BotDialog, OnModuleInit {
         this.t('filters.title'),
         this.t(driver ? 'filters.driverHint' : 'filters.hint'),
         body,
-        kind ? this.t('filters.tripType', { type: DRIVER_KIND_LABELS[kind], loads: this.kindLoads(kind) }) : null,
+        kinds ? this.t('filters.tripType', { type: kinds.map((value) => DRIVER_KIND_LABELS[value]).join(' و '), loads: kinds.map((value) => this.kindLoads(value)).join(' و ') }) : null,
         voice === null ? null : this.t(voice ? 'filters.cargoVoiceOn' : 'filters.cargoVoiceOff'),
       ]
         .filter(Boolean)
@@ -842,14 +844,21 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     };
   }
 
-  /** نوع راننده؛ بار اعلام‌شده فقط به راننده‌های همان نوع می‌رسد. */
-  /** «داخلی» یا «بین‌المللی»؛ یکی از این دو، نه هر دو. */
+  /**
+   * نوع راننده؛ بار اعلام‌شده فقط به راننده‌های همان نوع می‌رسد. «داخلی» و «بین‌المللی» هر کدام روشن/خاموش می‌شود
+   * (راننده می‌تواند هر دو باشد)؛ دست‌کم یکی می‌ماند.
+   */
   private async setDriverTripType(ctx: BotContext, value: string): Promise<BotReply> {
     const loadType = Object.values(CargoTripType).find((item) => item === value);
     const kind = value in DRIVER_KIND_LABELS ? (value as DriverKind) : loadType ? driverKindForLoad(loadType) : null;
     if (!kind || !(await this.isDriver(ctx))) return this.filtersView(ctx);
-    await this.profiles.setTripTypes(ctx.userId, DRIVER_KIND_TRIP_TYPES[kind]);
-    return this.filtersView(ctx, this.t('filters.tripTypeSaved', { type: DRIVER_KIND_LABELS[kind] }));
+    const current = driverKindsOf(await this.profiles.tripTypesOf(ctx.userId));
+    const toggled = current.includes(kind) ? current.filter((item) => item !== kind) : [...current, kind];
+    // domestic first, always: the same kinds read and save the same way
+    const next = (Object.keys(DRIVER_KIND_LABELS) as DriverKind[]).filter((item) => toggled.includes(item));
+    if (!next.length) return this.filtersView(ctx, this.t('filters.tripTypeOne'));
+    await this.profiles.setTripTypes(ctx.userId, next.flatMap((item) => DRIVER_KIND_TRIP_TYPES[item]));
+    return this.filtersView(ctx, this.t('filters.tripTypeSaved', { type: next.map((item) => DRIVER_KIND_LABELS[item]).join(' و ') }));
   }
 
   /** «داخلی» / «صادراتی و وارداتی»: بارهایی که این نوع راننده می‌گیرد */
