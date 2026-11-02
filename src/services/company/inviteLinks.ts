@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 
 export interface MessengerInvites {
@@ -39,4 +40,12 @@ export function messengerInvites(config: ConfigService, code: string): Messenger
  */
 export function inviteText(webLink: string, inviter: string): string {
   return `لینک دعوت «${inviter}»:\n${webLink}`;
+}
+
+/**
+ * An invite's token: 16 characters (96 random bits), so the link's short path (d/…, 18 characters) fits a template
+ * variable of sms.ir (25 at most). Tokens of 16 to 64 characters are read (older ones were 24).
+ */
+export function inviteToken(): string {
+  return randomBytes(12).toString('base64url');
 }
