@@ -3,13 +3,14 @@ import * as XLSX from 'xlsx';
 
 import { normalizePersianText } from 'src/domain/helper/persianText';
 import { normalizePhoneNumber } from 'src/dto/auth/phone-number';
-import { MAX_DRIVER_INVITES } from './driverInvite.service';
 
 export const MAX_DRIVER_EXCEL_BYTES = 2 * 1024 * 1024;
 // rows past this are not read: a sheet whose formatting runs to the end of Excel is still read quickly
 const SCAN_ROWS = 1000;
 
 const MOBILE = /^09[0-9]{9}$/;
+// the template's example row; a file that still has it is not inviting that number
+const SAMPLE = { name: 'علی رضایی (نمونه)', mobile: '09120000000' };
 
 const key = (text: string) => normalizePersianText(text).replace(/[*:\s‌_-]/g, '');
 
@@ -32,6 +33,11 @@ export interface DriverExcelRow {
 export interface DriverExcelResult {
   drivers: DriverExcelRow[];
   errors: Array<{ row: number; message: string }>;
+}
+
+/** The file checked against the invite rules: only drivers that can be invited; the others with the reason. */
+export interface DriverExcelCheck extends DriverExcelResult {
+  refused: Array<DriverExcelRow & { reason: string }>;
 }
 
 function cellText(value: unknown): string {
@@ -103,30 +109,29 @@ export function readDriverExcel(file: Buffer): DriverExcelResult {
       result.errors.push({ row: at, message: raw ? `«${raw}» شماره موبایل معتبر نیست.` : 'شماره موبایل ندارد.' });
       return;
     }
-    if (seen.has(mobile)) return;
+    if (seen.has(mobile) || mobile === SAMPLE.mobile) return;
     seen.add(mobile);
     const name = [columns.name, columns.family].map((index) => (index === undefined ? '' : row[index] ?? '')).filter(Boolean).join(' ').slice(0, 200);
     result.drivers.push({ row: at, mobile, ...(name && { name }) });
   });
-  if (!result.drivers.length && !result.errors.length) throw new BadRequestException('فایل خالی است.');
-  if (result.drivers.length > MAX_DRIVER_INVITES) {
-    throw new BadRequestException(`در هر فایل حداکثر ${MAX_DRIVER_INVITES} راننده؛ فایل را چند بخش کنید.`);
-  }
+  if (!result.drivers.length && !result.errors.length) throw new BadRequestException('فایل خالی است؛ رانندگان را زیر سرستون‌ها بنویسید.');
   return result;
 }
 
-/** The sample file: the two columns, right-to-left. */
+/**
+ * The sample file: «نام راننده» and «شماره موبایل», right-to-left, with one example row (skipped when read back).
+ * Shared strings, not inline ones: some viewers (Google Sheets, phone apps) show inline-string cells empty.
+ */
 export function driverExcelTemplate(): Buffer {
   const sheet = XLSX.utils.aoa_to_sheet([
-    ['شماره موبایل', 'نام راننده'],
-    ['09121234567', 'علی رضایی'],
+    ['نام راننده', 'شماره موبایل'],
+    [SAMPLE.name, SAMPLE.mobile],
   ]);
-  sheet['!cols'] = [{ wch: 18 }, { wch: 28 }];
-  // the numbers as text, so Excel keeps their leading zero
-  sheet['A2'].t = 's';
-  sheet['A2'].z = '@';
+  sheet['!cols'] = [{ wch: 28 }, { wch: 18 }];
+  // the example number as text, keeping its zero (a number typed without it is read back right: mobileOf)
+  sheet['B2'].z = '@';
   const book = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(book, sheet, 'رانندگان');
   book.Workbook = { Views: [{ RTL: true }] };
-  return XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+  return XLSX.write(book, { type: 'buffer', bookType: 'xlsx', bookSST: true }) as Buffer;
 }

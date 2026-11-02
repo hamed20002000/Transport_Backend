@@ -10,7 +10,7 @@ import { CompanyFeatureGuard, RequireCompanyFeature } from 'src/auth/guards/comp
 import { CompanyFeature } from 'src/domain/enums/companyFeature';
 import { DRIVER_INVITE_PREFIX } from 'src/services/messengerBot/core/factoryInvite';
 import { DriverInviteService, MAX_DRIVER_INVITES } from 'src/services/company/driverInvite.service';
-import { driverExcelTemplate, MAX_DRIVER_EXCEL_BYTES, readDriverExcel } from 'src/services/company/driverInviteExcel';
+import { driverExcelTemplate, MAX_DRIVER_EXCEL_BYTES } from 'src/services/company/driverInviteExcel';
 import { isCompanyRole } from 'src/services/company/companyFeature.service';
 import { messengerInvites } from 'src/services/company/inviteLinks';
 
@@ -86,13 +86,15 @@ export class CompanyDriverInviteController {
     });
   }
 
-  /** Only reads the file: the drivers go into the form, where the company checks them and sends the invite. */
+  /**
+   * Only reads and checks the file: the drivers that can be invited go into the form, where the company sends the
+   * invite; the others come back with the reason.
+   */
   @Post('excel')
   @UseInterceptors(FileInterceptor('file', excelUploadOptions))
   readExcel(@Req() request: AuthRequest, @UploadedFile() file?: Express.Multer.File) {
-    companyUserId(request);
     if (!file) throw new BadRequestException('فایل اکسل را انتخاب کنید.');
-    return readDriverExcel(file.buffer);
+    return this.invites.readExcel(companyUserId(request), file.buffer);
   }
 
   @Delete(':driverUserId')

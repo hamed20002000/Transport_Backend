@@ -19,11 +19,12 @@ import { InviteSmsResult, InviteSmsService } from './inviteSms.service';
 import { inviteToken } from './inviteLinks';
 import { RedisService } from '../redis/redis.service';
 import { InviteUsedEvent, REDIS_CHANNELS } from '../redis/redis.keys';
+import { DriverExcelCheck, readDriverExcel } from './driverInviteExcel';
 import { assertInvitable, inviteExpiresAt, isInviteExpired, isInviteWaiting, renewedInvite } from './inviteRules';
 
 const DRIVER_ROLE = 'DRIVER';
 /** at most this many drivers in one batch */
-export const MAX_DRIVER_INVITES = 200;
+export const MAX_DRIVER_INVITES = 20;
 
 export interface DriverInviteInput {
   mobile: string;
@@ -102,9 +103,7 @@ export class DriverInviteService {
 
   private async inviteOne(manager: EntityManager, companyUserId: string, mobile: string, name: string | null) {
     let driver = await manager.findOne(User, { where: { mobile }, relations: { userRoles: { role: true } } });
-    const roles = driver?.userRoles?.filter((item) => item.role?.recordStatus === RecordStatus.Active).map((item) => item.role.name) ?? [];
-    if (roles.length && !roles.includes(DRIVER_ROLE)) throw new ConflictException('این شماره حساب شرکت حمل‌ونقل یا شرکت / کارخانه است.');
-    const created = !roles.length;
+    const created = !this.driverAccount(driver);
     if (created) {
       const role = await manager.findOne(Role, { where: { name: DRIVER_ROLE, recordStatus: RecordStatus.Active } });
       if (!role) throw new BadRequestException('نقش راننده در سامانه تعریف نشده است.');
@@ -125,6 +124,44 @@ export class DriverInviteService {
       ? await this.renew(manager, existing)
       : existing ?? (await manager.save(DriverInvite, manager.create(DriverInvite, { companyUserId, driverUserId, mobile, token: inviteToken() })));
     return { status: created ? ('created' as const) : ('added' as const), driverUserId, token: invite.token };
+  }
+
+  /**
+   * An Excel file of drivers, each number checked against the rules inviteOne keeps (nothing is saved): the ones that
+   * can be invited go into the form, the others come back with the reason.
+   */
+  async readExcel(companyUserId: string, file: Buffer): Promise<DriverExcelCheck> {
+    const { drivers, errors } = readDriverExcel(file);
+    const result: DriverExcelCheck = { drivers: [], errors, refused: [] };
+    for (const driver of drivers) {
+      const reason = await this.refusal(companyUserId, driver.mobile);
+      if (reason) result.refused.push({ ...driver, reason });
+      else result.drivers.push(driver);
+    }
+    if (result.drivers.length > MAX_DRIVER_INVITES) {
+      throw new BadRequestException(`در هر فایل حداکثر ${MAX_DRIVER_INVITES} راننده؛ فایل را چند بخش کنید.`);
+    }
+    return result;
+  }
+
+  /** Why the company cannot invite this number now, or null when it can. */
+  private async refusal(companyUserId: string, mobile: string): Promise<string | null> {
+    const manager = this.dataSource.manager;
+    const driver = await manager.findOne(User, { where: { mobile }, relations: { userRoles: { role: true } } });
+    try {
+      if (this.driverAccount(driver)) await this.assertInvitable(manager, companyUserId, driver!);
+      return null;
+    } catch (error) {
+      if (error instanceof ConflictException) return error.message;
+      throw error;
+    }
+  }
+
+  /** Whether the number has an account already (a driver's); one with another role is never invited as a driver. */
+  private driverAccount(user: User | null): boolean {
+    const roles = user?.userRoles?.filter((item) => item.role?.recordStatus === RecordStatus.Active).map((item) => item.role.name) ?? [];
+    if (roles.length && !roles.includes(DRIVER_ROLE)) throw new ConflictException('این شماره حساب شرکت حمل‌ونقل یا شرکت / کارخانه است.');
+    return roles.length > 0;
   }
 
   /** A driver account that is there already: the rules of every invite (inviteRules.assertInvitable). */
