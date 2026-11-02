@@ -30,6 +30,7 @@ export class InviteUsageNotifier implements OnModuleInit {
       this.gateway.sendToUser(event.inviterUserId, event.expired ? INVITE_EXPIRED_SOCKET_EVENT : INVITE_USED_SOCKET_EVENT, {
         kind: event.kind,
         userId: event.inviteeUserId,
+        byLink: !!event.byLink,
       });
     } catch (error) {
       this.logger.warn(`Used invite notice failed: ${(error as Error).message}`);
