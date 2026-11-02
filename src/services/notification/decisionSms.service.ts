@@ -14,6 +14,8 @@ import { fitTemplateValue } from '../company/inviteSms.service';
  *
  * sms.ir «ارسال سریع» template SMSIR_NOTICE_TEMPLATE_ID with #TITLE# (what was decided, 25 characters at most) and
  * #RESULT# («تأیید شد» / «تأیید نشد»), so it reaches numbers on the advertising blacklist too; without it, a plain SMS.
+ * And a company's bought menus closing in a few days (CompanyPlanExpiryWorker): template SMSIR_PLAN_REMINDER_TEMPLATE_ID
+ * with #TITLE# («طرح طلایی») and #DAYS#.
  * Off like every SMS while SMS_OTP_ENABLED is not true (development): only logged.
  */
 @Injectable()
@@ -27,25 +29,39 @@ export class DecisionSmsService {
   ) {}
 
   async send(userId: string, title: string, approved: boolean): Promise<void> {
+    const result = approved ? 'تأیید شد' : 'تأیید نشد';
+    await this.deliver(userId, 'SMSIR_NOTICE_TEMPLATE_ID', { TITLE: title, RESULT: result }, (panel) =>
+      ['ترابوت', `${title}: ${result}`, approved ? '' : 'دلیل را در برنامه ببینید.', panel]);
+  }
+
+  /** title: «طرح طلایی» (or «بخش‌های خریده‌شده»); days left until it closes. */
+  async sendPlanReminder(userId: string, title: string, days: number): Promise<void> {
+    const left = days.toLocaleString('fa-IR');
+    await this.deliver(userId, 'SMSIR_PLAN_REMINDER_TEMPLATE_ID', { TITLE: title, DAYS: left }, (panel) =>
+      ['ترابوت', `${title} شما ${left} روز دیگر تمام می‌شود.`, 'برای تمدید به خرید امکانات بروید:', panel]);
+  }
+
+  /** The user's mobile, the template of setting with its values, or (no template) the plain text lines. */
+  private async deliver(userId: string, setting: string, values: Record<string, string>, lines: (panel?: string) => Array<string | undefined>) {
     const rows: Array<{ mobile: string | null }> = await this.dataSource.query(`SELECT mobile FROM "User" WHERE id = $1`, [userId]);
     const mobile = rows[0]?.mobile?.trim();
     if (!mobile || !/^09[0-9]{9}$/.test(mobile)) return;
-    const result = approved ? 'تأیید شد' : 'تأیید نشد';
     const panel = this.config.get<string>('WEB_PANEL_URL')?.trim().replace(/\/+$/, '');
-    const text = ['ترابوت', `${title}: ${result}`, approved ? '' : 'دلیل را در برنامه ببینید.', panel].filter(Boolean).join('\n');
+    const text = lines(panel).filter(Boolean).join('\n');
 
     if (this.config.get<string>('SMS_OTP_ENABLED')?.trim().toLowerCase() !== 'true') {
-      this.logger.log(`Decision SMS is off; would send to ${mobile}: ${text.replace(/\n/g, ' | ')}`);
+      this.logger.log(`Notice SMS is off; would send to ${mobile}: ${text.replace(/\n/g, ' | ')}`);
       return;
     }
     if (!smsIrSelected(this.config)) {
-      this.logger.warn('Decision SMS not sent: only sms.ir (SMS_PROVIDER=smsir) sends it.');
+      this.logger.warn('Notice SMS not sent: only sms.ir (SMS_PROVIDER=smsir) sends it.');
       return;
     }
-    const templateId = smsIrTemplate(this.config, 'SMSIR_NOTICE_TEMPLATE_ID');
+    const templateId = smsIrTemplate(this.config, setting);
+    const parameters = Object.fromEntries(Object.entries(values).map(([name, value]) => [name, fitTemplateValue(value)]));
     const sent = templateId
-      ? await sendSmsIrVerify(this.http, this.config, mobile, templateId, { TITLE: fitTemplateValue(title), RESULT: result })
+      ? await sendSmsIrVerify(this.http, this.config, mobile, templateId, parameters)
       : await sendSmsIr(this.http, this.config, mobile, text);
-    if (!sent.ok) this.logger[sent.notConfigured ? 'warn' : 'error'](`Decision SMS to ${mobile} not sent: ${sent.reason}`);
+    if (!sent.ok) this.logger[sent.notConfigured ? 'warn' : 'error'](`Notice SMS to ${mobile} not sent: ${sent.reason}`);
   }
 }

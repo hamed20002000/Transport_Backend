@@ -296,6 +296,9 @@ export class SubscriptionNotifier implements OnModuleInit {
         url: '/account/company/features',
       }).catch((error: Error) => this.logger.warn(`Plan expiry push to ${notice.userId} failed: ${error.message}`)),
       this.messengers(notice.userId, text),
+      // by SMS too: the reminder reaches a company that has no internet these days
+      this.sms.sendPlanReminder(notice.userId, notice.tierTitle ?? 'بخش‌های خریده‌شده', notice.daysLeft)
+        .catch((error: Error) => this.logger.warn(`Plan expiry SMS to ${notice.userId} failed: ${error.message}`)),
     ]);
   }
 
