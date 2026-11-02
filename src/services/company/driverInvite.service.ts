@@ -168,11 +168,14 @@ export class DriverInviteService {
     return { valid: true, companyName: await this.companyName(invite.companyUserId), mobile: maskMobile(invite.mobile) };
   }
 
-  /** The account that came in with the link is the invited driver (same number)? Marks the link used. */
+  /**
+   * The account that came in with the link (or its code in a messenger) is the invited driver (same number)? Marks
+   * the invite used, and used by its link: the company's drivers list says «با لینک دعوت شما».
+   */
   async isInvited(userId: string, token: string): Promise<boolean> {
     const invite = await this.activeInvite(token);
     if (!invite || invite.driverUserId !== userId) return false;
-    if (!invite.usedAt) await this.invites.update({ id: invite.id }, { usedAt: new Date() });
+    if (!invite.usedAt || !invite.usedByLink) await this.invites.update({ id: invite.id }, { usedAt: invite.usedAt ?? new Date(), usedByLink: true });
     return true;
   }
 

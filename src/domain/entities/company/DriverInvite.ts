@@ -36,9 +36,13 @@ export class DriverInvite {
   @Column({ type: 'varchar', length: 20 })
   mobile!: string;
 
-  /** the driver first came in with the link (web, a bot or WhatsApp) */
+  /** the invited number first came in, by any way (markInvitesUsed): the invite is done */
   @Column({ type: 'timestamp', nullable: true })
   usedAt?: Date | null;
+
+  /** it came in with this invite itself (its link, or its code in a messenger), not by finding Trabot alone */
+  @Column({ type: 'boolean', default: false })
+  usedByLink!: boolean;
 
   @Column({ type: 'timestamp', nullable: true })
   revokedAt?: Date | null;

@@ -332,6 +332,12 @@ export class DriverProfileService {
          JOIN "Role" r ON r.id = ur."roleId" AND r.name = 'DRIVER' AND r."recordStatus" = $1
          LEFT JOIN "DriverProfile" p ON p."userId" = u.id
         WHERE u."recordStatus" = $1 AND $2::varchar[] && COALESCE(p."tripTypes", ARRAY[COALESCE(p."tripType", '${CargoTripType.Domestic}')]::varchar[])
+          -- an account a company's invite made is not a driver yet: it shows once its driver came in (usedAt)
+          AND NOT EXISTS (
+               SELECT 1 FROM "DriverInvite" made
+                WHERE made."driverUserId" = u.id
+                  AND made."createdAt" BETWEEN u."createdAt" - interval '1 minute' AND u."createdAt" + interval '1 minute'
+                  AND NOT EXISTS (SELECT 1 FROM "DriverInvite" used WHERE used."driverUserId" = u.id AND used."usedAt" IS NOT NULL))
           AND ($3::text IS NULL
                OR replace(concat_ws('', u."firstName", u."lastName", u.username), ' ', '') ILIKE $3
                OR u.mobile ILIKE $3
@@ -344,22 +350,32 @@ export class DriverProfileService {
     );
     const ids = rows.map((row) => row.id);
     const joinedBy = await this.joinedBy(ids, viewerUserId);
-    const items = (await this.cards(ids)).map((card) => ({ ...card, joinedBy: joinedBy.get(card.userId) ?? 'self' }));
+    const items = (await this.cards(ids)).map((card) => ({ ...card, ...(joinedBy.get(card.userId) ?? { joinedBy: 'self', removable: false }) }));
     return { items, total: Number(total), page, pageSize };
   }
 
   /**
-   * How each driver came: with this company's invite link (yourInvite), another company's (invite), or by
-   * themselves (self, the default). An invite the driver never used still counts: their account was made by it.
+   * How each driver came: with this company's invite itself, its link or code (yourInvite), another company's
+   * (invite), or by finding Trabot themselves (self, the default: also a driver this company invited who came in
+   * without the link). removable: this company invited them, so it can take them off its drivers.
    */
-  private async joinedBy(driverIds: string[], viewerUserId?: string): Promise<Map<string, 'yourInvite' | 'invite'>> {
+  private async joinedBy(driverIds: string[], viewerUserId?: string): Promise<Map<string, { joinedBy: 'yourInvite' | 'invite' | 'self'; removable: boolean }>> {
     if (!driverIds.length) return new Map();
-    const rows: Array<{ driverUserId: string; mine: boolean }> = await this.dataSource.query(
-      `SELECT "driverUserId", bool_or("companyUserId"::text = $2) AS mine FROM "DriverInvite"
-        WHERE "driverUserId" = ANY($1::uuid[]) GROUP BY "driverUserId"`,
+    const rows: Array<{ driverUserId: string; mine: boolean; mineByLink: boolean; otherByLink: boolean }> = await this.dataSource.query(
+      `SELECT "driverUserId",
+              bool_or("companyUserId"::text = $2) AS mine,
+              bool_or("companyUserId"::text = $2 AND "usedByLink") AS "mineByLink",
+              bool_or("companyUserId"::text <> $2 AND "usedByLink") AS "otherByLink"
+         FROM "DriverInvite"
+        WHERE "driverUserId" = ANY($1::uuid[]) AND "revokedAt" IS NULL GROUP BY "driverUserId"`,
       [driverIds, viewerUserId ?? ''],
     );
-    return new Map(rows.map((row) => [row.driverUserId, row.mine ? 'yourInvite' : 'invite']));
+    return new Map(
+      rows.map((row) => [
+        row.driverUserId,
+        { joinedBy: row.mineByLink ? 'yourInvite' : row.otherByLink ? 'invite' : 'self', removable: row.mine },
+      ]),
+    );
   }
 
   /** راننده‌ای با این شناسه و نقش فعال DRIVER هست؟ (قبل از سپردن بار) */
