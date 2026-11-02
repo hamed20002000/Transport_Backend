@@ -567,11 +567,16 @@ export class CargoTripService {
       const text = this.t((await this.isBroker(userId)) ? 'notify.deliveryReportedBroker' : 'notify.deliveryReported', { cargo, by: this.describe(by) });
       // پنل وب باز شرکت: همان خبر به شکل اعلان
       this.changed(request, { type: 'deliveryReported', text });
-      await this.notify(request.companyUserId, text, [
-        { id: `${TripAction.Deliver}${request.id}`, label: this.t('actions.confirmDelivery'), row: 0 },
-        { id: `${TripAction.RejectDelivery}${request.id}`, label: this.t('actions.rejectDelivery'), row: 0 },
-        { id: `${TripAction.CompanyTrips}1`, label: this.t('actions.companyTrips'), row: 1 },
-      ]);
+      await this.notify(
+        request.companyUserId,
+        text,
+        [
+          { id: `${TripAction.Deliver}${request.id}`, label: this.t('actions.confirmDelivery'), row: 0 },
+          { id: `${TripAction.RejectDelivery}${request.id}`, label: this.t('actions.rejectDelivery'), row: 0 },
+          { id: `${TripAction.CompanyTrips}1`, label: this.t('actions.companyTrips'), row: 1 },
+        ],
+        { title: 'ترابوت · اعلام تحویل' },
+      );
       return request;
     }
 
@@ -581,7 +586,11 @@ export class CargoTripService {
     request.deliveredAt = new Date();
     await this.requests.save(request);
     const text = this.t(reported ? 'notify.deliveryConfirmed' : 'notify.deliveredByCompany', { cargo, by: this.describe(by) });
-    await this.notify(request.driverUserId, text);
+    // the finished trip is among «درخواست‌های من» (a broker's in its own panel)
+    await this.notify(request.driverUserId, text, [], {
+      title: reported ? 'ترابوت · تحویل تأیید شد' : 'ترابوت · تحویل ثبت شد',
+      url: (await this.isBroker(request.driverUserId)) ? '/account/broker?tab=requests' : '/account/driver/requests',
+    });
     // پنل‌های باز (سفرها، شمارنده‌ی سفرهای بی‌تحویل، خانه‌ی راننده) به‌روز شوند
     this.changed(request, undefined, text);
     return request;
@@ -599,10 +608,12 @@ export class CargoTripService {
     await this.requests.save(request);
     const company = await this.contact(companyUserId);
     const text = this.t('notify.deliveryRejected', { cargo: this.cargoTitle(request), by: this.describe(company) });
-    const back = (await this.isBroker(request.driverUserId))
+    const broker = await this.isBroker(request.driverUserId);
+    const back = broker
       ? { id: `${TripAction.DriverRequests}1`, label: this.t('actions.myRequests') }
       : { id: TripAction.ActiveTrip, label: this.t('actions.activeTrip') };
-    await this.notify(request.driverUserId, text, [back]);
+    // a driver to its active trip (from the button); a broker to its requests, in its own panel
+    await this.notify(request.driverUserId, text, [back], { title: 'ترابوت · تحویل تأیید نشد', url: broker ? '/account/broker?tab=requests' : undefined });
     this.changed(request, undefined, text);
     return request;
   }
@@ -753,8 +764,11 @@ export class CargoTripService {
     else await this.bots.sendLocation(ctx.externalUserId, latitude, longitude);
   }
 
-  /** به همه‌ی پیام‌رسان‌هایی که کاربر وصل کرده (و واتساپ)؛ خطای یکی بقیه را متوقف نمی‌کند. */
-  private async notify(userId: string, text: string, actions: BotAction[] = []): Promise<void> {
+  /**
+   * به همه‌ی پیام‌رسان‌هایی که کاربر وصل کرده (و واتساپ)؛ خطای یکی بقیه را متوقف نمی‌کند. push: عنوان اعلان گوشی
+   * (پیش‌فرض «ترابوت») و صفحه‌ای که باز می‌کند (پیش‌فرض از روی دکمه‌ها: pushUrl).
+   */
+  private async notify(userId: string, text: string, actions: BotAction[] = [], push: { title?: string; url?: string } = {}): Promise<void> {
     const bots = async () => {
       const links = await this.botLinks.findAllByUserId(userId);
       await Promise.all(links.filter((link) => link.chatId && this.bots.hasPlatform(link.platform)).map(async (link) => {
@@ -770,7 +784,7 @@ export class CargoTripService {
       this.whatsapp.notify(userId, text, actions).catch((error: Error) => this.logger.warn(`Trip notification to ${userId} on WhatsApp failed: ${error.message}`)),
       // the same news as a phone notification of the installed app, even while it is closed
       this.push
-        ?.sendToUser(userId, { title: 'ترابوت', body: text, url: pushUrl(actions) })
+        ?.sendToUser(userId, { title: push.title ?? 'ترابوت', body: text, url: push.url ?? pushUrl(actions) })
         .catch((error: Error) => this.logger.warn(`Trip web push to ${userId} failed: ${error.message}`)),
     ]);
   }
