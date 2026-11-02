@@ -37,6 +37,34 @@ export const COMPANY_FEATURE_TITLES: Record<CompanyFeature, string> = {
   [CompanyFeature.Factories]: 'کارخانه‌ها',
 };
 
+/** طرح‌های شرکت حمل‌ونقل (CompanyTierPlan): هر کدام چند بخش با هم، به ترتیب از ارزان به گران. */
+export enum CompanyTier {
+  Bronze = 'BRONZE',
+  Silver = 'SILVER',
+  Gold = 'GOLD',
+}
+
+export const COMPANY_TIERS: CompanyTier[] = [CompanyTier.Bronze, CompanyTier.Silver, CompanyTier.Gold];
+
+export const COMPANY_TIER_TITLES: Record<CompanyTier, string> = {
+  [CompanyTier.Bronze]: 'برنزی',
+  [CompanyTier.Silver]: 'نقره‌ای',
+  [CompanyTier.Gold]: 'طلایی',
+};
+
+/** The periods a tier is sold for, in months, and the days each opens. */
+export const TIER_MONTHS = [1, 3, 6, 12] as const;
+export type TierMonths = (typeof TIER_MONTHS)[number];
+export const TIER_MONTH_DAYS: Record<TierMonths, number> = { 1: 30, 3: 90, 6: 180, 12: 365 };
+
+/** «۳ ماهه», «۱ ساله»; another length (an order of before) by its days */
+export function tierPeriodTitle(days: number): string {
+  const months = TIER_MONTHS.find((value) => TIER_MONTH_DAYS[value] === days);
+  if (months === 12) return '۱ ساله';
+  if (months) return `${months.toLocaleString('fa-IR')} ماهه`;
+  return `${days.toLocaleString('fa-IR')} روزه`;
+}
+
 /**
  * ابزار دستیار → منویی که همان کار را در پنل می‌کند؛ شرکتی که دستیار را دارد ولی آن منو را نه، با دستیار
  * هم آن کار را نمی‌کند. ابزار بی‌منو (فیلتر، پروفایل، اشتراک، مرز) آزاد است.

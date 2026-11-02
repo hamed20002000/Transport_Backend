@@ -12,6 +12,8 @@ import { AccountSignedInEvent, AccountVerificationEvent, BrokerAccessOrderEvent,
 import { NotificationsGateway } from './notifications.gateway';
 import { WebPushService } from './webPush.service';
 import { WhatsappDialogBridge } from './whatsappDialogBridge';
+import { DecisionSmsService } from './decisionSms.service';
+import { planExpiringText, type PlanExpiringNotice } from '../company/planExpiring';
 
 export const PAYMENT_RECEIPT_SOCKET_EVENT = 'payment-receipt';
 export const SUBSCRIPTION_CHANGED_SOCKET_EVENT = 'subscription-changed';
@@ -65,6 +67,7 @@ export class SubscriptionNotifier implements OnModuleInit {
     private readonly bots: MessengerBotService,
     private readonly whatsapp: WhatsappDialogBridge,
     @Inject(BOT_LINK_REPOSITORY) private readonly botLinks: IBotLinkRepository,
+    private readonly sms: DecisionSmsService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -150,13 +153,14 @@ export class SubscriptionNotifier implements OnModuleInit {
         .catch((error: Error) => this.logger.warn(`Decision to ${event.userId} on WhatsApp failed: ${error.message}`)),
       // …but not the reward: that goes to the bots too
       gift ? this.botsOnly(event.userId, gift) : Promise.resolve(),
+      this.decisionSms(event.userId, plan, event.approved),
     ]);
   }
 
   /** A company sent a receipt for a menu (web, bots or WhatsApp): every admin hears of it, like a subscription receipt. */
   async featureReceipt(event: CompanyFeatureOrderEvent): Promise<void> {
     const price = `${fa(event.amount)} ${currencyNames[event.currency] ?? event.currency}`;
-    const text = `🧾 رسید خرید بخش «${event.title}» · ${price}\nبرای بررسی به «امکانات شرکت‌های حمل‌ونقل ← رسیدها» در پنل ادمین بروید.`;
+    const text = `🧾 رسید خرید ${event.title} · ${price}\nبرای بررسی به «امکانات شرکت‌های حمل‌ونقل ← رسیدها» در پنل ادمین بروید.`;
     this.gateway.sendToRoles(['ADMIN'], COMPANY_FEATURE_RECEIPT_SOCKET_EVENT, { orderId: event.orderId });
     for (const adminId of await this.adminIds()) {
       await Promise.all([
@@ -173,13 +177,14 @@ export class SubscriptionNotifier implements OnModuleInit {
    */
   async featureDecided(event: CompanyFeatureOrderEvent): Promise<void> {
     const text = event.approved
-      ? `✅ بخش «${event.title}» فعال شد${event.expireAt ? ` و تا ${faDate(event.expireAt)} باز است` : ''}.`
-      : `رسید خرید بخش «${event.title}» تأیید نشد.\nدلیل: ${event.reason ?? '—'}\nلطفاً دوباره پرداخت کنید یا رسید درست را بفرستید («💎 خرید امکانات»).`;
-    this.gateway.sendToUser(event.userId, COMPANY_FEATURES_CHANGED_SOCKET_EVENT, { feature: event.feature, approved: event.approved });
+      ? `✅ ${event.title} فعال شد${event.expireAt ? ` و تا ${faDate(event.expireAt)} باز است` : ''}.`
+      : `رسید خرید ${event.title} تأیید نشد.\nدلیل: ${event.reason ?? '—'}\nلطفاً دوباره پرداخت کنید یا رسید درست را بفرستید («💎 خرید امکانات»).`;
+    this.gateway.sendToUser(event.userId, COMPANY_FEATURES_CHANGED_SOCKET_EVENT, { feature: event.feature, tier: event.tier ?? null, approved: event.approved });
     await Promise.all([
       this.push.sendToUser(event.userId, { title: `ترابوت · ${event.approved ? 'بخش تازه فعال شد' : 'رسید تأیید نشد'}`, body: text, url: '/account/company/features' })
         .catch((error: Error) => this.logger.warn(`Feature decision push to ${event.userId} failed: ${error.message}`)),
       this.messengers(event.userId, text),
+      this.decisionSms(event.userId, event.title, !!event.approved),
     ]);
   }
 
@@ -208,6 +213,7 @@ export class SubscriptionNotifier implements OnModuleInit {
       this.push.sendToUser(event.userId, { title: `ترابوت · ${event.approved ? 'شرکت‌ها باز شد' : 'رسید تأیید نشد'}`, body: text, url: '/account/broker?tab=access' })
         .catch((error: Error) => this.logger.warn(`Broker decision push to ${event.userId} failed: ${error.message}`)),
       this.messengers(event.userId, text),
+      this.decisionSms(event.userId, `خرید بار ${fa(event.companies)} شرکت`, !!event.approved),
     ]);
   }
 
@@ -262,15 +268,40 @@ export class SubscriptionNotifier implements OnModuleInit {
   }
 
   async verificationDecided(event: AccountVerificationEvent): Promise<void> {
+    const kind = event.kind ?? 'COMPANY';
     const text = event.approved
-      ? `✅ حساب شما تأیید شد.\n${APPROVED_NEXT[event.kind ?? 'COMPANY']}\nبرای دیدن منو، «منو» را بفرستید.`
+      ? `✅ حساب شما تأیید شد.\n${APPROVED_NEXT[kind]}`
       : `❌ درخواست بررسی اعتبار شما تأیید نشد.\nدلیل: ${event.reason ?? '—'}\n${event.remaining ? `اطلاعات را اصلاح کنید و دوباره درخواست بدهید (${fa(event.remaining)} بار دیگر).` : 'دفعات درخواست تمام شده است؛ با پشتیبانی تماس بگیرید.'}`;
+    // the open panel unlocks at once; the phone notification opens where the account goes next
     this.gateway.sendToUser(event.userId, VERIFICATION_CHANGED_SOCKET_EVENT, { approved: event.approved });
     await Promise.all([
-      this.push.sendToUser(event.userId, { title: `ترابوت · ${event.approved ? 'حساب شما تأیید شد' : 'درخواست تأیید نشد'}`, body: text, url: VERIFICATION_PROFILE_PATH[event.kind ?? 'COMPANY'] })
-        .catch((error: Error) => this.logger.warn(`Verification decision push to ${event.userId} failed: ${error.message}`)),
-      this.messengers(event.userId, text),
+      this.push.sendToUser(event.userId, {
+        title: `ترابوت · ${event.approved ? 'حساب شما تأیید شد' : 'درخواست تأیید نشد'}`,
+        body: text,
+        url: event.approved && kind === 'COMPANY' ? '/account/company/features' : VERIFICATION_PROFILE_PATH[kind],
+      }).catch((error: Error) => this.logger.warn(`Verification decision push to ${event.userId} failed: ${error.message}`)),
+      this.decisionSms(event.userId, 'بررسی حساب ترابوت', !!event.approved),
+      // «منو» is a messenger word: only the bots and WhatsApp are told to send it
+      this.messengers(event.userId, event.approved ? `${text}\nبرای دیدن منو، «منو» را بفرستید.` : text),
     ]);
+  }
+
+  /** A company's bought menus close in a few days (CompanyPlanExpiryWorker): the app and its messengers. */
+  async planExpiring(notice: PlanExpiringNotice): Promise<void> {
+    const text = planExpiringText(notice);
+    await Promise.all([
+      this.push.sendToUser(notice.userId, {
+        title: `ترابوت · ${notice.tierTitle ?? 'بخش‌های خریده‌شده'} رو به پایان است`,
+        body: text,
+        url: '/account/company/features',
+      }).catch((error: Error) => this.logger.warn(`Plan expiry push to ${notice.userId} failed: ${error.message}`)),
+      this.messengers(notice.userId, text),
+    ]);
+  }
+
+  /** The answer by SMS as well (DecisionSmsService): it reaches a user with no internet; a failure is only logged. */
+  private decisionSms(userId: string, title: string, approved: boolean): Promise<void> {
+    return this.sms.send(userId, title, approved).catch((error: Error) => this.logger.warn(`Decision SMS to ${userId} failed: ${error.message}`));
   }
 
   private async botsOnly(userId: string, text: string): Promise<void> {

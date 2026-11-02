@@ -1,6 +1,8 @@
 import { SubscriptionPlanController } from 'src/presentation/controllers/admin/subscription-plan.controller';
 import { SubscriptionPolicyController } from 'src/presentation/controllers/admin/subscription-policy.controller';
 import { SubscriptionController } from 'src/presentation/controllers/subscription/subscription.controller';
+import { PaymentsController } from 'src/presentation/controllers/subscription/payments.controller';
+import { PaymentHistoryService } from 'src/services/subscription/paymentHistory.service';
 import { AppSetting } from '../../domain/entities/setting/AppSetting';
 import { RedisModule } from './RedisModule';
 import { SubscriptionPolicyService } from '../../services/subscription/subscriptionPolicy.service';
@@ -40,7 +42,7 @@ import {
 } from '../../domain/repositories/repository.tokens';
 
 @Module({
-  controllers: [SubscriptionPlanController, SubscriptionPolicyController, SubscriptionController],
+  controllers: [SubscriptionPlanController, SubscriptionPolicyController, SubscriptionController, PaymentsController],
   imports: [
     TypeOrmModule.forFeature([
       Subscription,
@@ -59,6 +61,7 @@ import {
     SubscriptionRepository,
     { provide: SUBSCRIPTION_REPOSITORY, useExisting: SubscriptionRepository },
     SubscriptionPlanService,
+    PaymentHistoryService,
     SubscriptionOrderService,
     PaymentReceiptService,
 

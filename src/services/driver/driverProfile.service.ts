@@ -355,17 +355,19 @@ export class DriverProfileService {
   }
 
   /**
-   * How each driver came: with this company's invite itself, its link or code (yourInvite), another company's
-   * (invite), or by finding Trabot themselves (self, the default: also a driver this company invited who came in
-   * without the link). removable: this company invited them, so it can take them off its drivers.
+   * How each driver came: with this company's invite (yourInvite), another company's (invite), or by finding Trabot
+   * themselves (self, the default). An invite counts once its driver came in by any way — the link, the code in a
+   * messenger, or the number typed in the installed app: an invite makes the account, and a driver already in Trabot is
+   * never invited, so whoever came in on an invited number came by that invite. removable: this company invited them,
+   * so it can take them off its drivers.
    */
   private async joinedBy(driverIds: string[], viewerUserId?: string): Promise<Map<string, { joinedBy: 'yourInvite' | 'invite' | 'self'; removable: boolean }>> {
     if (!driverIds.length) return new Map();
     const rows: Array<{ driverUserId: string; mine: boolean; mineByLink: boolean; otherByLink: boolean }> = await this.dataSource.query(
       `SELECT "driverUserId",
               bool_or("companyUserId"::text = $2) AS mine,
-              bool_or("companyUserId"::text = $2 AND "usedByLink") AS "mineByLink",
-              bool_or("companyUserId"::text <> $2 AND "usedByLink") AS "otherByLink"
+              bool_or("companyUserId"::text = $2 AND ("usedAt" IS NOT NULL OR "usedByLink")) AS "mineByLink",
+              bool_or("companyUserId"::text <> $2 AND ("usedAt" IS NOT NULL OR "usedByLink")) AS "otherByLink"
          FROM "DriverInvite"
         WHERE "driverUserId" = ANY($1::uuid[]) AND "revokedAt" IS NULL GROUP BY "driverUserId"`,
       [driverIds, viewerUserId ?? ''],

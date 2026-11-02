@@ -1,3 +1,4 @@
+import { invitedAccountTypes } from 'src/services/company/inviteUsage';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, forwardRef } from '@nestjs/common';
 import { markInvitesUsed } from 'src/services/company/inviteUsage';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -945,12 +946,15 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (!user || !(await this.accounts.hasRole(user.id))) {
+      // an invited number is what it was invited as: one kind of invite needs no choice, several leave only those
+      const invitedAs = await invitedAccountTypes(this.userMappingRepo.manager, phone);
       // «۱»، «اول» یا خود نام نوع («راننده»، «شرکت»)
       const choice = parseChoice(text);
-      const accountType =
+      const chosen =
         (choice ? ONBOARDING_ACCOUNT_TYPES[choice - 1]?.type : null) ??
         ONBOARDING_ACCOUNT_TYPES.find((item) => text.includes(item.label.split(' ')[0]))?.type ??
         null;
+      const accountType = invitedAs.length === 1 ? invitedAs[0] : chosen && (!invitedAs.length || invitedAs.includes(chosen)) ? chosen : null;
       if (!accountType) {
         await this.sendAccountTypePrompt(jid);
         return false;

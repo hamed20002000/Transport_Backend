@@ -20,7 +20,7 @@ import { AccountType } from 'src/domain/enums/subscription';
 import { RedisService } from '../redis/redis.service';
 import { AccountSignedInEvent, REDIS_CHANNELS } from '../redis/redis.keys';
 import { deviceName } from './deviceName';
-import { markInvitesUsed } from '../company/inviteUsage';
+import { invitedAccountTypes, markInvitesUsed } from '../company/inviteUsage';
 import { PhoneAccountService, SELF_SERVICE_ACCOUNT_TYPES } from './phoneAccount.service';
 import { SmsService } from './sms.service';
 
@@ -35,6 +35,8 @@ interface PendingSignup {
   phone: string;
   // حساب بی‌نقش (مثلاً ساخته‌شده در ربات پیش از انتخاب نوع حساب)
   userId?: string;
+  // the account types its invites allow (invitedAccountTypes); absent: any self-service type
+  accountTypes?: AccountType[];
 }
 
 const OTP_TTL_SECONDS = 300;
@@ -170,10 +172,25 @@ export class RegistrationService {
         return tokens;
       }
 
-      const registrationToken = randomBytes(32).toString('hex');
       const signup: PendingSignup = { phone, ...(full ? { userId: full.id } : {}) };
+      // an invited number is what it was invited as: one kind of invite signs it in as that at once, several leave
+      // only those to choose
+      const invitedAs = await invitedAccountTypes(this.dataSource, phone);
+      if (invitedAs.length === 1) {
+        const account = await this.createAccount(signup, invitedAs[0]);
+        await this.signedIn(account.id, device);
+        return this.issueTokens(account);
+      }
+      if (invitedAs.length) signup.accountTypes = invitedAs;
+      const registrationToken = randomBytes(32).toString('hex');
       await this.redis.setJson(RedisService.key('registrationToken', registrationToken), signup, SIGNUP_TTL_SECONDS);
-      return { registrationRequired: true, registrationToken, phoneNumber: phone, expiresIn: SIGNUP_TTL_SECONDS };
+      return {
+        registrationRequired: true,
+        registrationToken,
+        phoneNumber: phone,
+        expiresIn: SIGNUP_TTL_SECONDS,
+        accountTypes: signup.accountTypes ?? [...SELF_SERVICE_ACCOUNT_TYPES],
+      };
     });
   }
 
@@ -185,16 +202,22 @@ export class RegistrationService {
     const raw = await this.redis.take(RedisService.key('registrationToken', registrationToken));
     if (!raw) throw new UnauthorizedException('Registration has expired; verify your phone number again.');
     const signup = JSON.parse(raw) as PendingSignup;
-    return this.withLock(signup.phone, async () => {
-      const existing = signup.userId ? null : await this.accounts.findByPhone(signup.phone);
-      const user = signup.userId
-        ? await this.accounts.assignRole(signup.userId, accountType)
-        : existing
-          ? await this.accounts.assignRole(existing.id, accountType)
-          : await this.accounts.create(signup.phone, accountType);
-      await markInvitesUsed(this.dataSource, signup.phone, this.redis);
-      return this.issueTokens(user);
-    });
+    if (signup.accountTypes && !signup.accountTypes.includes(accountType)) {
+      throw new BadRequestException('این شماره با لینک دعوت آمده است؛ همان نوع حسابی را انتخاب کنید که دعوت شده است.');
+    }
+    return this.withLock(signup.phone, async () => this.issueTokens(await this.createAccount(signup, accountType)));
+  }
+
+  /** The account of a verified number gets its type (or is made with it), and its invites count as used. */
+  private async createAccount(signup: PendingSignup, accountType: AccountType) {
+    const existing = signup.userId ? null : await this.accounts.findByPhone(signup.phone);
+    const user = signup.userId
+      ? await this.accounts.assignRole(signup.userId, accountType)
+      : existing
+        ? await this.accounts.assignRole(existing.id, accountType)
+        : await this.accounts.create(signup.phone, accountType);
+    await markInvitesUsed(this.dataSource, signup.phone, this.redis);
+    return user;
   }
 
   /** best effort: a sign-in never fails because the notice could not be published */

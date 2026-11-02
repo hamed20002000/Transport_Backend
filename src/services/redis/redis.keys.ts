@@ -60,6 +60,8 @@ export const KEY_PREFIXES = {
   receiptUnlockAttempts: 'admin:receipt-unlock-attempts:v1',
   // هر خبر رسید/نتیجه فقط یک بار فرستاده شود، حتی وقتی چند نمونه‌ی سرور به یک کانال گوش می‌دهند
   subscriptionNoticeSent: 'subscription:notice-sent:v1',
+  // a company told its bought menus close soon: once per end date (CompanyPlanExpiryWorker)
+  companyPlanReminded: 'company-plan:reminded:v1',
   // v2: همه‌ی قلم‌های قابل انتخاب (MARKET_CATALOG)؛ نسخه‌ی v1 فقط ۶ قلم ثابت را داشت
   marketPrices: 'market:prices:v2',
   marketRefreshLock: 'market:refresh-lock:v2',
@@ -123,6 +125,7 @@ export type RedisKeyParts = {
   receiptViewToken: [token: string];
   receiptUnlockAttempts: [adminUserId: string];
   subscriptionNoticeSent: [event: string, id: string];
+  companyPlanReminded: [userId: string, endDate: string];
 };
 
 /** کانال‌های pub/sub بین نمونه‌های برنامه. */
@@ -214,7 +217,10 @@ export interface AccountVerificationEvent {
 export interface CompanyFeatureOrderEvent {
   orderId: string;
   userId: string;
-  feature: string;
+  /** the menu bought, or null for a tier */
+  feature: string | null;
+  tier?: string | null;
+  /** «بخش «رانندگان»» or «طرح طلایی» */
   title: string;
   amount: string;
   currency: string;

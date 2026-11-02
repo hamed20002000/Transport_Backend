@@ -3,10 +3,12 @@ import { BadRequestException, Body, Controller, ForbiddenException, Get, Post, R
 import { ConfigService } from '@nestjs/config';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { MulterOptions } from '@nestjs/platform-express/multer/interfaces/multer-options.interface';
-import { IsUUID } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsEnum, IsIn, IsUUID } from 'class-validator';
 import { diskStorage } from 'multer';
 
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
+import { CompanyTier, TIER_MONTHS, TierMonths } from 'src/domain/enums/companyFeature';
 import { CompanyFeatureService, isCompanyRole } from 'src/services/company/companyFeature.service';
 import { receiptDir } from 'src/services/subscription/receiptStorage';
 
@@ -31,6 +33,15 @@ export const receiptUploadOptions: MulterOptions = {
 export class CreateFeatureOrderDto {
   @IsUUID()
   planId!: string;
+}
+
+export class CreateTierOrderDto {
+  @IsEnum(CompanyTier)
+  tier!: CompanyTier;
+
+  // multipart: a string on the wire
+  @Type(() => Number) @IsIn(TIER_MONTHS)
+  months!: TierMonths;
 }
 
 function companyUserId(request: AuthRequest): string {
@@ -70,6 +81,16 @@ export class CompanyFeatureController {
     const userId = companyUserId(request);
     if (!file) throw new BadRequestException('عکس رسید پرداخت را انتخاب کنید.');
     await this.features.submitOrder(userId, dto.planId, file.path);
+    return this.status(request);
+  }
+
+  /** خرید طرح برنزی، نقره‌ای یا طلایی برای ۱، ۳، ۶ یا ۱۲ ماه با فیش (multipart: tier + months + file). */
+  @Post('tier-orders')
+  @UseInterceptors(FileInterceptor('file', receiptUploadOptions))
+  async tierOrder(@Req() request: AuthRequest, @Body() dto: CreateTierOrderDto, @UploadedFile() file: Express.Multer.File | undefined) {
+    const userId = companyUserId(request);
+    if (!file) throw new BadRequestException('عکس رسید پرداخت را انتخاب کنید.');
+    await this.features.submitTierOrder(userId, dto.tier, dto.months, file.path);
     return this.status(request);
   }
 }

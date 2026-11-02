@@ -1,4 +1,6 @@
+import { AccountType } from 'src/domain/enums/subscription';
 import { InviteUsedEvent, REDIS_CHANNELS } from '../redis/redis.keys';
+import { inviteExpiryHours } from './inviteRules';
 
 /** what can run a query: a DataSource, an EntityManager or a repository's manager */
 interface Queryable {
@@ -40,4 +42,27 @@ export async function markInvitesUsed(db: Queryable, mobile: string | null | und
       // the next sign-in marks it
     }
   }
+}
+
+/** the account each invite table makes */
+const INVITED_AS = [
+  { table: 'DriverInvite', accountType: AccountType.Driver },
+  { table: 'FactoryInvite', accountType: AccountType.Factory },
+  { table: 'CompanyInvite', accountType: AccountType.Company },
+] as const;
+
+/**
+ * What an invite still waiting for this number (not revoked, its day not over) made it: a number invited as a driver
+ * signs up as a driver, not as whatever it picks. Empty when nobody invited it.
+ */
+export async function invitedAccountTypes(db: Queryable, mobile: string): Promise<AccountType[]> {
+  const types: AccountType[] = [];
+  for (const { table, accountType } of INVITED_AS) {
+    const rows = (await db.query(
+      `SELECT 1 FROM "${table}" WHERE mobile = $1 AND "revokedAt" IS NULL AND "createdAt" > now() - make_interval(hours => $2) LIMIT 1`,
+      [mobile, inviteExpiryHours()],
+    )) as unknown[];
+    if (rows.length) types.push(accountType);
+  }
+  return types;
 }

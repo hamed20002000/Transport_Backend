@@ -9,6 +9,7 @@ import { CompanyFeature } from '../../enums/companyFeature';
  */
 @Entity('CompanyFeatureGrant')
 @Index('IDX_CompanyFeatureGrant_user_feature', ['userId', 'feature', 'expireAt'])
+@Index('IDX_CompanyFeatureGrant_order', ['orderId'])
 export class CompanyFeatureGrant {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -29,7 +30,8 @@ export class CompanyFeatureGrant {
   @Column({ type: 'timestamp' })
   expireAt!: Date;
 
-  @Column({ type: 'uuid', nullable: true, unique: true })
+  // a tier's order opens several menus: one grant each
+  @Column({ type: 'uuid', nullable: true })
   orderId?: string | null;
 
   @Column({ type: 'uuid', nullable: true })

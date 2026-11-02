@@ -2,7 +2,7 @@ import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, Primary
 
 import { User } from '../auth/User';
 import { CompanyFeaturePlan } from './CompanyFeaturePlan';
-import { CompanyFeature } from '../../enums/companyFeature';
+import { CompanyFeature, CompanyTier } from '../../enums/companyFeature';
 import { SubscriptionOrderStatus } from '../../enums/subscription';
 
 /**
@@ -23,15 +23,24 @@ export class CompanyFeatureOrder {
   @JoinColumn({ name: 'userId' })
   user!: User;
 
-  @Column({ type: 'uuid' })
-  planId!: string;
+  /** a menu's plan; null for a tier */
+  @Column({ type: 'uuid', nullable: true })
+  planId!: string | null;
 
-  @ManyToOne(() => CompanyFeaturePlan, { nullable: false, onDelete: 'RESTRICT' })
+  @ManyToOne(() => CompanyFeaturePlan, { nullable: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'planId' })
-  plan!: CompanyFeaturePlan;
+  plan?: CompanyFeaturePlan | null;
 
-  @Column({ type: 'varchar', length: 40 })
-  feature!: CompanyFeature;
+  /** the one menu bought; null for a tier */
+  @Column({ type: 'varchar', length: 40, nullable: true })
+  feature!: CompanyFeature | null;
+
+  /** a tier (برنزی، نقره‌ای، طلایی) bought: its menus as they were then, so a later change of the tier does not touch it */
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  tier!: CompanyTier | null;
+
+  @Column({ type: 'varchar', length: 40, array: true, nullable: true })
+  features!: CompanyFeature[] | null;
 
   @Column({ type: 'int' })
   durationDays!: number;

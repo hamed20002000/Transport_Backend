@@ -1,5 +1,6 @@
 import { jwtVerifyOnlyOptions } from '../../auth/jwtKeys';
 import { HttpModule } from '@nestjs/axios';
+import { DecisionSmsService } from 'src/services/notification/decisionSms.service';
 import { forwardRef, Module } from '@nestjs/common';
 import { AgentModule } from '../services/agent/appModule/agent.module';
 import { CompanyProfileDialog } from '../../services/companyProfileDialog';
@@ -57,6 +58,7 @@ import { FactoryDialog } from '../../services/company/factoryDialog';
 import { DriverInvite } from '../../domain/entities/company/DriverInvite';
 import { DriverInviteService } from '../../services/company/driverInvite.service';
 import { InviteExpiryWorker } from '../../services/company/inviteExpiryWorker.service';
+import { CompanyPlanExpiryWorker } from '../../services/company/companyPlanExpiryWorker.service';
 import { CargoImageService } from '../../services/notification/cargoImage.service';
 import { CargoDisplayDialog } from '../../services/notification/cargoDisplayDialog';
 import { CargoImageController } from '../../presentation/controllers/notification/cargo-image.controller';
@@ -123,6 +125,7 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
     FactoryDialog,
     DriverInviteService,
     InviteExpiryWorker,
+    CompanyPlanExpiryWorker,
     CargoImageService,
     CargoDisplayDialog,
     CompanyFeatureDialog,
@@ -163,6 +166,7 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
     WebPushService,
     // خبر رسید پرداخت تازه به ادمین‌ها و نتیجه‌ی بررسی به خریدار
     SubscriptionNotifier,
+    DecisionSmsService,
     DriverProfileTools,
     // دکمه‌های بار در ربات‌ها؛ خودش را در BotDialogRegistry ثبت می‌کند
     CargoDialog,

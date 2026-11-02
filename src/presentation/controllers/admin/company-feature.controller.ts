@@ -1,11 +1,11 @@
 import { resolve } from 'path';
-import { Body, Controller, Delete, Get, Headers, HttpCode, Logger, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, HttpCode, Logger, NotFoundException, Param, ParseEnumPipe, ParseUUIDPipe, Patch, Post, Put, Query, Req, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
-import { Transform } from 'class-transformer';
-import { IsBoolean, IsEnum, IsIn, IsInt, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { ArrayMaxSize, IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsString, Matches, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
-import { CompanyFeature } from 'src/domain/enums/companyFeature';
+import { CompanyFeature, CompanyTier, TIER_MONTHS, TierMonths } from 'src/domain/enums/companyFeature';
 import { SubscriptionOrderStatus } from 'src/domain/enums/subscription';
 import { CompanyFeatureService } from 'src/services/company/companyFeature.service';
 import { ReceiptAccessService } from 'src/services/subscription/receiptAccess.service';
@@ -40,6 +40,28 @@ export class CreateCompanyFeaturePlanDto {
 
   @IsInt() @Min(0) @Max(2147483647)
   sortOrder: number = 0;
+}
+
+export class TierOptionDto {
+  @IsIn(TIER_MONTHS)
+  months!: TierMonths;
+
+  @IsString() @Matches(/^(0|[1-9][0-9]{0,17})$/)
+  price!: string;
+}
+
+export class UpdateCompanyTierDto {
+  @IsArray() @ArrayMaxSize(20) @IsEnum(CompanyFeature, { each: true })
+  features!: CompanyFeature[];
+
+  @IsArray() @ArrayMaxSize(TIER_MONTHS.length) @ValidateNested({ each: true }) @Type(() => TierOptionDto)
+  options!: TierOptionDto[];
+
+  @IsIn(['IRR', 'GBP', 'EUR', 'SAR', 'CNY'])
+  currency: string = 'IRR';
+
+  @IsBoolean()
+  active!: boolean;
 }
 
 export class GrantCompanyFeatureDto {
@@ -86,6 +108,20 @@ export class CompanyFeatureAdminController {
     return this.features.grant(userId, dto.feature, dto.days, adminUserId);
   }
 
+  /** برنزی، نقره‌ای و طلایی: بخش‌ها، مدت، قیمت و فعال بودن هر کدام. */
+  @Get('tiers')
+  tiers(@Req() request: AdminRequest) {
+    requireAdmin(request);
+    return this.features.listTiers();
+  }
+
+  @Put('tiers/:tier')
+  updateTier(@Req() request: AdminRequest, @Param('tier', new ParseEnumPipe(CompanyTier)) tier: CompanyTier, @Body() dto: UpdateCompanyTierDto) {
+    requireAdmin(request);
+    return this.features.updateTier(tier, dto);
+  }
+
+  /** پلن‌های بخش‌به‌بخش؛ تا COMPANY_MENU_PURCHASE=on نشده فروخته نمی‌شوند. */
   @Get('plans')
   plans(@Req() request: AdminRequest) {
     requireAdmin(request);

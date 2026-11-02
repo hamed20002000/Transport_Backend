@@ -29,6 +29,17 @@
     "back": "◀️ بازگشت",
     "cancel": "❌ لغو",
     "list": "💎 خرید امکانات",
-    "home": "🏠 منوی اصلی"
-  }
+    "home": "🏠 منوی اصلی",
+    "tier": "{icon} طرح {title}",
+    "period": "{period} · {price}"
+  },
+  "tiersTitle": "💎 خرید امکانات\n\nبخش‌های پنل با یکی از طرح‌های برنزی، نقره‌ای یا طلایی خریده می‌شوند و بعد از تأیید رسید پرداخت، برای مدت طرح باز می‌شوند.",
+  "currentTier": "طرح فعلی شما: {title} — تا {date}",
+  "tierLine": "{icon} طرح {title}\n{prices}\nبخش‌ها: {features}",
+  "noTiers": "هنوز طرحی برای فروش تعریف نشده است.",
+  "pickTier": "کدام طرح را می‌خرید؟",
+  "tierReviewing": "⏳ رسید {title} در حال بررسی است.",
+  "payTier": "💳 خرید طرح {title} {period}\nبخش‌ها: {features}\n\nمبلغ {price} را به این کارت واریز کنید:\n\n{card}\nبه نام {owner}\n\n📸 بعد عکس رسید پرداخت را همین‌جا بفرستید.",
+  "tierPrice": "• {period}: {price}",
+  "pickPeriod": "{icon} طرح {title}\nبخش‌ها: {features}\n\nمدت را انتخاب کنید:"
 }

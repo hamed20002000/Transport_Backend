@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { User } from '../../domain/entities/auth/User';
 import { CompanyFeatureGrant } from '../../domain/entities/company/CompanyFeatureGrant';
 import { CompanyFeatureOrder } from '../../domain/entities/company/CompanyFeatureOrder';
+import { CompanyTierPlan } from 'src/domain/entities/company/CompanyTierPlan';
 import { CompanyFeaturePlan } from '../../domain/entities/company/CompanyFeaturePlan';
 import { CompanyFeatureGuard } from '../../auth/guards/companyFeature.guard';
 import { CompanyFeatureController } from '../../presentation/controllers/company/company-feature.controller';
@@ -24,7 +25,7 @@ import { BrokerAccessController } from '../../presentation/controllers/company/b
 
 /** شرکت مادر، منوهای پولی شرکت‌های غیرمادر و خرید واسط برای دیدن بار شرکت‌ها؛ CompanyFeatureGuard را هر ماژولی که import کند می‌تواند بگذارد. */
 @Module({
-  imports: [TypeOrmModule.forFeature([User, CompanyFeaturePlan, CompanyFeatureOrder, CompanyFeatureGrant, CompanyInvite, AppSetting, BrokerAccessOrder, BrokerAccessPeriod]), RedisModule, HttpModule],
+  imports: [TypeOrmModule.forFeature([User, CompanyFeaturePlan, CompanyTierPlan, CompanyFeatureOrder, CompanyFeatureGrant, CompanyInvite, AppSetting, BrokerAccessOrder, BrokerAccessPeriod]), RedisModule, HttpModule],
   controllers: [CompanyFeatureController, CompanyInviteController, CompanyInviteInfoController, AccountVerificationController, CompanyVerificationController, BrokerAccessController],
   providers: [CompanyFeatureService, CompanyFeatureGuard, CompanyInviteService, InviteSmsService, AccountVerificationService, BrokerAccessService],
   exports: [CompanyFeatureService, CompanyFeatureGuard, CompanyInviteService, InviteSmsService, AccountVerificationService, BrokerAccessService],

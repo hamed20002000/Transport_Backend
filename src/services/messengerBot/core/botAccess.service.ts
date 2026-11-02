@@ -1,3 +1,4 @@
+import { invitedAccountTypes } from 'src/services/company/inviteUsage';
 import { Inject, Injectable, ConflictException } from '@nestjs/common';
 import { botNamespace, botPlatformOf } from './botPlatform';
 import { ConfigService } from '@nestjs/config';
@@ -134,12 +135,16 @@ export class BotAccessService {
       return true;
     }
 
+    // an invited number is what it was invited as: one kind of invite needs no choice, several leave only those
+    const invitedAs = await this.invitedAs(externalUserId);
+    const allowed = invitedAs.length ? invitedAs : SELF_SERVICE_ACCOUNT_TYPES;
+
     //#region ------------------- آیا کاربر همین الان روی  یکی از دکمه های نوع حساب کلیک کرده؟ ---------------
-    const accountType = SELF_SERVICE_ACCOUNT_TYPES.find(
-      type => callback === `${BotCallback.RegisterAccountTypePrefix}${type}`,
-    );
+    const accountType = invitedAs.length === 1
+      ? invitedAs[0]
+      : allowed.find(type => callback === `${BotCallback.RegisterAccountTypePrefix}${type}`);
     if (!accountType) {
-      await this.showAccountTypes(chatId);
+      await this.showAccountTypes(chatId, allowed);
       return true;
     }
     //#endregion ---------------------------------------------------------------------------------------------
@@ -404,6 +409,13 @@ export class BotAccessService {
     return true;
   }
 
+  /** What the linked number's waiting invites made it (invitedAccountTypes); empty when nobody invited it. */
+  private async invitedAs(externalUserId: string): Promise<AccountType[]> {
+    const userId = await this.identity.getUserId(externalUserId);
+    const user = userId ? await this.users.findById(userId) : null;
+    return user?.mobile ? invitedAccountTypes(this.dataSource, user.mobile) : [];
+  }
+
   private inviteKey(externalUserId: string): string {
     return RedisService.key('factoryInvite', botNamespace(this.config), externalUserId);
   }
@@ -414,10 +426,10 @@ export class BotAccessService {
    * @param chatId
    */
   //#region ----------------------------- نمایش منوی نوع کاربر -----------------------------
-  private async showAccountTypes(chatId: string): Promise<void> {
+  private async showAccountTypes(chatId: string, types: readonly AccountType[] = SELF_SERVICE_ACCOUNT_TYPES): Promise<void> {
     await this.bot.sendMessage(chatId, this.messages.get('identity.selectAccountType'), {
       reply_markup: {
-        inline_keyboard: SELF_SERVICE_ACCOUNT_TYPES.map((type) => [
+        inline_keyboard: types.map((type) => [
           {
             text: this.messages.get(`account.${type.toLowerCase()}`),
             callback_data: `${BotCallback.RegisterAccountTypePrefix}${type}`,

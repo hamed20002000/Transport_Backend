@@ -6,7 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { I18nService } from 'nestjs-i18n';
 
 import { BotCallback } from 'src/domain/constants/bot/BotCallback';
-import { CompanyFeature } from 'src/domain/enums/companyFeature';
+import { COMPANY_TIERS, CompanyFeature, CompanyTier, TierMonths } from 'src/domain/enums/companyFeature';
 import { IUserRepository } from 'src/domain/repositories/IUserRepopsitory';
 import { USER_REPOSITORY } from 'src/domain/repositories/repository.tokens';
 import { BotAction, BotContext, BotDialog, BotDialogRegistry, BotDocument, BotReply } from '../messengerBot/core/botDialog';
@@ -19,6 +19,8 @@ const Action = {
   List: `${PREFIX}l`,
   Feature: `${PREFIX}f`,
   Plan: `${PREFIX}p`,
+  Tier: `${PREFIX}t`,
+  Period: `${PREFIX}m`,
   Cancel: `${PREFIX}q`,
   Close: `${PREFIX}b`,
 } as const;
@@ -32,9 +34,13 @@ const faDate = (value: Date | string) => new Date(value).toLocaleDateString('fa-
 const price = (amount: string, currency: string) => `${fa(amount)} ${currencyNames[currency] ?? currency}`;
 const cardGroups = (card: string) => card.replace(/\D/g, '').replace(/(\d{4})(?=\d)/g, '$1 ');
 
-/** A plan chosen: the receipt photo is awaited. */
+const TIER_ICONS: Record<CompanyTier, string> = { [CompanyTier.Bronze]: '🥉', [CompanyTier.Silver]: '🥈', [CompanyTier.Gold]: '🥇' };
+
+/** A menu's plan or a tier chosen: the receipt photo is awaited. */
 interface PurchaseSession {
-  planId: string;
+  planId?: string;
+  tier?: CompanyTier;
+  months?: TierMonths;
   title: string;
 }
 
@@ -94,6 +100,11 @@ export class CompanyFeatureDialog implements BotDialog, OnModuleInit {
       }
       if (id.startsWith(Action.Feature)) return this.plans(ctx, id.slice(Action.Feature.length) as CompanyFeature);
       if (id.startsWith(Action.Plan)) return this.pay(ctx, id.slice(Action.Plan.length));
+      if (id.startsWith(Action.Tier)) return this.periods(ctx, id.slice(Action.Tier.length) as CompanyTier);
+      if (id.startsWith(Action.Period)) {
+        const [tier, months] = id.slice(Action.Period.length).split(':');
+        return this.payTier(ctx, tier as CompanyTier, Number(months) as TierMonths);
+      }
       return this.list(ctx);
     } catch (error) {
       this.logger.error(`Feature purchase ${id} failed for ${ctx.userId}: ${(error as Error).message}`);
@@ -117,7 +128,8 @@ export class CompanyFeatureDialog implements BotDialog, OnModuleInit {
     await writeFile(path, file);
     await this.clearSession(ctx);
     try {
-      await this.features.submitOrder(ctx.userId, session.planId, path);
+      if (session.tier) await this.features.submitTierOrder(ctx.userId, session.tier, session.months!, path);
+      else await this.features.submitOrder(ctx.userId, session.planId!, path);
     } catch (error) {
       if (error instanceof ConflictException) return this.list(ctx, this.t('alreadyOpen', { title: session.title }));
       if (error instanceof NotFoundException) return this.list(ctx, (error as Error).message);
@@ -131,6 +143,7 @@ export class CompanyFeatureDialog implements BotDialog, OnModuleInit {
   private async list(ctx: BotContext, notice?: string): Promise<BotReply> {
     const status = await this.features.status(ctx.userId);
     if (status.isParent) return { text: [notice, this.t('parent')].filter(Boolean).join('\n\n'), actions: this.rows([{ id: Action.Close, label: this.t('actions.home') }]) };
+    if (!status.menuPurchase) return this.tiers(status, notice);
     const reviewing = new Set(status.orders.filter((order) => order.status === 'RECEIPT_SUBMITTED').map((order) => order.feature));
     const lines = status.features.map((item) => {
       if (reviewing.has(item.feature)) return this.t('status.reviewing', { title: item.title });
@@ -147,6 +160,77 @@ export class CompanyFeatureDialog implements BotDialog, OnModuleInit {
     return {
       text: [notice, this.t('title'), status.invited ? this.t('invitedHint') : '', lines.join('\n'), buttons.length ? this.t('pickFeature') : ''].filter(Boolean).join('\n\n'),
       actions: this.rows(...buttons, [{ id: Action.Close, label: this.t('actions.home') }]),
+    };
+  }
+
+  /** The tiers on sale (menus are not sold one by one): what the company has, each tier's menus and price, one button each. */
+  private tiers(status: Awaited<ReturnType<CompanyFeatureService['status']>>, notice?: string): BotReply {
+    const reviewing = status.orders.find((order) => order.tier && order.status === 'RECEIPT_SUBMITTED');
+    const lines = status.features.map((item) => {
+      if (item.expireAt) return this.t('status.open', { title: item.title, date: faDate(item.expireAt) });
+      if (!item.locked) return this.t('status.free', { title: item.title });
+      return `🔒 ${item.title}`;
+    });
+    const tiers = status.tiers.map((tier) => this.t('tierLine', {
+      icon: TIER_ICONS[tier.tier],
+      title: tier.title,
+      prices: tier.options.map((option) => this.t('tierPrice', { period: option.title, price: price(option.price, tier.currency) })).join('\n'),
+      features: tier.features.map((item) => item.title).join('، '),
+    }));
+    const buttons = reviewing ? [] : status.tiers.map((tier) => [{
+      id: `${Action.Tier}${tier.tier}`,
+      label: this.t('actions.tier', { icon: TIER_ICONS[tier.tier], title: tier.title }),
+    }]);
+    return {
+      text: [
+        notice,
+        this.t('tiersTitle'),
+        status.invited ? this.t('invitedHint') : '',
+        status.currentTier ? this.t('currentTier', { title: status.currentTier.title, date: faDate(status.currentTier.expireAt) }) : '',
+        lines.join('\n'),
+        tiers.length ? tiers.join('\n\n') : this.t('noTiers'),
+        reviewing ? this.t('tierReviewing', { title: reviewing.title }) : buttons.length ? this.t('pickTier') : '',
+      ].filter(Boolean).join('\n\n'),
+      actions: this.rows(...buttons, [{ id: Action.Close, label: this.t('actions.home') }]),
+    };
+  }
+
+  /** A tier chosen: its periods, each with its price. */
+  private async periods(ctx: BotContext, wanted: CompanyTier): Promise<BotReply> {
+    const status = await this.features.status(ctx.userId);
+    const tier = COMPANY_TIERS.includes(wanted) ? status.tiers.find((item) => item.tier === wanted) : undefined;
+    if (!tier || status.menuPurchase) return this.list(ctx);
+    return {
+      text: this.t('pickPeriod', { icon: TIER_ICONS[tier.tier], title: tier.title, features: tier.features.map((item) => item.title).join('، ') }),
+      actions: this.rows(
+        ...tier.options.map((option) => [{
+          id: `${Action.Period}${tier.tier}:${option.months}`,
+          label: this.t('actions.period', { period: option.title, price: price(option.price, tier.currency) }),
+        }]),
+        [{ id: Action.List, label: this.t('actions.back') }],
+      ),
+    };
+  }
+
+  private async payTier(ctx: BotContext, wanted: CompanyTier, months: TierMonths): Promise<BotReply> {
+    const status = await this.features.status(ctx.userId);
+    const tier = COMPANY_TIERS.includes(wanted) ? status.tiers.find((item) => item.tier === wanted) : undefined;
+    const option = tier?.options.find((item) => item.months === months);
+    if (!tier || !option || status.menuPurchase) return this.list(ctx);
+    const card = this.config.get<string>('CARD_NO', '');
+    if (!card) return this.list(ctx, this.t('noCard'));
+    const title = `طرح ${tier.title} ${option.title}`;
+    await this.redis.setJson(this.sessionKey(ctx), { tier: tier.tier, months, title } satisfies PurchaseSession, SESSION_TTL_SECONDS);
+    return {
+      text: this.t('payTier', {
+        title: tier.title,
+        period: option.title,
+        features: tier.features.map((item) => item.title).join('، '),
+        price: price(option.price, tier.currency),
+        card: cardGroups(card),
+        owner: this.config.get<string>('CARD_OWNER', '') || '—',
+      }),
+      actions: this.rows([{ id: Action.Cancel, label: this.t('actions.cancel') }]),
     };
   }
 
