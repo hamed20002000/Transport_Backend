@@ -323,7 +323,8 @@ export class DriverProfileService {
    * راننده‌های فعال یک نوع (صفحه‌ی «رانندگان» شرکت)، به ترتیب نام؛ search در نام، موبایل
    * یا پلاک. راننده‌ی بدون پروفایل داخلی است. صادراتی یا وارداتی یعنی راننده‌های بین‌المللی.
    */
-  async listByType(tripType: CargoTripType, page: number, pageSize: number, search?: string) {
+  /** viewerUserId: the company looking, for joinedBy (whose invite brought each driver in, if any) */
+  async listByType(tripType: CargoTripType, page: number, pageSize: number, search?: string, viewerUserId?: string) {
     const term = search ? `%${toLatinDigits(search).trim().replace(/[\s-]/g, '')}%` : null;
     const where = `
          FROM "User" u
@@ -341,7 +342,24 @@ export class DriverProfileService {
         GROUP BY u.id ORDER BY name LIMIT $4 OFFSET $5`,
       [RecordStatus.Active, DRIVER_KIND_TRIP_TYPES[driverKindForLoad(tripType)], term, pageSize, (page - 1) * pageSize],
     );
-    return { items: await this.cards(rows.map((row) => row.id)), total: Number(total), page, pageSize };
+    const ids = rows.map((row) => row.id);
+    const joinedBy = await this.joinedBy(ids, viewerUserId);
+    const items = (await this.cards(ids)).map((card) => ({ ...card, joinedBy: joinedBy.get(card.userId) ?? 'self' }));
+    return { items, total: Number(total), page, pageSize };
+  }
+
+  /**
+   * How each driver came: with this company's invite link (yourInvite), another company's (invite), or by
+   * themselves (self, the default). An invite the driver never used still counts: their account was made by it.
+   */
+  private async joinedBy(driverIds: string[], viewerUserId?: string): Promise<Map<string, 'yourInvite' | 'invite'>> {
+    if (!driverIds.length) return new Map();
+    const rows: Array<{ driverUserId: string; mine: boolean }> = await this.dataSource.query(
+      `SELECT "driverUserId", bool_or("companyUserId"::text = $2) AS mine FROM "DriverInvite"
+        WHERE "driverUserId" = ANY($1::uuid[]) GROUP BY "driverUserId"`,
+      [driverIds, viewerUserId ?? ''],
+    );
+    return new Map(rows.map((row) => [row.driverUserId, row.mine ? 'yourInvite' : 'invite']));
   }
 
   /** راننده‌ای با این شناسه و نقش فعال DRIVER هست؟ (قبل از سپردن بار) */

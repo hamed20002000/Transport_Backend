@@ -163,8 +163,7 @@ export class CargoListingController {
     @Query('pageSize', new DefaultValuePipe(20), ParseIntPipe) pageSize: number,
     @Query('search') search?: string,
   ) {
-    companyUserId(request);
-    return this.profiles.listByType(type, Math.max(page, 1), Math.min(Math.max(pageSize, 1), 100), search?.trim() || undefined);
+    return this.profiles.listByType(type, Math.max(page, 1), Math.min(Math.max(pageSize, 1), 100), search?.trim() || undefined, companyUserId(request));
   }
 
   // فایل نمونه‌ی ثبت چند بار با اکسل

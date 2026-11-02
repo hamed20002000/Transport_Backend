@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, forwardRef } from '@nestjs/common';
+import { markInvitesUsed } from 'src/services/company/inviteUsage';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type {
@@ -747,6 +748,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         return false;
       }
       await this.userMappingRepo.upsert({ userid: user.id, username: user.username, jid }, ['jid']);
+    await markInvitesUsed(this.userMappingRepo.manager, user.mobile, this.redis);
+      await markInvitesUsed(this.userMappingRepo.manager, user.mobile, this.redis);
       userId = user.id;
     }
     if (invite.kind === 'company') {

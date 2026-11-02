@@ -20,6 +20,7 @@ import { AccountType } from 'src/domain/enums/subscription';
 import { RedisService } from '../redis/redis.service';
 import { AccountSignedInEvent, REDIS_CHANNELS } from '../redis/redis.keys';
 import { deviceName } from './deviceName';
+import { markInvitesUsed } from '../company/inviteUsage';
 import { PhoneAccountService, SELF_SERVICE_ACCOUNT_TYPES } from './phoneAccount.service';
 import { SmsService } from './sms.service';
 
@@ -164,6 +165,7 @@ export class RegistrationService {
       const full = user ? await this.users.findById(user.id) : null;
       if (full && new JwtPayload(full).roles.length) {
         const tokens = await this.issueTokens(full);
+        await markInvitesUsed(this.dataSource, full.mobile, this.redis);
         await this.signedIn(full.id, device);
         return tokens;
       }
@@ -190,6 +192,7 @@ export class RegistrationService {
         : existing
           ? await this.accounts.assignRole(existing.id, accountType)
           : await this.accounts.create(signup.phone, accountType);
+      await markInvitesUsed(this.dataSource, signup.phone, this.redis);
       return this.issueTokens(user);
     });
   }
@@ -236,6 +239,8 @@ export class RegistrationService {
     if (!userId) throw new UnauthorizedException('Invalid or expired refresh token.');
     const user = await this.users.findById(userId);
     if (!user) throw new UnauthorizedException();
+    // someone already signed in before invites were marked on every way in: their app's next refresh marks them
+    await markInvitesUsed(this.dataSource, user.mobile, this.redis);
     return this.issueTokens(user);
   }
 }

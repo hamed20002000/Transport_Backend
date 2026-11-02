@@ -32,7 +32,8 @@ export interface InviteSmsResult {
  * (مثلاً join/…). بی آن، متن آزاد (send/simple) با MELIPAYAMAK_FROM.
  *
  * با SMS_PROVIDER=smsir دعوت از sms.ir می‌رود (smsIr.ts) و الگوی ملی‌پیامک کنار می‌رود: با SMSIR_INVITE_TEMPLATE_ID
- * قالب «ارسال سریع» با متغیرهای #INVITER# (دعوت‌کننده) و #LINK# (مسیر لینک، مثلاً join/…؛ دامنه در خود قالب)، وگرنه متن آزاد.
+ * قالب «ارسال سریع» با متغیرهای #NAME# (دعوت‌کننده) و #INVITECODE# (مسیر لینک، مثلاً driver-invite/…؛ دامنه در خود قالب:
+ * «https://tarabots.com/#INVITECODE#»)، همان نام‌هایی که قالب تأییدشده‌ی ۵۴۶۴۷۹ دارد؛ وگرنه متن آزاد.
  *
  * تنظیمات: WEB_PANEL_URL (آدرس پنل وب، مثلاً https://trabot.ir)، MELIPAYAMAK_CONSOLE_KEY (کلید API کنسول؛ اگر
  * نباشد همان MELIPAYAMAK_OTP_TOKEN).
@@ -57,7 +58,8 @@ export class InviteSmsService {
     if (!panel) return { status: 'notConfigured', count: 1 };
     const templateId = smsIrSelected(this.config) ? smsIrTemplate(this.config, 'SMSIR_INVITE_TEMPLATE_ID') : null;
     if (templateId) {
-      const parameters = { INVITER: inviter, LINK: webPath.replace(/^\/+/, '') };
+      // the approved template's own variable names: a name it lacks is left in the SMS as it is (#NAME#)
+      const parameters = { NAME: inviter, INVITECODE: webPath.replace(/^\/+/, '') };
       return this.post(mobile, inviteText(`${panel}${webPath}`, inviter), 'simple', null, { templateId, parameters });
     }
     const bodyId = Number(this.config.get<string>('MELIPAYAMAK_INVITE_BODY_ID')?.trim());

@@ -20,6 +20,8 @@ import { BotMessagesService } from './botMessages.service';
 import { BotMenuService } from './botMenu.service';
 import { FactoryInviteBridge, inviteIn, MessengerInvite } from './factoryInvite';
 import { linkCodeIn, MessengerLinkCodeService } from './messengerLinkCode.service';
+import { DataSource } from 'typeorm';
+import { markInvitesUsed } from '../../company/inviteUsage';
 
 interface BotIdentityMetadata {
   externalUserId: string;
@@ -50,6 +52,7 @@ export class BotAccessService {
     private readonly bot: MultiBot,
     private readonly factoryInvites: FactoryInviteBridge,
     private readonly linkCodes: MessengerLinkCodeService,
+    private readonly dataSource: DataSource,
   ) {}
 
   /** Returns true when account setup handles the update; false continues normal routing. */
@@ -272,6 +275,7 @@ export class BotAccessService {
       return;
     }
     await this.identity.linkUser({ ...metadata, userId: user.id });
+    await markInvitesUsed(this.dataSource, user.mobile, this.redis);
     if (await this.handleInvite(metadata.chatId, metadata.externalUserId)) return;
     const roles = await this.identity.getMenuRoles(metadata.externalUserId);
     if (!roles?.length) {

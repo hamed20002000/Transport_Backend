@@ -149,7 +149,15 @@ export const REDIS_CHANNELS = {
   profileContactChanged: 'profile:contact-changed:v1',
   /** someone signed in to an account with its SMS code: the account's other phones hear of it */
   accountSignedIn: 'auth:signed-in:v1',
+  /** an invited driver, factory or company came in (markInvitesUsed): the inviter's open page hears of it */
+  inviteUsed: 'invite:used:v1',
 } as const;
+
+export interface InviteUsedEvent {
+  kind: 'driver' | 'factory' | 'company';
+  inviterUserId: string;
+  inviteeUserId: string;
+}
 
 /** a sign-in (RegistrationService.verifyOtp), for the notification to the account's phones */
 export interface AccountSignedInEvent {
