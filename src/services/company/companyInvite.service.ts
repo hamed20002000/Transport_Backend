@@ -12,6 +12,7 @@ import { normalizePhoneNumber } from 'src/dto/auth/phone-number';
 import { CompanyFeatureService } from './companyFeature.service';
 import { InviteSmsService } from './inviteSms.service';
 import { inviteToken } from './inviteLinks';
+import { assertInvitable, inviteExpiresAt, isInviteExpired, isInviteWaiting, renewedInvite } from './inviteRules';
 
 const currencyNames: Record<string, string> = { IRR: 'ریال', IRT: 'تومان', GBP: 'پوند', EUR: 'یورو', SAR: 'ریال سعودی', CNY: 'یوان' };
 const fa = (value: number | string) => Number(value).toLocaleString('fa-IR');
@@ -56,10 +57,22 @@ export class CompanyInviteService {
 
     const invite = await this.dataSource.transaction(async (manager) => {
       const existing = await manager.findOne(User, { where: { mobile }, relations: { userRoles: { role: true } } });
-      if (existing) {
-        const again = await manager.findOne(CompanyInvite, { where: { companyUserId: existing.id, parentUserId } });
-        if (again) return again;
-        if (existing.userRoles?.length) throw new ConflictException('این شماره از قبل در سامانه حساب دارد و نمی‌شود آن را دعوت کرد.');
+      if (existing?.userRoles?.length) {
+        // the rules of every invite (inviteRules.assertInvitable); a company account is the one row of its invite
+        const roles = existing.userRoles.map((item) => item.role?.name);
+        if (!roles.includes('COMPANY')) throw new ConflictException('این شماره از قبل در سامانه حساب دارد و نمی‌شود آن را دعوت کرد.');
+        const invites = await manager.find(CompanyInvite, { where: { companyUserId: existing.id } });
+        assertInvitable(invites.map((invite) => ({ ...invite, inviterId: invite.parentUserId })), parentUserId, existing.createdAt, 'شرکت');
+        const own = invites[0];
+        if (own && isInviteWaiting(own) && own.parentUserId === parentUserId) return own;
+        // only an invite made it and nobody came in with it (its day over): this parent invites it now
+        await manager.update(User, { id: existing.id }, { invitedByCompanyUserId: parentUserId });
+        if (own) {
+          const fresh = { ...renewedInvite(), parentUserId };
+          await manager.update(CompanyInvite, { id: own.id }, fresh);
+          return Object.assign(own, fresh);
+        }
+        return manager.save(CompanyInvite, manager.create(CompanyInvite, { parentUserId, companyUserId: existing.id, mobile, token: inviteToken() }));
       }
       const role = await manager.findOne(Role, { where: { name: 'COMPANY', recordStatus: RecordStatus.Active } });
       if (!role) throw new BadRequestException('نقش شرکت در سامانه تعریف نشده است.');
@@ -86,7 +99,8 @@ export class CompanyInviteService {
        ORDER BY i."createdAt" DESC`,
       [parentUserId],
     );
-    return rows;
+    // a company whose invite's day is over without it coming in is gone already, even before the sweep
+    return rows.filter((row) => !isInviteExpired(row)).map((row) => ({ ...row, expiresAt: inviteExpiresAt(row) }));
   }
 
   //#endregion
@@ -139,7 +153,8 @@ export class CompanyInviteService {
 
   private activeInvite(token: string): Promise<CompanyInvite | null> {
     if (!/^[A-Za-z0-9_-]{16,64}$/.test(token)) return Promise.resolve(null);
-    return this.invites.findOne({ where: { token, revokedAt: IsNull() } });
+    // an invite past its day: its link no longer works, even before the sweep revokes it
+    return this.invites.findOne({ where: { token, revokedAt: IsNull() } }).then((invite) => (invite && !isInviteExpired(invite) ? invite : null));
   }
 
   private view(invite: CompanyInvite, name: string) {

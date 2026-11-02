@@ -22,6 +22,7 @@ import { CompanyFeatureService } from './companyFeature.service';
 import { CargoNotificationService } from '../notification/cargoNotification.service';
 import { contactMobilesOf } from '../../infrastructure/repositories/notification/cargoAudience.repository';
 import { inviteToken } from './inviteLinks';
+import { assertInvitable, inviteExpiresAt, isInviteExpired, isInviteWaiting, renewedInvite } from './inviteRules';
 
 export const FACTORY_ROLE = 'FACTORY';
 
@@ -60,9 +61,10 @@ export class FactoryService {
   //#region ----------- Invite (company side) -------------------------------------
 
   /**
-   * The company invites a factory by its number: the factory's account is made right away (or, already a factory
-   * of another company, only gets this one added) and joins the company's list, approved by it. The link (/invite/…)
-   * and code (inv_…) only let that number sign in. A number of a driver or a company is refused.
+   * The company invites a factory by its number: the factory's account is made right away and joins the company's
+   * list, approved by it. The link (/invite/…) and code (inv_…) only let that number sign in, for a day. A number of
+   * a driver or a company is refused; so is a factory already in Trabot or one another company's invite waits for
+   * (inviteRules.assertInvitable).
    */
   async createInvite(companyUserId: string, mobileInput: string, factoryName?: string | null) {
     const mobile = normalizePhoneNumber(mobileInput);
@@ -82,12 +84,22 @@ export class FactoryService {
         await manager.save(UserRole, manager.create(UserRole, { userId: factory.id, roleId: role.id }));
       }
       const factoryUserId = factory!.id;
+      if (roles.length) {
+        const invites = await manager.find(FactoryInvite, { where: { factoryUserId } });
+        assertInvitable(invites.map((invite) => ({ ...invite, inviterId: invite.companyUserId })), companyUserId, factory!.createdAt, 'کارخانه');
+      }
       // a factory that signed up on its own and is not checked yet: the company inviting it vouches for it
       if (roles.length && factory!.verificationStatus !== 'APPROVED') {
         await manager.update(User, { id: factoryUserId }, { verificationStatus: 'APPROVED', verificationDecidedAt: new Date(), verificationDecidedBy: companyUserId });
       }
       await manager.createQueryBuilder().insert().into(FactoryCompany).values({ factoryUserId, companyUserId }).orIgnore().execute();
       const existing = await manager.findOne(FactoryInvite, { where: { companyUserId, factoryUserId } });
+      if (existing && !isInviteWaiting(existing)) {
+        // the pair's one row, again: a new token and a new day (inviteRules.renewedInvite)
+        const fresh = renewedInvite();
+        await manager.update(FactoryInvite, { id: existing.id }, fresh);
+        return Object.assign(existing, fresh);
+      }
       return existing ?? manager.save(FactoryInvite, manager.create(FactoryInvite, { companyUserId, factoryUserId, mobile, token: newToken() }));
     });
     const sms = await this.sms.sendInvite(invite.mobile, `/invite/${invite.token}`, await this.companyName(companyUserId));
@@ -96,17 +108,20 @@ export class FactoryService {
 
   /** کارخانه‌های عضو این شرکت، جدیدترین اول، با دعوت هر کدام و تعداد بارهایی که فرستاده‌اند. */
   async factoriesOf(companyUserId: string) {
-    const rows: Array<{ userId: string; name: string; mobile: string | null; accountCode: string | null; joinedAt: Date; loads: number; token: string | null; usedAt: Date | null }> = await this.dataSource.query(
+    const rows: Array<{ userId: string; name: string; mobile: string | null; accountCode: string | null; joinedAt: Date; loads: number; token: string | null; usedAt: Date | null; createdAt: Date | null }> = await this.dataSource.query(
       `SELECT u.id AS "userId", ${displayName('u')} AS name, u.mobile, u."accountCode", fc."createdAt" AS "joinedAt",
          (SELECT COUNT(*)::int FROM "FactoryCargo" c WHERE c."factoryUserId" = u.id AND c."companyUserId" = fc."companyUserId") AS loads,
-         i.token, i."usedAt"
+         i.token, i."usedAt", i."createdAt"
        FROM "FactoryCompany" fc JOIN "User" u ON u.id = fc."factoryUserId"
        LEFT JOIN "FactoryInvite" i ON i."companyUserId" = fc."companyUserId" AND i."factoryUserId" = fc."factoryUserId" AND i."revokedAt" IS NULL
        WHERE fc."companyUserId" = $1
        ORDER BY fc."createdAt" DESC`,
       [companyUserId],
     );
-    return rows;
+    // a factory whose invite's day is over without it coming in is gone already, even before the sweep
+    return rows
+      .filter((row) => !row.token || !isInviteExpired(row as { usedAt: Date | null; createdAt: Date }))
+      .map(({ createdAt, ...row }) => ({ ...row, expiresAt: row.token && createdAt ? inviteExpiresAt({ usedAt: row.usedAt, createdAt }) : null }));
   }
 
   /** شرکت کارخانه را از لیستش برمی‌دارد؛ دعوتش هم باطل می‌شود. حساب کارخانه می‌ماند (شاید عضو شرکت‌های دیگر باشد). */
@@ -280,7 +295,8 @@ export class FactoryService {
   private async activeInvite(token: string): Promise<FactoryInvite | null> {
     if (!/^[A-Za-z0-9_-]{16,64}$/.test(token)) return null;
     const invite = await this.invites.findOne({ where: { token, revokedAt: IsNull() } });
-    return invite?.factoryUserId && (await this.hasFactories(invite.companyUserId)) ? invite : null;
+    if (!invite?.factoryUserId || isInviteExpired(invite)) return null;
+    return (await this.hasFactories(invite.companyUserId)) ? invite : null;
   }
 
   private async assertMember(factoryUserId: string, companyUserId: string): Promise<void> {

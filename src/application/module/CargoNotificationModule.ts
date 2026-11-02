@@ -56,7 +56,7 @@ import { FactoryService } from '../../services/company/factory.service';
 import { FactoryDialog } from '../../services/company/factoryDialog';
 import { DriverInvite } from '../../domain/entities/company/DriverInvite';
 import { DriverInviteService } from '../../services/company/driverInvite.service';
-import { DriverInviteExpiryWorker } from '../../services/company/driverInviteExpiryWorker.service';
+import { InviteExpiryWorker } from '../../services/company/inviteExpiryWorker.service';
 import { CargoImageService } from '../../services/notification/cargoImage.service';
 import { CargoDisplayDialog } from '../../services/notification/cargoDisplayDialog';
 import { CargoImageController } from '../../presentation/controllers/notification/cargo-image.controller';
@@ -122,7 +122,7 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
     FactoryService,
     FactoryDialog,
     DriverInviteService,
-    DriverInviteExpiryWorker,
+    InviteExpiryWorker,
     CargoImageService,
     CargoDisplayDialog,
     CompanyFeatureDialog,
