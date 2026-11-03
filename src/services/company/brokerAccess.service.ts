@@ -244,6 +244,33 @@ export class BrokerAccessService {
     return this.status(userId, now);
   }
 
+  /**
+   * A transport company invited this broker (BrokerInviteService): while the admin limits the companies, it joins
+   * the broker's pick when there is room; the broker can change the pick later. Never refuses: the invite stands
+   * either way. True when added.
+   */
+  async addInvitingCompany(userId: string, companyUserId: string, now = new Date()): Promise<boolean> {
+    const { maxCompanies } = await this.getPolicy();
+    if (maxCompanies === null) return false;
+    const picked = (await this.currentSelection(userId, now))?.companyUserIds ?? [];
+    if (picked.includes(companyUserId) || picked.length >= maxCompanies) return false;
+    try {
+      await this.selectCompanies(userId, [...picked, companyUserId], now);
+      return true;
+    } catch {
+      // not a company a broker can pick (a self-signed one not approved yet)
+      return false;
+    }
+  }
+
+  /** The company took the broker off its list (or its invite expired): it leaves the broker's pick too. */
+  async dropCompany(userId: string, companyUserId: string): Promise<void> {
+    await this.dataSource.query(
+      `UPDATE "BrokerAccessPeriod" SET "companyUserIds" = array_remove("companyUserIds", $2::uuid) WHERE "userId" = $1`,
+      [userId, companyUserId],
+    );
+  }
+
   /** Companies added to the broker's own (an older purchase approved now): no end, like a pick. */
   private async addCompanies(manager: EntityManager, userId: string, companyUserIds: string[], now: Date, orderId: string): Promise<void> {
     const periods = manager.getRepository(BrokerAccessPeriod);

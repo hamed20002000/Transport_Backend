@@ -4,12 +4,14 @@ import { I18nService } from 'nestjs-i18n';
 import { WhatsappService } from 'src/application/services/agent/services/whatsapp.service';
 import { PHONE_PATTERN, cargoLine, fa } from 'src/application/services/agent/tools/toolKit';
 import { BotCallback } from 'src/domain/constants/bot/BotCallback';
+import { groupedField } from 'src/domain/helper/digitGroups';
 import { IUserRepository } from 'src/domain/repositories/IUserRepopsitory';
 import { USER_REPOSITORY } from 'src/domain/repositories/repository.tokens';
 import { BotAction, BotContext, BotDialog, BotDialogRegistry, BotDocument, BotReply } from '../messengerBot/core/botDialog';
-import { CompanyInviteResult, DriverInviteResult, FactoryInviteBridge, FactoryInviteHandler, FactoryInviteResult } from '../messengerBot/core/factoryInvite';
+import { BrokerInviteResult, CompanyInviteResult, DriverInviteResult, FactoryInviteBridge, FactoryInviteHandler, FactoryInviteResult } from '../messengerBot/core/factoryInvite';
 import { CompanyInviteService } from './companyInvite.service';
 import { DriverInviteService } from './driverInvite.service';
+import { BrokerInviteService } from './brokerInvite.service';
 import { CargoExcelService, ExcelCargoRow, MAX_EXCEL_BYTES, MAX_EXCEL_ROWS } from '../notification/cargoExcel.service';
 import { buildCargoListingText } from '../notification/cargoNotificationText';
 import { RedisService } from '../redis/redis.service';
@@ -76,6 +78,7 @@ export class FactoryDialog implements BotDialog, FactoryInviteHandler, OnModuleI
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     private readonly companyInvites: CompanyInviteService,
     private readonly driverInvites: DriverInviteService,
+    private readonly brokerInvites: BrokerInviteService,
   ) {}
 
   onModuleInit(): void {
@@ -96,6 +99,10 @@ export class FactoryDialog implements BotDialog, FactoryInviteHandler, OnModuleI
 
   driverWelcome(userId: string, token: string): Promise<DriverInviteResult> {
     return this.driverInvites.welcome(userId, token);
+  }
+
+  brokerWelcome(userId: string, token: string): Promise<BrokerInviteResult> {
+    return this.brokerInvites.welcome(userId, token);
   }
 
   //#endregion
@@ -153,7 +160,8 @@ export class FactoryDialog implements BotDialog, FactoryInviteHandler, OnModuleI
       if (!phones.length || bad || phones.length > 5) return this.askStep(session, this.t('badPhone', { phone: bad ?? value }));
       session.draft.contactPhones = phones;
     } else {
-      session.draft[step] = value;
+      // «۴۵۰۰۰۰۰۰» shows as «۴۵٬۰۰۰٬۰۰۰» in the preview already, as in the web form
+      session.draft[step] = step === 'weight' || step === 'price' ? groupedField(value, MAX_LENGTH[step])! : value;
     }
     return this.nextStep(ctx, session);
   }

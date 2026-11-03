@@ -5,7 +5,7 @@ import { InviteUsedEvent, REDIS_CHANNELS } from '../redis/redis.keys';
 import { inviteToken } from './inviteLinks';
 
 /**
- * The rules every invite link keeps (driver, factory, company):
+ * The rules every invite link keeps (driver, factory, company, broker):
  *   - it waits a day (INVITE_EXPIRY_HOURS) for its number to come in; then its link stops, it is revoked, and the
  *     account it made goes too when nobody ever came in with it and no one else invited it (expireStaleInvites);
  *   - a number already in Trabot (came in by an invite, or signed up alone) is not invited again, and one another
@@ -83,6 +83,14 @@ const KINDS = [
     inviter: 'parentUserId',
     invitee: 'companyUserId',
     untie: `UPDATE "User" SET "invitedByCompanyUserId" = NULL WHERE id = $1 AND "invitedByCompanyUserId" = $2`,
+  },
+  {
+    kind: 'broker',
+    table: 'BrokerInvite',
+    inviter: 'companyUserId',
+    invitee: 'brokerUserId',
+    // the inviting company leaves the broker's pick (BrokerAccessService.addInvitingCompany put it there)
+    untie: `UPDATE "BrokerAccessPeriod" SET "companyUserIds" = array_remove("companyUserIds", $2::uuid) WHERE "userId" = $1`,
   },
 ] as const;
 

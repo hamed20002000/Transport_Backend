@@ -376,7 +376,7 @@ export class BotAccessService {
 
   /**
    * دعوتی که در انتظار است (بعد از اینکه شماره معلوم شد). همه‌ی دعوت‌ها شخصی‌اند: شرکت مادر (cmp_، شرکت حمل‌ونقل) یا
-   * شرکت حمل‌ونقل (inv_ کارخانه، drv_ راننده) حساب را با شماره‌ی دعوت‌شده از قبل ساخته؛ اگر همین شماره است خوشامد و منوی
+   * شرکت حمل‌ونقل (inv_ کارخانه، drv_ راننده، brk_ واسط) حساب را با شماره‌ی دعوت‌شده از قبل ساخته؛ اگر همین شماره است خوشامد و منوی
    * همان حساب، وگرنه پیام «این دعوت برای شماره‌ی دیگری است» و هیچ نقشی از روی دعوت داده نمی‌شود.
    * false یعنی کاری انجام نشد و ادامه‌ی عادی ثبت‌نام/منو.
    */
@@ -398,7 +398,9 @@ export class BotAccessService {
     } else {
       const result = invite.kind === 'driver'
         ? await this.factoryInvites.driverWelcome(userId, invite.token)
-        : await this.factoryInvites.factoryWelcome(userId, invite.token);
+        : invite.kind === 'broker'
+          ? await this.factoryInvites.brokerWelcome(userId, invite.token)
+          : await this.factoryInvites.factoryWelcome(userId, invite.token);
       joined = result.status === 'joined';
       text = this.messages.get(`${invite.kind}Invite.${result.status}`, 'fa', result.status === 'joined' ? { company: result.companyName } : undefined);
     }

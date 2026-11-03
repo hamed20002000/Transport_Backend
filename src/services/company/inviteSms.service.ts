@@ -10,12 +10,13 @@ import { inviteText } from './inviteLinks';
 const TEMPLATE_VALUE_MAX = 25;
 
 /**
- * The invite page's short path, for a template variable: /driver-invite/T → d/T, /invite/T → f/T, /join/T → j/T
+ * The invite page's short path, for a template variable: /driver-invite/T → d/T, /invite/T → f/T, /join/T → j/T,
+ * /broker-invite/T → b/T
  * (transport_front has the same short routes). A 16-character token makes it 18 characters.
  */
 export function shortInvitePath(webPath: string): string {
   const path = webPath.replace(/^\/+/, '');
-  const short = path.replace(/^driver-invite\//, 'd/').replace(/^invite\//, 'f/').replace(/^join\//, 'j/');
+  const short = path.replace(/^driver-invite\//, 'd/').replace(/^invite\//, 'f/').replace(/^join\//, 'j/').replace(/^broker-invite\//, 'b/');
   return short;
 }
 

@@ -2,16 +2,17 @@ import { Injectable } from '@nestjs/common';
 
 /**
  * Invite codes in a message: «/start <code>» from a Telegram/Bale link, or the code itself sent to any messenger.
- * A transport company invites a factory with «inv_…» and a driver with «drv_…»; the parent company invites a
- * transport company with «cmp_…».
+ * A transport company invites a factory with «inv_…», a driver with «drv_…» and a broker with «brk_…»; the parent
+ * company invites a transport company with «cmp_…».
  * All are personal: the inviter made the account with the invited number beforehand, so the code only signs that
  * number in.
  */
 export const INVITE_CODE_PREFIX = 'inv_';
 export const COMPANY_INVITE_PREFIX = 'cmp_';
 export const DRIVER_INVITE_PREFIX = 'drv_';
-const INVITE_CODE = /\b(inv|cmp|drv)_([A-Za-z0-9_-]{16,64})/;
-const KINDS = { inv: 'factory', cmp: 'company', drv: 'driver' } as const;
+export const BROKER_INVITE_PREFIX = 'brk_';
+const INVITE_CODE = /\b(inv|cmp|drv|brk)_([A-Za-z0-9_-]{16,64})/;
+const KINDS = { inv: 'factory', cmp: 'company', drv: 'driver', brk: 'broker' } as const;
 
 export interface MessengerInvite {
   kind: (typeof KINDS)[keyof typeof KINDS];
@@ -35,6 +36,9 @@ export type FactoryInviteResult =
 /** companyName: the transport company that invited the driver (its loads now reach the driver) */
 export type DriverInviteResult = FactoryInviteResult;
 
+/** companyName: the transport company that invited the broker */
+export type BrokerInviteResult = FactoryInviteResult;
+
 export type CompanyInviteResult =
   /** welcome: the menus, their prices and how to buy them */
   | { status: 'joined'; parentName: string; welcome: string }
@@ -49,6 +53,8 @@ export interface FactoryInviteHandler {
   companyWelcome(userId: string, token: string): Promise<CompanyInviteResult>;
   /** the account behind this number is the invited driver (welcome) or not */
   driverWelcome(userId: string, token: string): Promise<DriverInviteResult>;
+  /** the account behind this number is the invited broker (welcome) or not */
+  brokerWelcome(userId: string, token: string): Promise<BrokerInviteResult>;
 }
 
 /**
@@ -73,5 +79,9 @@ export class FactoryInviteBridge {
 
   driverWelcome(userId: string, token: string): Promise<DriverInviteResult> {
     return this.handler ? this.handler.driverWelcome(userId, token) : Promise.resolve({ status: 'invalid' });
+  }
+
+  brokerWelcome(userId: string, token: string): Promise<BrokerInviteResult> {
+    return this.handler ? this.handler.brokerWelcome(userId, token) : Promise.resolve({ status: 'invalid' });
   }
 }

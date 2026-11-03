@@ -170,7 +170,7 @@ export const REDIS_CHANNELS = {
 } as const;
 
 export interface InviteUsedEvent {
-  kind: 'driver' | 'factory' | 'company';
+  kind: 'driver' | 'factory' | 'company' | 'broker';
   inviterUserId: string;
   inviteeUserId: string;
   /** not used within its time: revoked (inviteRules.expireStaleInvites), not come in */

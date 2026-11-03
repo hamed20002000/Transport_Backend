@@ -19,3 +19,6 @@ export function groupDigits(text: string | null | undefined): string | null | un
     return run.replace(/(?!^)(?=(?:.{3})+$)/gu, separator);
   });
 }
+
+/** A load's weight or price grouped, unless the separators would push it past its column (100 characters). */
+export const groupedField = (value: string | null | undefined, max = 100) => ((groupDigits(value)?.length ?? 0) <= max ? groupDigits(value) : value);

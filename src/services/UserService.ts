@@ -24,6 +24,7 @@ const PROFILE_FIELDS = [
   'companyNationalId',
   'economicCode',
   'registrationNo',
+  'licenseNo',
   'phone',
   'contactMobiles',
   'postalCode',

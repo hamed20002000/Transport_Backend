@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { isCompanyNationalId } from 'src/domain/helper/nationalId';
 
 import { User } from 'src/domain/entities/auth/User';
 import { RecordStatus } from 'src/domain/enums/RecordStatus';
@@ -43,7 +44,7 @@ export const VERIFICATION_PROFILE_PATH: Record<VerifiedKind, string> = {
 const REQUIRED_FIELDS: Record<VerifiedKind, Array<{ key: keyof User; title: string }>> = {
   COMPANY: [
     { key: 'companyName', title: 'نام تجاری شرکت' },
-    { key: 'economicCode', title: 'کد اقتصادی' },
+    { key: 'licenseNo', title: 'شماره پروانه' },
     { key: 'phone', title: 'شماره شرکت' },
   ],
   FACTORY: [
@@ -58,11 +59,11 @@ const REQUIRED_FIELDS: Record<VerifiedKind, Array<{ key: keyof User; title: stri
 
 const NOUN: Record<VerifiedKind, string> = { COMPANY: 'شرکت حمل‌ونقل', FACTORY: 'شرکت / کارخانه', BROKER: 'واسط' };
 const REQUIRED_TEXT: Record<VerifiedKind, string> = {
-  COMPANY: 'نام تجاری، کد اقتصادی و شماره‌ی شرکت',
+  COMPANY: 'نام تجاری، شماره پروانه و شماره‌ی شرکت',
   FACTORY: 'نام و شماره‌ی کارخانه',
   BROKER: 'نام و شماره‌ی تماس',
 };
-const PROFILE_FIELDS = ['companyName', 'companyNationalId', 'economicCode', 'registrationNo', 'phone', 'postalCode', 'address'] as const;
+const PROFILE_FIELDS = ['companyName', 'companyNationalId', 'economicCode', 'registrationNo', 'licenseNo', 'phone', 'postalCode', 'address'] as const;
 
 export interface VerificationState {
   /** NONE: fill in the profile and ask; PENDING: waiting for the parent company; APPROVED; REJECTED */
@@ -105,6 +106,8 @@ export class AccountVerificationService {
     if (!user) throw new NotFoundException('حساب پیدا نشد.');
     const remaining = Math.max(0, MAX_VERIFICATION_REQUESTS - user.verificationRequests);
     const missing = REQUIRED_FIELDS[kindOf(user)].filter(({ key }) => !String(user[key] ?? '').trim()).map(({ title }) => title);
+    // not required, but checked when given: one saved before the check-digit rule may be wrong
+    if (user.companyNationalId && !isCompanyNationalId(user.companyNationalId)) missing.push('شناسه ملی درست (یا خالی)');
     return {
       status: user.verificationStatus,
       canRequest: (user.verificationStatus === 'NONE' || user.verificationStatus === 'REJECTED') && remaining > 0,

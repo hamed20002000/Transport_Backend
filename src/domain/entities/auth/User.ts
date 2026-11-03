@@ -124,6 +124,10 @@ export class User {
   @Column({ type: 'varchar', length: 30, nullable: true })
   registrationNo?: string | null;
 
+  // a transport company's operating licence (پروانه فعالیت): what its verification goes by
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  licenseNo?: string | null;
+
   @Column({ type: 'varchar', length: 20, nullable: true })
   phone?: string | null;
 

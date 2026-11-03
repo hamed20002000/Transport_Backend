@@ -1,7 +1,8 @@
 import { MAX_CONTACT_MOBILES, parseMobileList } from 'src/dto/auth/phone-number';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsEnum, IsIn, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { IsEnum, IsIn, IsOptional, IsString, Matches, MaxLength, registerDecorator } from 'class-validator';
+import { isCompanyNationalId } from 'src/domain/helper/nationalId';
 
 import { CustomerType } from 'src/domain/enums/company.enum';
 
@@ -21,6 +22,18 @@ export const trimToNull = ({ value }: { value: unknown }) => {
  * separators (space, comma, «،», dash, dot, slash) the separators go; anything with a letter stays as it is,
  * so the field's own rule still refuses it.
  */
+/** The national ID's check digit is right (isCompanyNationalId), not only its 11 digits. */
+function IsCompanyNationalId() {
+  return (target: object, propertyName: string) =>
+    registerDecorator({
+      name: 'isCompanyNationalId',
+      target: target.constructor,
+      propertyName,
+      options: { message: 'شناسه ملی شرکت معتبر نیست؛ رقم‌هایش را دوباره بررسی کنید.' },
+      validator: { validate: (value: unknown) => typeof value === 'string' && isCompanyNationalId(value) },
+    });
+}
+
 export const digitsToNull = (params: { value: unknown }) => {
   const value = trimToNull(params);
   if (typeof value !== 'string' || !/^[\d\s,،.\-–_/]+$/.test(value)) return value;
@@ -88,6 +101,7 @@ export class UpdateUserProfileDto {
   @Transform(digitsToNull)
   @IsOptional()
   @Matches(/^[0-9]{11}$/, { message: 'companyNationalId must be 11 digits' })
+  @IsCompanyNationalId()
   companyNationalId?: string | null;
 
   @ApiPropertyOptional({ maxLength: 30, nullable: true })
@@ -103,6 +117,13 @@ export class UpdateUserProfileDto {
   @IsString()
   @MaxLength(30)
   registrationNo?: string | null;
+
+  @ApiPropertyOptional({ maxLength: 30, nullable: true, description: 'شماره پروانه فعالیت شرکت حمل‌ونقل' })
+  @Transform(trimToNull)
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  licenseNo?: string | null;
 
   @ApiPropertyOptional({ example: '02112345678', nullable: true })
   @Transform(trimToNull)

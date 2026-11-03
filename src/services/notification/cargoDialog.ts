@@ -10,6 +10,7 @@ import { CargoListingStatus, CargoRequestStatus, CargoTripType } from 'src/domai
 import { persianTime } from 'src/domain/helper/persianDate';
 import { DRIVER_KIND_LABELS, DRIVER_KIND_TRIP_TYPES, DriverKind, driverKindForLoad,
   driverKindsOf, TRIP_TYPE_LABELS } from './cargoTripType';
+import { groupedField } from 'src/domain/helper/digitGroups';
 import { parsePriceToman } from 'src/domain/helper/price';
 import { IUserRepository } from 'src/domain/repositories/IUserRepopsitory';
 import { USER_REPOSITORY } from 'src/domain/repositories/repository.tokens';
@@ -306,7 +307,8 @@ export class CargoDialog implements BotDialog, OnModuleInit {
       if (!phones.length || bad) return this.askStep(session, this.t('create.badPhone', { phone: bad ?? value }));
       session.draft.contactPhones = phones;
     } else {
-      session.draft[session.step] = value;
+      // «۴۵۰۰۰۰۰۰» shows as «۴۵٬۰۰۰٬۰۰۰» in the preview already, as in the web form
+      session.draft[session.step] = session.step === 'weight' || session.step === 'price' ? groupedField(value)! : value;
     }
     return this.nextStep(ctx, session);
   }

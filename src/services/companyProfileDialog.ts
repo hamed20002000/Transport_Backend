@@ -17,7 +17,7 @@ const EDIT = 'cp:edit:';
 const fields = {
   companyName: 'نام شرکت', domesticCompanyName: 'نام شرکت داخلی', internationalCompanyName: 'نام شرکت بین‌المللی',
   companyNationalId: 'شناسه ملی شرکت',
-  economicCode: 'کد اقتصادی', registrationNo: 'شماره ثبت',
+  economicCode: 'کد اقتصادی', registrationNo: 'شماره ثبت', licenseNo: 'شماره پروانه',
   phone: 'تلفن ثابت', postalCode: 'کد پستی', address: 'نشانی',
 };
 type Field = keyof typeof fields;

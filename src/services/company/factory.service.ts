@@ -23,6 +23,7 @@ import { CargoNotificationService } from '../notification/cargoNotification.serv
 import { contactMobilesOf } from '../../infrastructure/repositories/notification/cargoAudience.repository';
 import { inviteToken } from './inviteLinks';
 import { assertInvitable, inviteExpiresAt, isInviteExpired, isInviteWaiting, renewedInvite } from './inviteRules';
+import { groupedField } from '../../domain/helper/digitGroups';
 
 export const FACTORY_ROLE = 'FACTORY';
 
@@ -244,9 +245,10 @@ export class FactoryService {
         origin: input.origin,
         destination: input.destination,
         cargoType: input.cargoType || null,
-        weight: input.weight || null,
+        // grouped whichever way it came (web, bots, Excel), as the company's own loads are
+        weight: groupedField(input.weight) || null,
         vehicleType: input.vehicleType || null,
-        price: input.price || null,
+        price: groupedField(input.price) || null,
         extraNotes: input.extraNotes || null,
         contactPhones: input.contactPhones,
         photo: input.photo || null,

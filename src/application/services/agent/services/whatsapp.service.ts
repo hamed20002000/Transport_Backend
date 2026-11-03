@@ -88,6 +88,12 @@ const DRIVER_INVITE_TEXT: Record<FactoryInviteResult['status'], string> = {
   invalid: 'این لینک (کد) دعوت باطل شده است. لینک تازه را از شرکت حمل‌ونقل بگیرید.',
   otherNumber: 'این دعوت برای شماره‌ی دیگری است. از واتساپی پیام بدهید که با همان شماره‌ای است که به شرکت حمل‌ونقل داده‌اید.',
 };
+// پاسخ دعوت شخصی واسط از طرف شرکت حمل‌ونقل (کد brk_…)؛ همان متن ربات‌ها
+const BROKER_INVITE_TEXT: Record<FactoryInviteResult['status'], string> = {
+  joined: '✅ «{company}» شما را به‌عنوان واسط دعوت کرده است.\n\nاز این به بعد بارهای این شرکت حمل‌ونقل را می‌بینید و می‌توانید برایشان درخواست بدهید. برای دیدن بارها «جستجوی بار» را بزنید.',
+  invalid: 'این لینک (کد) دعوت باطل شده است. لینک تازه را از شرکت حمل‌ونقل بگیرید.',
+  otherNumber: 'این دعوت برای شماره‌ی دیگری است. از واتساپی پیام بدهید که با همان شماره‌ای است که به شرکت حمل‌ونقل داده‌اید.',
+};
 const NEW_CHAT_WORDS = ['گفتگوی جدید', 'گفتگو جدید', 'yeni sohbet'];
 const NEXT_PAGE_WORDS = ['بعدی', 'ادامه', 'devam'];
 const PREVIOUS_PAGE_WORDS = ['قبلی', 'برگشت', 'geri'];
@@ -723,13 +729,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   /**
    * An invite code, as the bots handle it; the number is WhatsApp's own. Both invites are personal: the inviter
    * made the account with the invited number beforehand (a transport company, cmp_, by the parent company; a factory,
-   * inv_, and a driver, drv_, by a transport company). This number is that account (welcome, its menu) or not (another number); no
+   * inv_, a driver, drv_, and a broker, brk_, by a transport company). This number is that account (welcome, its menu) or not (another number); no
    * account or role is ever made from the code.
    * false: another number with no account, so the usual sign-up follows.
    */
   private async handleInvite(jid: string, invite: MessengerInvite, mappedUserId: string | null): Promise<boolean> {
     const handler = this.factoryInvites!;
-    const texts = invite.kind === 'driver' ? DRIVER_INVITE_TEXT : FACTORY_INVITE_TEXT;
+    const texts = invite.kind === 'driver' ? DRIVER_INVITE_TEXT : invite.kind === 'broker' ? BROKER_INVITE_TEXT : FACTORY_INVITE_TEXT;
     const otherNumber = invite.kind === 'company' ? COMPANY_INVITE_TEXT.otherNumber : texts.otherNumber;
     let userId = mappedUserId;
     if (!userId) {
@@ -757,7 +763,12 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       const result = await handler.companyWelcome(userId, invite.token);
       await this.sendMessage(jid, result.status === 'joined' ? result.welcome : COMPANY_INVITE_TEXT[result.status]);
     } else {
-      const result = invite.kind === 'driver' ? await handler.driverWelcome(userId, invite.token) : await handler.factoryWelcome(userId, invite.token);
+      const result =
+        invite.kind === 'driver'
+          ? await handler.driverWelcome(userId, invite.token)
+          : invite.kind === 'broker'
+            ? await handler.brokerWelcome(userId, invite.token)
+            : await handler.factoryWelcome(userId, invite.token);
       await this.sendMessage(jid, texts[result.status].replace('{company}', result.status === 'joined' ? result.companyName : ''));
     }
     await this.dialogHandler?.handleText(jid, userId, 'منو');

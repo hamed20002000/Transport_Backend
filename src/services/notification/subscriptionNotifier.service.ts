@@ -77,22 +77,31 @@ export class SubscriptionNotifier implements OnModuleInit {
   async onModuleInit(): Promise<void> {
     try {
       await this.redis.subscribe(REDIS_CHANNELS.paymentReceiptSubmitted, (message) =>
-        void this.handle('receipt', message, (event: PaymentReceiptSubmittedEvent) => this.receiptSubmitted(event)));
+        void this.handle('receipt', message, (event: PaymentReceiptSubmittedEvent) => this.receiptSubmitted(event), (event) =>
+          this.gateway.sendToRoles(['ADMIN'], PAYMENT_RECEIPT_SOCKET_EVENT, { orderId: event.orderId })));
       await this.redis.subscribe(REDIS_CHANNELS.subscriptionDecided, (message) =>
-        void this.handle('decision', message, (event: SubscriptionDecidedEvent) => this.decided(event)));
+        void this.handle('decision', message, (event: SubscriptionDecidedEvent) => this.decided(event), (event) =>
+          this.gateway.sendToUser(event.userId, SUBSCRIPTION_CHANGED_SOCKET_EVENT, { approved: event.approved })));
       await this.redis.subscribe(REDIS_CHANNELS.companyFeatureReceipt, (message) =>
-        void this.handle('feature-receipt', message, (event: CompanyFeatureOrderEvent) => this.featureReceipt(event)));
+        void this.handle('feature-receipt', message, (event: CompanyFeatureOrderEvent) => this.featureReceipt(event), (event) =>
+          this.gateway.sendToRoles(['ADMIN'], COMPANY_FEATURE_RECEIPT_SOCKET_EVENT, { orderId: event.orderId })));
       await this.redis.subscribe(REDIS_CHANNELS.companyFeatureDecided, (message) =>
-        void this.handle('feature-decision', message, (event: CompanyFeatureOrderEvent) => this.featureDecided(event)));
+        void this.handle('feature-decision', message, (event: CompanyFeatureOrderEvent) => this.featureDecided(event), (event) =>
+          this.gateway.sendToUser(event.userId, COMPANY_FEATURES_CHANGED_SOCKET_EVENT, { feature: event.feature, tier: event.tier ?? null, approved: event.approved })));
       await this.redis.subscribe(REDIS_CHANNELS.brokerAccessReceipt, (message) =>
-        void this.handle('broker-receipt', message, (event: BrokerAccessOrderEvent) => this.brokerReceipt(event)));
+        void this.handle('broker-receipt', message, (event: BrokerAccessOrderEvent) => this.brokerReceipt(event), (event) =>
+          this.gateway.sendToRoles(['ADMIN'], BROKER_ACCESS_RECEIPT_SOCKET_EVENT, { orderId: event.orderId })));
       await this.redis.subscribe(REDIS_CHANNELS.brokerAccessDecided, (message) =>
-        void this.handle('broker-decision', message, (event: BrokerAccessOrderEvent) => this.brokerDecided(event)));
+        void this.handle('broker-decision', message, (event: BrokerAccessOrderEvent) => this.brokerDecided(event), (event) =>
+          this.gateway.sendToUser(event.userId, BROKER_ACCESS_CHANGED_SOCKET_EVENT, { approved: event.approved })));
       // a request or decision has no order: the user and the time make it one notice
       await this.redis.subscribe(REDIS_CHANNELS.accountVerificationRequested, (message) =>
-        void this.handle('verification-request', this.withNoticeId(message), (event: AccountVerificationEvent & { orderId: string }) => this.verificationRequested(event)));
+        void this.handle('verification-request', this.withNoticeId(message), (event: AccountVerificationEvent & { orderId: string }) => this.verificationRequested(event), async (event) => {
+          for (const id of await this.parentIds()) this.gateway.sendToUser(id, VERIFICATION_REQUESTED_SOCKET_EVENT, { userId: event.userId });
+        }));
       await this.redis.subscribe(REDIS_CHANNELS.accountVerificationDecided, (message) =>
-        void this.handle('verification-decision', this.withNoticeId(message), (event: AccountVerificationEvent & { orderId: string }) => this.verificationDecided(event)));
+        void this.handle('verification-decision', this.withNoticeId(message), (event: AccountVerificationEvent & { orderId: string }) => this.verificationDecided(event), (event) =>
+          this.gateway.sendToUser(event.userId, VERIFICATION_CHANGED_SOCKET_EVENT, { approved: event.approved })));
       await this.redis.subscribe(REDIS_CHANNELS.accountSignedIn, (message) =>
         void this.handle('signed-in', this.signInNotice(message), (event: AccountSignedInEvent & { orderId: string }) => this.signedIn(event)));
     } catch (error) {
@@ -100,9 +109,20 @@ export class SubscriptionNotifier implements OnModuleInit {
     }
   }
 
-  private async handle<T extends { orderId: string }>(kind: string, message: string, send: (event: T) => Promise<void>): Promise<void> {
+  /**
+   * live: the open pages of this instance (its own sockets), told by every instance that hears the event; send: the
+   * phone, messengers and SMS, sent once across all instances (the Redis key). Told only by the instance that won the
+   * key, a page open on another instance (or on a dev server sharing the Redis) never heard of it until a refresh.
+   */
+  private async handle<T extends { orderId: string }>(
+    kind: string,
+    message: string,
+    send: (event: T) => Promise<void>,
+    live?: (event: T) => void | Promise<void>,
+  ): Promise<void> {
     try {
       const event = JSON.parse(message) as T;
+      await live?.(event);
       const key = RedisService.key('subscriptionNoticeSent', kind, `${event.orderId}:${(event as { receiptId?: string }).receiptId ?? ''}`);
       if (!(await this.redis.setIfAbsent(key, '1', NOTICE_ONCE_SECONDS))) return;
       await send(event);
@@ -117,7 +137,6 @@ export class SubscriptionNotifier implements OnModuleInit {
     const price = `${fa(order.amount)} ${currencyNames[order.currency] ?? order.currency}`;
     const text = `🧾 رسید پرداخت تازه\n${order.planTitle ?? 'اشتراک'} · ${price}\nخریدار: ${order.phoneNumber}\nبرای بررسی به «رسیدهای پرداخت» در پنل ادمین بروید.`;
 
-    this.gateway.sendToRoles(['ADMIN'], PAYMENT_RECEIPT_SOCKET_EVENT, { orderId: event.orderId });
     for (const adminId of await this.adminIds()) {
       await Promise.all([
         this.push.sendToUser(adminId, {
@@ -145,7 +164,6 @@ export class SubscriptionNotifier implements OnModuleInit {
       ? `${plan}${event.expireAt ? ` تا ${faDate(event.expireAt)}` : ''} فعال است.${gift ? `\n${gift}` : ''}`
       : `دلیل: ${event.reason ?? '—'}. لطفاً دوباره پرداخت کنید یا رسید درست را بفرستید.`;
 
-    this.gateway.sendToUser(event.userId, SUBSCRIPTION_CHANGED_SOCKET_EVENT, { approved: event.approved });
     await Promise.all([
       this.push.sendToUser(event.userId, {
         title: `ترابوت · ${title}`,
@@ -161,7 +179,6 @@ export class SubscriptionNotifier implements OnModuleInit {
   async featureReceipt(event: CompanyFeatureOrderEvent): Promise<void> {
     const price = `${fa(event.amount)} ${currencyNames[event.currency] ?? event.currency}`;
     const text = `🧾 رسید خرید ${event.title} · ${price}\nبرای بررسی به «امکانات شرکت‌های حمل‌ونقل ← رسیدها» در پنل ادمین بروید.`;
-    this.gateway.sendToRoles(['ADMIN'], COMPANY_FEATURE_RECEIPT_SOCKET_EVENT, { orderId: event.orderId });
     for (const adminId of await this.adminIds()) {
       await Promise.all([
         this.push.sendToUser(adminId, { title: 'ترابوت · رسید خرید امکانات', body: `${event.title} · ${price}`, url: '/admin/company-features', tag: 'payment-receipts', renotify: true })
@@ -179,7 +196,6 @@ export class SubscriptionNotifier implements OnModuleInit {
     const text = event.approved
       ? `✅ ${event.title} فعال شد${event.expireAt ? ` و تا ${faDate(event.expireAt)} باز است` : ''}.`
       : `رسید خرید ${event.title} تأیید نشد.\nدلیل: ${event.reason ?? '—'}\nلطفاً دوباره پرداخت کنید یا رسید درست را بفرستید («💎 خرید امکانات»).`;
-    this.gateway.sendToUser(event.userId, COMPANY_FEATURES_CHANGED_SOCKET_EVENT, { feature: event.feature, tier: event.tier ?? null, approved: event.approved });
     await Promise.all([
       this.push.sendToUser(event.userId, { title: `ترابوت · ${event.approved ? 'بخش تازه فعال شد' : 'رسید تأیید نشد'}`, body: text, url: '/account/company/features' })
         .catch((error: Error) => this.logger.warn(`Feature decision push to ${event.userId} failed: ${error.message}`)),
@@ -193,7 +209,6 @@ export class SubscriptionNotifier implements OnModuleInit {
     const price = `${fa(event.amount)} ${currencyNames[event.currency] ?? event.currency}`;
     const what = brokerEventTitle(event);
     const text = `🧾 رسید واسط: ${what} · ${price}\nبرای بررسی به «واسط» در پنل ادمین بروید.`;
-    this.gateway.sendToRoles(['ADMIN'], BROKER_ACCESS_RECEIPT_SOCKET_EVENT, { orderId: event.orderId });
     for (const adminId of await this.adminIds()) {
       await Promise.all([
         this.push.sendToUser(adminId, { title: 'ترابوت · رسید واسط', body: `${what} · ${price}`, url: '/admin/broker-access', tag: 'payment-receipts', renotify: true })
@@ -211,7 +226,6 @@ export class SubscriptionNotifier implements OnModuleInit {
       : event.kind === 'PACKAGE'
         ? `✅ ${fa(event.requests ?? 0)} درخواست بار به اعتبار شما اضافه شد${event.remaining !== undefined ? `؛ الان ${fa(event.remaining)} درخواست دارید` : ''}.`
         : `✅ بار ${fa(event.companies)} شرکت برای شما باز شد.`;
-    this.gateway.sendToUser(event.userId, BROKER_ACCESS_CHANGED_SOCKET_EVENT, { approved: event.approved });
     await Promise.all([
       this.push.sendToUser(event.userId, { title: `ترابوت · ${!event.approved ? 'رسید تأیید نشد' : event.kind === 'PACKAGE' ? 'بسته‌ی درخواست فعال شد' : 'شرکت‌ها باز شد'}`, body: text, url: '/account/broker?tab=access' })
         .catch((error: Error) => this.logger.warn(`Broker decision push to ${event.userId} failed: ${error.message}`)),
@@ -229,12 +243,15 @@ export class SubscriptionNotifier implements OnModuleInit {
     return JSON.stringify({ ...event, orderId: event.noticeId ?? `${event.userId}:${event.approved ?? 'request'}:${Math.floor(Date.now() / 60_000)}` });
   }
 
+  private async parentIds(): Promise<string[]> {
+    const rows: { id: string }[] = await this.dataSource.query(`SELECT id FROM "User" WHERE "isParentCompany" = true AND "recordStatus" = $1`, [RecordStatus.Active]);
+    return rows.map((row) => row.id);
+  }
+
   /** A self-signed-up company or factory asked to be checked: every parent company hears of it. */
   async verificationRequested(event: AccountVerificationEvent): Promise<void> {
     const text = `🔎 درخواست بررسی اعتبار تازه از «${event.name}».\nبرای بررسی و تأیید به «بررسی اعتبار» در پنل شرکت بروید.`;
-    const parents: { id: string }[] = await this.dataSource.query(`SELECT id FROM "User" WHERE "isParentCompany" = true AND "recordStatus" = $1`, [RecordStatus.Active]);
-    for (const { id } of parents) {
-      this.gateway.sendToUser(id, VERIFICATION_REQUESTED_SOCKET_EVENT, { userId: event.userId });
+    for (const id of await this.parentIds()) {
       await Promise.all([
         this.push.sendToUser(id, { title: 'ترابوت · درخواست بررسی اعتبار', body: event.name, url: '/account/company/verifications', tag: 'verifications', renotify: true })
           .catch((error: Error) => this.logger.warn(`Verification request push to ${id} failed: ${error.message}`)),
@@ -275,8 +292,6 @@ export class SubscriptionNotifier implements OnModuleInit {
     const text = event.approved
       ? `✅ حساب شما تأیید شد.\n${APPROVED_NEXT[kind]}`
       : `❌ درخواست بررسی اعتبار شما تأیید نشد.\nدلیل: ${event.reason ?? '—'}\n${event.remaining ? `اطلاعات را اصلاح کنید و دوباره درخواست بدهید (${fa(event.remaining)} بار دیگر).` : 'دفعات درخواست تمام شده است؛ با پشتیبانی تماس بگیرید.'}`;
-    // the open panel unlocks at once; the phone notification opens where the account goes next
-    this.gateway.sendToUser(event.userId, VERIFICATION_CHANGED_SOCKET_EVENT, { approved: event.approved });
     await Promise.all([
       this.push.sendToUser(event.userId, {
         title: `ترابوت · ${event.approved ? 'حساب شما تأیید شد' : 'درخواست تأیید نشد'}`,

@@ -17,11 +17,12 @@ const INVITES = [
   { kind: 'driver', table: 'DriverInvite', inviter: 'companyUserId', invitee: 'driverUserId' },
   { kind: 'factory', table: 'FactoryInvite', inviter: 'companyUserId', invitee: 'factoryUserId' },
   { kind: 'company', table: 'CompanyInvite', inviter: 'parentUserId', invitee: 'companyUserId' },
+  { kind: 'broker', table: 'BrokerInvite', inviter: 'companyUserId', invitee: 'brokerUserId' },
 ] as const;
 
 /**
  * The invited number came in, by any way (the web panel's SMS code, a messenger bot, WhatsApp), not only by
- * opening its invite link: its driver, factory and company invites count as used («وارد شده» for the inviter), and
+ * opening its invite link: its driver, factory, company and broker invites count as used («وارد شده» for the inviter), and
  * the inviter's open page hears of it at once. A failure is swallowed: signing in never fails over this.
  */
 export async function markInvitesUsed(db: Queryable, mobile: string | null | undefined, publisher?: Publisher): Promise<void> {
@@ -49,6 +50,7 @@ const INVITED_AS = [
   { table: 'DriverInvite', accountType: AccountType.Driver },
   { table: 'FactoryInvite', accountType: AccountType.Factory },
   { table: 'CompanyInvite', accountType: AccountType.Company },
+  { table: 'BrokerInvite', accountType: AccountType.Broker },
 ] as const;
 
 /**
