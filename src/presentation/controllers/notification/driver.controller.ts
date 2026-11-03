@@ -326,7 +326,8 @@ export class DriverController {
     @Query('q') q?: string,
     @Query('tripType', new ParseEnumPipe(CargoTripType, { optional: true })) tripType?: CargoTripType,
     @Query('companyId', new ParseUUIDPipe({ optional: true })) companyUserId?: string,
-    @Query('days', new ParseIntPipe({ optional: true })) days?: number,
+    // 0 (the default): delivered at any time
+    @Query('days', new DefaultValuePipe(0), ParseIntPipe) days = 0,
     @Query('order', new ParseEnumPipe(['newest', 'oldest'], { optional: true })) order?: 'newest' | 'oldest',
   ) {
     const paging = pageOf(page, pageSize);
