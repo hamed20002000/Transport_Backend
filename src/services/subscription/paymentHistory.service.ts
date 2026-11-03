@@ -37,8 +37,9 @@ interface PaymentRow {
   feature: CompanyFeature | null;
   tier: CompanyTier | null;
   features: CompanyFeature[] | null;
-  brokerKind: 'NEW' | 'ADD' | null;
+  brokerKind: 'NEW' | 'ADD' | 'PACKAGE' | null;
   companies: number | null;
+  requests?: number | null;
 }
 
 const LIMIT = 200;
@@ -56,20 +57,20 @@ export class PaymentHistoryService {
     const rows: PaymentRow[] = await this.dataSource.query(
       `SELECT o.id, 'SUBSCRIPTION' AS kind, p.title AS "planTitle", p."durationDays", o.amount::text AS amount, o.currency,
               o.status::text AS status, o."createdAt", COALESCE(o."approvedAt", o."rejectedAt") AS "decidedAt", o."rejectionReason",
-              NULL AS feature, NULL AS tier, NULL::varchar[] AS features, NULL AS "brokerKind", NULL::int AS companies
+              NULL AS feature, NULL AS tier, NULL::varchar[] AS features, NULL AS "brokerKind", NULL::int AS companies, NULL::int AS requests
          FROM "SubscriptionOrder" o
          JOIN "SubscriptionPlan" p ON p.id = o."subscriptionPlanId"
         WHERE (o."createdUserId" = $1 OR o."providerUserId" IN (SELECT link."externalUserId" FROM "BotLink" link WHERE link."userId" = $1))
           AND o.status::text <> ALL($2::text[])
        UNION ALL
        SELECT o.id, 'FEATURE', p.title, o."durationDays", o.amount::text, o.currency, o.status, o."createdAt", o."reviewedAt",
-              o."rejectionReason", o.feature, o.tier, o.features, NULL, NULL
+              o."rejectionReason", o.feature, o.tier, o.features, NULL, NULL, NULL::int
          FROM "CompanyFeatureOrder" o
          LEFT JOIN "CompanyFeaturePlan" p ON p.id = o."planId"
         WHERE o."userId" = $1
        UNION ALL
        SELECT o.id, 'BROKER', NULL, o."durationDays", o.amount::text, o.currency, o.status, o."createdAt", o."reviewedAt",
-              o."rejectionReason", NULL, NULL, NULL, o.kind, cardinality(o."companyUserIds")
+              o."rejectionReason", NULL, NULL, NULL, o.kind, cardinality(o."companyUserIds"), o.requests
          FROM "BrokerAccessOrder" o
         WHERE o."userId" = $1
         ORDER BY "createdAt" DESC
@@ -103,6 +104,9 @@ function titleOf(row: PaymentRow): { title: string; detail: string | null } {
   }
   if (row.kind === 'FEATURE') {
     return { title: `بخش «${(row.feature && COMPANY_FEATURE_TITLES[row.feature]) || row.planTitle || 'امکانات'}»`, detail: row.planTitle };
+  }
+  if (row.kind === 'BROKER' && row.brokerKind === 'PACKAGE') {
+    return { title: `بسته‌ی ${Number(row.requests ?? 0).toLocaleString('fa-IR')} درخواست بار`, detail: null };
   }
   if (row.kind === 'BROKER') {
     const companies = Number(row.companies ?? 0).toLocaleString('fa-IR');

@@ -222,7 +222,7 @@ export class FunctionCallService {
 
     /**
      * Why the assistant is closed to this account, or null. A transport company: until it has the AGENT menu. A broker:
-     * until the parent company approves it, then (while brokers pay for companies) until it has bought some.
+     * until the parent company approves it, then (while the admin limits the companies) until it has picked some.
      */
     private async agentLockedMessage(userId: string, roles: string[]): Promise<string | null> {
         if (isCompanyRole(roles)) {
@@ -234,7 +234,7 @@ export class FunctionCallService {
             return '🔒 دستیار هوشمند بعد از تأیید حساب واسط فعال می‌شود؛ پروفایل را کامل کنید و «درخواست بررسی اعتبار» را بزنید.';
         }
         if (await this.brokerAccess.hasOpenAccess(userId)) return null;
-        return '🔒 دستیار هوشمند بعد از خرید بار شرکت‌ها فعال می‌شود؛ از «🔓 خرید بار شرکت‌ها» در منو (یا پنل وب) شرکت‌ها را بخرید.';
+        return '🔒 دستیار هوشمند بعد از انتخاب شرکت‌ها فعال می‌شود؛ از «🔓 شرکت‌ها و بسته‌ها» در منو (یا پنل وب) شرکت‌هایی را که بارشان را می‌خواهید انتخاب کنید.';
     }
 
     private async activeRoles(userId: string): Promise<string[]> {

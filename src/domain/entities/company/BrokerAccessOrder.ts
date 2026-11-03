@@ -4,10 +4,12 @@ import { User } from '../auth/User';
 import { SubscriptionOrderStatus } from '../../enums/subscription';
 
 /**
- * خرید دسترسی واسط به بار شرکت‌ها با فیش کارت‌به‌کارت؛ ادمین تأیید یا رد می‌کند. NEW یک دوره‌ی تازه با این شرکت‌هاست
- * (بعد از پایان دوره‌ی باز شروع می‌شود)، ADD شرکت‌های تازه برای باقی‌مانده‌ی همان دوره (periodId). مبلغ و مدت از
- * تنظیمات همان لحظه کپی می‌شوند تا تغییر بعدی قیمت روی سفارش ثبت‌شده اثر نکند.
+ * خرید واسط با فیش کارت‌به‌کارت؛ ادمین تأیید یا رد می‌کند. PACKAGE چند بسته‌ی درخواست بار (requests درخواست)؛
+ * NEW و ADD خریدهای قدیمی شرکت‌ها هستند (حالا شرکت‌ها را واسط بی‌پول انتخاب می‌کند). مبلغ و تعداد از تنظیمات همان
+ * لحظه کپی می‌شوند تا تغییر بعدی روی سفارش ثبت‌شده اثر نکند.
  */
+export type BrokerOrderKind = 'NEW' | 'ADD' | 'PACKAGE';
+
 @Entity('BrokerAccessOrder')
 @Index('IDX_BrokerAccessOrder_user', ['userId', 'createdAt'])
 @Index('IDX_BrokerAccessOrder_status', ['status', 'createdAt'])
@@ -23,18 +25,23 @@ export class BrokerAccessOrder {
   user!: User;
 
   @Column({ type: 'varchar', length: 10 })
-  kind!: 'NEW' | 'ADD';
+  kind!: BrokerOrderKind;
 
   /** ADD: دوره‌ای که شرکت‌ها به آن اضافه می‌شوند */
   @Column({ type: 'uuid', nullable: true })
   periodId?: string | null;
 
-  /** شرکت‌های حمل‌ونقل (User.id) که بارشان دیده می‌شود */
+  /** شرکت‌های حمل‌ونقل (User.id) که بارشان دیده می‌شود؛ برای بسته خالی */
   @Column('uuid', { array: true })
   companyUserIds!: string[];
 
-  @Column({ type: 'int' })
-  durationDays!: number;
+  /** older company purchases had days; null now */
+  @Column({ type: 'int', nullable: true })
+  durationDays!: number | null;
+
+  /** PACKAGE: the load requests bought (packages × the package size then) */
+  @Column({ type: 'int', nullable: true })
+  requests!: number | null;
 
   @Column({ type: 'bigint' })
   amount!: string;

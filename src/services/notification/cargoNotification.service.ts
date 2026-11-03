@@ -30,6 +30,8 @@ import { CargoTripTypeService } from './cargoTripType';
 import { CARGO_NOTIFICATION_SOCKET_EVENT, NotificationsGateway } from './notifications.gateway';
 import { TripAction } from '../../domain/constants/bot/TripAction';
 import { RedisService } from '../redis/redis.service';
+import { BrokerAccessService } from '../company/brokerAccess.service';
+import { BROKER_ACCESS_ACTION } from '../company/brokerAccessDialog';
 import { WebPushService } from './webPush.service';
 
 const BOT_PLATFORM_LABEL_EN: Record<BotPlatform, string> = { telegram: 'Telegram', bale: 'Bale', rubika: 'Rubika', eitaa: 'Eitaa' };
@@ -46,6 +48,7 @@ interface SuggestionListOptions extends CargoSearch {
 }
 
 const REQUEST_BUTTON = '🙋 درخواست این بار';
+const BUY_REQUESTS_BUTTON = '🛒 خرید بسته‌ی درخواست';
 const DETAIL_BUTTON = '🗺 مسیر و جزئیات';
 
 // پیشنهاد بار در پیام‌رسان‌ها فقط با یک اعلان کوتاه خبر داده می‌شود و کاربر
@@ -101,6 +104,7 @@ export class CargoNotificationService implements OnModuleDestroy {
     private readonly tripTypes: CargoTripTypeService,
     private readonly images: CargoImageService,
     @Optional() private readonly push?: WebPushService,
+    @Optional() private readonly brokerAccess?: BrokerAccessService,
   ) {}
 
   onModuleDestroy(): void {
@@ -272,10 +276,14 @@ export class CargoNotificationService implements OnModuleDestroy {
       }
       // بار اعلام‌شده برای راننده: دکمه‌ی «درخواست این بار»؛ با «برداشته شد»
       // پیام ویرایش و دکمه برداشته می‌شود. پیشنهاد بار: فقط اعلان کوتاه.
+      // a broker with its packages used up: the way to buy more instead of a request it cannot send
+      const outOfRequests = !!row.listingId && !previous && !!(await this.brokerAccess?.outOfRequests(row.userId));
       const messageId = previous ? previous[columns.messageId]! : row.listingId
         ? await this.bots.sendActionNotification(link.chatId, cargoTextWithCard(row.text), [
             { id: `${TripAction.Detail}${row.listingId}`, label: DETAIL_BUTTON, row: 0 },
-            { id: `${TripAction.Request}${row.listingId}`, label: REQUEST_BUTTON, row: 0 },
+            outOfRequests
+              ? { id: BROKER_ACCESS_ACTION, label: BUY_REQUESTS_BUTTON, row: 0 }
+              : { id: `${TripAction.Request}${row.listingId}`, label: REQUEST_BUTTON, row: 0 },
           ])
         : await this.bots.sendActionNotification(link.chatId, await this.suggestionNoticeText(row.userId), [
             { id: SUGGESTIONS_UNREAD_ACTION, label: SUGGESTIONS_BUTTON, row: 0 },

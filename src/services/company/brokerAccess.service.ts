@@ -1,9 +1,10 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, LessThanOrEqual, MoreThan, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, LessThanOrEqual, MoreThan, Repository } from 'typeorm';
 
-import { BrokerAccessOrder } from 'src/domain/entities/company/BrokerAccessOrder';
+import { BrokerAccessOrder, BrokerOrderKind } from 'src/domain/entities/company/BrokerAccessOrder';
 import { BrokerAccessPeriod } from 'src/domain/entities/company/BrokerAccessPeriod';
+import { BrokerRequestCredit } from 'src/domain/entities/company/BrokerRequestCredit';
 import { AppSetting } from 'src/domain/entities/setting/AppSetting';
 import { RecordStatus } from 'src/domain/enums/RecordStatus';
 import { SubscriptionOrderStatus } from 'src/domain/enums/subscription';
@@ -12,44 +13,37 @@ import { RedisService } from '../redis/redis.service';
 import { BrokerAccessOrderEvent, REDIS_CHANNELS } from '../redis/redis.keys';
 import { CompanyFeatureService } from './companyFeature.service';
 
-const DAY_MS = 86_400_000;
 const SETTING_KEY = 'brokerAccessPolicy';
 // a policy change reaches every instance within this (no restart, no pub/sub needed for a price)
 const LOCAL_TTL_MS = 5_000;
+/** packages bought in one receipt at most */
+export const MAX_PACKAGES = 100;
 
 /**
- * خرید واسط برای دیدن بار شرکت‌ها: تا includedCompanies شرکت basePrice، و هر شرکت بیشتر extraCompanyPrice، برای
- * durationDays روز. enabled خاموش = واسط بار همه‌ی شرکت‌ها را بی‌خرید می‌بیند (مثل قبل).
+ * قواعد واسط که ادمین تعیین می‌کند. maxCompanies: واسط خودش تا این تعداد شرکت انتخاب می‌کند و فقط بار همان‌ها را
+ * می‌بیند؛ null یعنی بار همه‌ی شرکت‌ها. packagesEnabled: درخواست بار بسته‌ای خریده می‌شود، هر بسته packageSize
+ * درخواست به packagePrice؛ خاموش یعنی درخواست رایگان.
  */
 export interface BrokerAccessPolicy {
-  enabled: boolean;
-  includedCompanies: number;
-  basePrice: string;
-  extraCompanyPrice: string;
-  durationDays: number;
+  maxCompanies: number | null;
+  packagesEnabled: boolean;
+  packageSize: number;
+  packagePrice: string;
   currency: string;
 }
 
 const DEFAULT_POLICY: BrokerAccessPolicy = {
-  enabled: false,
-  includedCompanies: 4,
-  basePrice: '0',
-  extraCompanyPrice: '0',
-  durationDays: 30,
+  maxCompanies: null,
+  packagesEnabled: false,
+  packageSize: 50,
+  packagePrice: '0',
   currency: 'IRR',
 };
 
-/** قیمت دوره‌ی تازه با count شرکت. */
-export function newPeriodPrice(policy: BrokerAccessPolicy, count: number): string {
-  const extra = Math.max(0, count - policy.includedCompanies);
-  return (BigInt(policy.basePrice) + BigInt(extra) * BigInt(policy.extraCompanyPrice)).toString();
-}
-
-/** قیمت افزودن adding شرکت به دوره‌ای که existing شرکت دارد: جای خالی سهمیه رایگان، بقیه هر کدام extraCompanyPrice. */
-export function addCompaniesPrice(policy: BrokerAccessPolicy, existing: number, adding: number): string {
-  const paidBefore = Math.max(0, existing - policy.includedCompanies);
-  const paidAfter = Math.max(0, existing + adding - policy.includedCompanies);
-  return (BigInt(paidAfter - paidBefore) * BigInt(policy.extraCompanyPrice)).toString();
+/** «بسته‌ی ۱۰۰ درخواست بار», «خرید بار ۳ شرکت» (older orders): what an order bought, for notices and payments */
+export function brokerOrderTitle(order: { kind: BrokerOrderKind; requests?: number | null; companies: number }): string {
+  if (order.kind === 'PACKAGE') return `بسته‌ی ${Number(order.requests ?? 0).toLocaleString('fa-IR')} درخواست بار`;
+  return `${order.kind === 'ADD' ? 'افزودن' : 'خرید'} بار ${order.companies.toLocaleString('fa-IR')} شرکت`;
 }
 
 const companyView = (company: { userId: string; name: string | null; accountCode: string | null }) => ({
@@ -57,14 +51,13 @@ const companyView = (company: { userId: string; name: string | null; accountCode
   name: company.name || company.accountCode || '—',
 });
 
-export interface BrokerOrderInput {
-  kind: 'NEW' | 'ADD';
-  companyUserIds: string[];
-}
+/** Why a broker sees no loads: the admin limits the companies and it has picked none yet. */
+export type BrokerBlock = 'noCompanies';
 
 /**
- * دسترسی واسط به بار شرکت‌ها؛ یک جواب برای پنل وب، ربات‌ها، واتساپ و دستیار. واسط هر بار شرکت‌هایی را که بارشان را
- * می‌خواهد انتخاب می‌کند و با فیش کارت‌به‌کارت می‌خرد؛ ادمین تأیید می‌کند. وسط دوره شرکت تازه هم اضافه می‌شود.
+ * دسترسی واسط به بار شرکت‌ها؛ یک جواب برای پنل وب، ربات‌ها، واتساپ و دستیار. شرکت‌ها را واسط خودش انتخاب می‌کند
+ * (وقتی ادمین سقف گذاشته، تا همان سقف و فقط بار همان‌ها؛ بی‌سقف بار همه)، و درخواست بار را بسته‌ای با فیش
+ * کارت‌به‌کارت و بررسی ادمین می‌خرد: هر درخواست یکی از مانده‌اش کم می‌کند.
  */
 @Injectable()
 export class BrokerAccessService {
@@ -77,6 +70,7 @@ export class BrokerAccessService {
     @InjectRepository(BrokerAccessPeriod) private readonly periods: Repository<BrokerAccessPeriod>,
     private readonly companies: CompanyFeatureService,
     private readonly redis: RedisService,
+    @InjectRepository(BrokerRequestCredit) private readonly credits: Repository<BrokerRequestCredit>,
   ) {}
 
   //#region ----------- Policy ---------------------------------------------------
@@ -84,13 +78,23 @@ export class BrokerAccessService {
   async getPolicy(): Promise<BrokerAccessPolicy> {
     if (this.cached && this.cached.expiresAt > Date.now()) return this.cached.policy;
     const row = await this.settings.findOne({ where: { key: SETTING_KEY } });
-    const policy = { ...DEFAULT_POLICY, ...(row?.value as Partial<BrokerAccessPolicy> | undefined) };
+    // the older purchase of companies (enabled, prices, days) is no longer kept
+    const stored = (row?.value ?? {}) as Partial<BrokerAccessPolicy>;
+    const policy: BrokerAccessPolicy = {
+      maxCompanies: stored.maxCompanies ?? DEFAULT_POLICY.maxCompanies,
+      packagesEnabled: stored.packagesEnabled ?? DEFAULT_POLICY.packagesEnabled,
+      packageSize: stored.packageSize ?? DEFAULT_POLICY.packageSize,
+      packagePrice: stored.packagePrice ?? DEFAULT_POLICY.packagePrice,
+      currency: stored.currency ?? DEFAULT_POLICY.currency,
+    };
     this.cached = { policy, expiresAt: Date.now() + LOCAL_TTL_MS };
     return policy;
   }
 
   async setPolicy(policy: BrokerAccessPolicy, adminUserId: string): Promise<BrokerAccessPolicy> {
-    await this.settings.save({ key: SETTING_KEY, value: { ...policy }, updatedByUserId: adminUserId });
+    if (policy.packagesEnabled && BigInt(policy.packagePrice) <= 0n) throw new BadRequestException('قیمت بسته را وارد کنید.');
+    const { maxCompanies, packagesEnabled, packageSize, packagePrice, currency } = policy;
+    await this.settings.save({ key: SETTING_KEY, value: { maxCompanies, packagesEnabled, packageSize, packagePrice, currency }, updatedByUserId: adminUserId });
     this.cached = undefined;
     return this.getPolicy();
   }
@@ -100,12 +104,12 @@ export class BrokerAccessService {
   //#region ----------- Access ---------------------------------------------------
 
   /**
-   * شرکت‌هایی (User.id) که بارشان برای این کاربر دیده می‌شود؛ null یعنی محدودیتی نیست (راننده، یا خرید واسط خاموش).
-   * واسط بی‌دوره‌ی باز فهرست خالی می‌گیرد.
+   * شرکت‌هایی (User.id) که بارشان برای این کاربر دیده می‌شود؛ null یعنی همه (راننده، یا واسط وقتی ادمین سقف شرکت
+   * نگذاشته). واسطی که هنوز شرکتی انتخاب نکرده فهرست خالی می‌گیرد.
    */
   async visiblePublishers(userId: string, now = new Date()): Promise<string[] | null> {
-    if (!(await this.getPolicy()).enabled || !(await this.isBroker(userId))) return null;
-    return (await this.currentPeriod(userId, now))?.companyUserIds ?? [];
+    if (!(await this.isBroker(userId)) || (await this.getPolicy()).maxCompanies === null) return null;
+    return (await this.currentSelection(userId, now))?.companyUserIds ?? [];
   }
 
   async canSee(userId: string, publisherUserId: string, now = new Date()): Promise<boolean> {
@@ -113,9 +117,15 @@ export class BrokerAccessService {
     return !visible || visible.includes(publisherUserId);
   }
 
-  /** The broker may work now: the purchase is off, or it has a period open. */
+  /** The broker may work now: no company limit, or companies picked. */
   async hasOpenAccess(userId: string, now = new Date()): Promise<boolean> {
-    return !(await this.getPolicy()).enabled || !!(await this.currentPeriod(userId, now));
+    return !(await this.blocked(userId, now));
+  }
+
+  /** What still keeps a broker from the loads, or null (also for anyone not a broker). */
+  async blocked(userId: string, now = new Date()): Promise<BrokerBlock | null> {
+    const visible = await this.visiblePublishers(userId, now);
+    return visible && !visible.length ? 'noCompanies' : null;
   }
 
   async isBroker(userId: string): Promise<boolean> {
@@ -126,49 +136,61 @@ export class BrokerAccessService {
     return isBrokerOnly(rows.map((row) => row.name));
   }
 
-  /** دوره‌ای که الان باز است (دوره‌ی تمدیدی که هنوز شروع نشده نه). */
-  private currentPeriod(userId: string, now: Date): Promise<BrokerAccessPeriod | null> {
-    return this.periods.findOne({ where: { userId, startAt: LessThanOrEqual(now), expireAt: MoreThan(now) }, order: { startAt: 'DESC' } });
+  /** The companies picked: one row with no end (older purchases had one, still honoured until it). */
+  private currentSelection(userId: string, now: Date, manager?: EntityManager): Promise<BrokerAccessPeriod | null> {
+    return (manager?.getRepository(BrokerAccessPeriod) ?? this.periods).findOne({
+      where: [
+        { userId, startAt: LessThanOrEqual(now), expireAt: IsNull() },
+        { userId, startAt: LessThanOrEqual(now), expireAt: MoreThan(now) },
+      ],
+      order: { startAt: 'DESC' },
+    });
   }
 
-  /** وضعیت برای صفحه‌ی خرید: قیمت‌ها، دوره‌ی باز و تمدیدی، شرکت‌های قابل انتخاب و آخرین خریدها. */
+  /** A broker whose packages are used up while requests are sold: its request buttons are shown off. */
+  async outOfRequests(userId: string): Promise<boolean> {
+    if (!(await this.getPolicy()).packagesEnabled || !(await this.isBroker(userId))) return false;
+    return (await this.remaining(userId)) <= 0;
+  }
+
+  /** The broker's load requests left. */
+  async remaining(userId: string): Promise<number> {
+    return (await this.credits.findOne({ where: { userId } }))?.remaining ?? 0;
+  }
+
+  /** وضعیت برای صفحه‌ی خرید: قواعد، شرکت‌های انتخاب‌شده و قابل انتخاب، درخواست‌های مانده و آخرین خریدها. */
   async status(userId: string, now = new Date()) {
-    const [policy, companies, names, periods, latestOrders] = await Promise.all([
+    const [policy, companies, names, selection, remaining, latestOrders] = await Promise.all([
       this.getPolicy(),
       this.companyList(),
       this.companyNames(),
-      this.periods.find({ where: { userId, expireAt: MoreThan(now) }, order: { startAt: 'ASC' } }),
+      this.currentSelection(userId, now),
+      this.remaining(userId),
       this.orders.find({ where: { userId }, order: { createdAt: 'DESC' }, take: 20 }),
     ]);
-    const view = (period: BrokerAccessPeriod) => ({
-      id: period.id,
-      startAt: period.startAt,
-      expireAt: period.expireAt,
-      companies: period.companyUserIds.map((id) => ({ userId: id, name: names.get(id) ?? '—' })),
-    });
-    const current = periods.find((period) => period.startAt <= now) ?? null;
-    const next = periods.find((period) => period.startAt > now) ?? null;
     return {
       policy,
-      period: current && view(current),
-      next: next && view(next),
+      selected: (selection?.companyUserIds ?? []).map((id) => ({ userId: id, name: names.get(id) ?? '—' })),
+      remaining,
+      blocked: policy.maxCompanies !== null && !selection?.companyUserIds.length ? ('noCompanies' as const) : null,
       companies,
       orders: latestOrders.map((order) => this.orderView(order, names)),
     };
   }
 
-  /** واسط‌های فعال برای صفحه‌ی ادمین، با پایان دوره‌ی باز و شمار شرکت‌هایش. */
+  /** واسط‌های فعال برای صفحه‌ی ادمین، با شمار شرکت‌های انتخاب‌شده و درخواست‌های مانده. */
   async listBrokers(now = new Date()) {
-    const rows: Array<{ userId: string; name: string | null; mobile: string | null; accountCode: string | null; expireAt: Date | null; companies: number | null }> =
+    const rows: Array<{ userId: string; name: string | null; mobile: string | null; accountCode: string | null; companies: number | null; remaining: number | null }> =
       await this.dataSource.query(
         `SELECT u.id AS "userId",
            COALESCE(NULLIF(u."companyName", ''), NULLIF(concat_ws(' ', u."firstName", u."lastName"), ''), u.username) AS name,
-           u.mobile, u."accountCode", p."expireAt", cardinality(p."companyUserIds") AS companies
+           u.mobile, u."accountCode", cardinality(p."companyUserIds") AS companies, c.remaining
          FROM "User" u
          LEFT JOIN LATERAL (
-           SELECT "expireAt", "companyUserIds" FROM "BrokerAccessPeriod"
-           WHERE "userId" = u.id AND "startAt" <= $3 AND "expireAt" > $3 ORDER BY "startAt" DESC LIMIT 1
+           SELECT "companyUserIds" FROM "BrokerAccessPeriod"
+           WHERE "userId" = u.id AND "startAt" <= $3 AND ("expireAt" IS NULL OR "expireAt" > $3) ORDER BY "startAt" DESC LIMIT 1
          ) p ON true
+         LEFT JOIN "BrokerRequestCredit" c ON c."userId" = u.id
          WHERE u."recordStatus" = $1 AND EXISTS (
            SELECT 1 FROM "UserRole" ur JOIN "Role" r ON r.id = ur."roleId"
            WHERE ur."userId" = u.id AND r."recordStatus" = $1 AND r.name = $2
@@ -176,7 +198,7 @@ export class BrokerAccessService {
          ORDER BY name`,
         [RecordStatus.Active, BROKER_ROLE, now],
       );
-    return rows.map((row) => ({ ...row, companies: row.companies ?? 0 }));
+    return rows.map((row) => ({ ...row, companies: row.companies ?? 0, remaining: row.remaining ?? 0 }));
   }
 
   /**
@@ -191,61 +213,116 @@ export class BrokerAccessService {
       .map(companyView);
   }
 
-  /** نام همه‌ی شرکت‌ها، برای دوره‌ها و سفارش‌هایی که شرکتشان دیگر در فهرست انتخاب نیست. */
+  /** نام همه‌ی شرکت‌ها، برای انتخاب‌ها و سفارش‌هایی که شرکتشان دیگر در فهرست انتخاب نیست. */
   private async companyNames(): Promise<Map<string, string>> {
     return new Map((await this.companies.listCompanies()).map((company) => [company.userId, companyView(company).name]));
   }
 
   //#endregion
 
-  //#region ----------- Orders ---------------------------------------------------
-
-  /** مبلغ سفارش؛ ADD فقط شرکت‌هایی را حساب می‌کند که هنوز در دوره‌ی باز نیستند. */
-  async quote(userId: string, input: BrokerOrderInput, now = new Date()) {
-    const policy = await this.getPolicy();
-    if (!policy.enabled) throw new BadRequestException('دیدن بار شرکت‌ها الان خرید لازم ندارد.');
-    const ids = [...new Set(input.companyUserIds)];
-    if (!ids.length) throw new BadRequestException('دست‌کم یک شرکت انتخاب کنید.');
-    const known = new Set((await this.companyList()).map((company) => company.userId));
-    if (ids.some((id) => !known.has(id))) throw new BadRequestException('یکی از شرکت‌های انتخاب‌شده پیدا نشد.');
-    if (input.kind === 'NEW') return { policy, period: null, companyUserIds: ids, amount: newPeriodPrice(policy, ids.length) };
-
-    const period = await this.currentPeriod(userId, now);
-    if (!period) throw new BadRequestException('دوره‌ی بازی ندارید؛ اول شرکت‌ها را بخرید.');
-    const adding = ids.filter((id) => !period.companyUserIds.includes(id));
-    if (!adding.length) throw new BadRequestException('این شرکت‌ها از قبل در دوره‌ی شما هستند.');
-    return { policy, period, companyUserIds: adding, amount: addCompaniesPrice(policy, period.companyUserIds.length, adding.length) };
-  }
+  //#region ----------- Companies --------------------------------------------------
 
   /**
-   * خرید با فیش؛ افزودنی که در سهمیه جا می‌شود (مبلغ صفر) بی‌فیش همان لحظه اضافه می‌شود.
-   * receiptPath فقط برای مبلغ غیرصفر لازم است.
+   * The broker picks the companies whose loads it sees, up to the admin's limit, free; a new pick replaces the old one.
+   * Without a limit it sees every company's loads and picks nothing.
    */
-  async submitOrder(userId: string, input: BrokerOrderInput, receiptPath: string | null, now = new Date()) {
-    const { policy, period, companyUserIds, amount } = await this.quote(userId, input, now);
-    if (period && amount === '0') {
-      await this.periods.update({ id: period.id }, { companyUserIds: [...period.companyUserIds, ...companyUserIds] });
-      return { added: companyUserIds.length, order: null };
+  async selectCompanies(userId: string, companyUserIds: string[], now = new Date()) {
+    if (!(await this.isBroker(userId))) throw new BadRequestException('انتخاب شرکت فقط برای حساب واسط است.');
+    const { maxCompanies } = await this.getPolicy();
+    if (maxCompanies === null) throw new BadRequestException('بار همه‌ی شرکت‌ها را می‌بینید و انتخاب لازم نیست.');
+    const ids = [...new Set(companyUserIds)];
+    if (!ids.length) throw new BadRequestException('دست‌کم یک شرکت انتخاب کنید.');
+    if (ids.length > maxCompanies) throw new BadRequestException(`حداکثر ${maxCompanies.toLocaleString('fa-IR')} شرکت می‌توانید انتخاب کنید.`);
+    const known = new Set((await this.companyList()).map((company) => company.userId));
+    if (ids.some((id) => !known.has(id))) throw new BadRequestException('یکی از شرکت‌های انتخاب‌شده پیدا نشد.');
+    await this.dataSource.transaction(async (manager) => {
+      const periods = manager.getRepository(BrokerAccessPeriod);
+      const current = await this.currentSelection(userId, now, manager);
+      if (current) await periods.update({ id: current.id }, { companyUserIds: ids, expireAt: null });
+      else await periods.save(periods.create({ userId, companyUserIds: ids, startAt: now, expireAt: null, orderId: null, grantedBy: null }));
+    });
+    return this.status(userId, now);
+  }
+
+  /** Companies added to the broker's own (an older purchase approved now): no end, like a pick. */
+  private async addCompanies(manager: EntityManager, userId: string, companyUserIds: string[], now: Date, orderId: string): Promise<void> {
+    const periods = manager.getRepository(BrokerAccessPeriod);
+    const current = await this.currentSelection(userId, now, manager);
+    if (current) {
+      await periods.update({ id: current.id }, { companyUserIds: [...new Set([...current.companyUserIds, ...companyUserIds])], expireAt: null });
+      return;
     }
-    if (!receiptPath) throw new BadRequestException('عکس رسید پرداخت را بفرستید.');
-    const open = await this.orders.findOne({ where: { userId, status: SubscriptionOrderStatus.ReceiptSubmitted } });
-    if (open) throw new ConflictException('رسید قبلی شما در حال بررسی است.');
+    await periods.save(periods.create({ userId, companyUserIds: [...new Set(companyUserIds)], startAt: now, expireAt: null, orderId }));
+  }
+
+  //#endregion
+
+  //#region ----------- Requests ---------------------------------------------------
+
+  /**
+   * One load request off the broker's packages, before the request is saved: false when nothing is counted (not a
+   * broker, or packages off), true when one was taken (refundRequest gives it back if the request is not saved).
+   * Throws ConflictException('noCredit') with none left.
+   */
+  async useRequest(userId: string): Promise<boolean> {
+    if (!(await this.isBroker(userId)) || !(await this.getPolicy()).packagesEnabled) return false;
+    // one statement, so two requests at once cannot both take the last one; Postgres gives [rows, count] for an UPDATE
+    const [updated]: [Array<{ userId: string }>, number] = await this.dataSource.query(
+      `UPDATE "BrokerRequestCredit" SET remaining = remaining - 1, "updatedAt" = now() WHERE "userId" = $1 AND remaining > 0 RETURNING "userId"`,
+      [userId],
+    );
+    if (!updated.length) throw new ConflictException('noCredit');
+    return true;
+  }
+
+  async refundRequest(userId: string): Promise<void> {
+    await this.addCredit(this.dataSource.manager, userId, 1);
+  }
+
+  private async addCredit(manager: EntityManager, userId: string, requests: number): Promise<void> {
+    await manager.query(
+      `INSERT INTO "BrokerRequestCredit" ("userId", remaining) VALUES ($1, $2)
+       ON CONFLICT ("userId") DO UPDATE SET remaining = "BrokerRequestCredit".remaining + EXCLUDED.remaining, "updatedAt" = now()`,
+      [userId, requests],
+    );
+  }
+
+  /** Requests given by the admin without a purchase (a gift, or to make up for something). */
+  async grantRequests(userId: string, requests: number) {
+    if (!(await this.isBroker(userId))) throw new NotFoundException('واسطی با این شناسه پیدا نشد.');
+    await this.addCredit(this.dataSource.manager, userId, requests);
+    return { remaining: await this.remaining(userId) };
+  }
+
+  /** A broker buys some packages with the receipt photo; the admin reviews it. */
+  async submitPackageOrder(userId: string, packages: number, receiptPath: string) {
+    if (!(await this.isBroker(userId))) throw new BadRequestException('بسته‌ی درخواست فقط برای حساب واسط است.');
+    const policy = await this.getPolicy();
+    if (!policy.packagesEnabled) throw new BadRequestException('درخواست بار الان رایگان است و خرید لازم ندارد.');
+    if (!Number.isInteger(packages) || packages < 1 || packages > MAX_PACKAGES) throw new BadRequestException('تعداد بسته معتبر نیست.');
+    const open = await this.orders.findOne({ where: { userId, kind: 'PACKAGE', status: SubscriptionOrderStatus.ReceiptSubmitted } });
+    if (open) throw new ConflictException(`رسید قبلی شما برای ${this.titleOf(open)} در حال بررسی است.`);
     const order = await this.orders.save(
       this.orders.create({
         userId,
-        kind: input.kind,
-        periodId: period?.id ?? null,
-        companyUserIds,
-        durationDays: policy.durationDays,
-        amount,
+        kind: 'PACKAGE',
+        periodId: null,
+        companyUserIds: [],
+        durationDays: null,
+        requests: packages * policy.packageSize,
+        amount: (BigInt(policy.packagePrice) * BigInt(packages)).toString(),
         currency: policy.currency,
         status: SubscriptionOrderStatus.ReceiptSubmitted,
         receiptPath,
       }),
     );
     await this.announce(REDIS_CHANNELS.brokerAccessReceipt, order);
-    return { added: 0, order: this.orderView(order) };
+    return this.orderView(order);
   }
+
+  //#endregion
+
+  //#region ----------- Orders ---------------------------------------------------
 
   async listOrders(statuses: SubscriptionOrderStatus[]) {
     const [orders, names] = await Promise.all([
@@ -265,63 +342,20 @@ export class BrokerAccessService {
     return this.orders.findOne({ where: { id } });
   }
 
-  /**
-   * تأیید فیش: NEW دوره‌ی تازه بعد از پایان آخرین دوره‌ی باز (یا از الان)؛ ADD شرکت‌ها را به همان دوره اضافه می‌کند.
-   */
+  /** تأیید فیش: درخواست‌های بسته به مانده‌ی واسط اضافه می‌شوند (خرید قدیمی شرکت: شرکت‌ها به انتخابش). */
   async approveOrder(orderId: string, adminUserId: string, now = new Date()) {
-    const { order, period } = await this.dataSource.transaction(async (manager) => {
+    const order = await this.dataSource.transaction(async (manager) => {
       const order = await manager.findOne(BrokerAccessOrder, { where: { id: orderId }, lock: { mode: 'pessimistic_write' } });
       if (!order) throw new NotFoundException('سفارش پیدا نشد.');
       if (order.status !== SubscriptionOrderStatus.ReceiptSubmitted) throw new ConflictException('این سفارش قبلاً بررسی شده است.');
-      const periods = manager.getRepository(BrokerAccessPeriod);
-      let period: BrokerAccessPeriod;
-      if (order.kind === 'ADD') {
-        const found = order.periodId ? await periods.findOne({ where: { id: order.periodId }, lock: { mode: 'pessimistic_write' } }) : null;
-        if (!found) throw new NotFoundException('دوره‌ی این افزودن پیدا نشد.');
-        found.companyUserIds = [...new Set([...found.companyUserIds, ...order.companyUserIds])];
-        period = await periods.save(found);
-      } else {
-        const latest = await periods.findOne({ where: { userId: order.userId, expireAt: MoreThan(now) }, order: { expireAt: 'DESC' } });
-        const startAt = latest ? latest.expireAt : now;
-        period = await periods.save(
-          periods.create({
-            userId: order.userId,
-            companyUserIds: order.companyUserIds,
-            startAt,
-            expireAt: new Date(startAt.getTime() + order.durationDays * DAY_MS),
-            orderId: order.id,
-          }),
-        );
-      }
+      if (order.kind === 'PACKAGE') await this.addCredit(manager, order.userId, order.requests ?? 0);
+      else await this.addCompanies(manager, order.userId, order.companyUserIds, now, order.id);
       await manager.update(BrokerAccessOrder, { id: order.id }, { status: SubscriptionOrderStatus.Approved, reviewedBy: adminUserId, reviewedAt: now });
-      return { order, period };
+      return order;
     });
-    await this.announce(REDIS_CHANNELS.brokerAccessDecided, order, { approved: true, expireAt: period.expireAt.toISOString() });
-    return { orderId: order.id, userId: order.userId, startAt: period.startAt, expireAt: period.expireAt };
-  }
-
-  /**
-   * دسترسی بی‌خرید از طرف ادمین (هدیه یا جبران): NEW دوره‌ی days روزه بعد از پایان آخرین دوره‌ی باز (یا از الان)،
-   * ADD شرکت‌ها را به دوره‌ی باز اضافه می‌کند. خاموش بودن خرید جلویش را نمی‌گیرد، تا با روشن شدن آماده باشد.
-   */
-  async grant(userId: string, input: BrokerOrderInput & { days: number }, adminUserId: string, now = new Date()) {
-    if (!(await this.isBroker(userId))) throw new NotFoundException('واسطی با این شناسه پیدا نشد.');
-    const ids = [...new Set(input.companyUserIds)];
-    const known = new Set((await this.companyList()).map((company) => company.userId));
-    if (!ids.length || ids.some((id) => !known.has(id))) throw new BadRequestException('یکی از شرکت‌های انتخاب‌شده پیدا نشد.');
-    if (input.kind === 'ADD') {
-      const period = await this.currentPeriod(userId, now);
-      if (!period) throw new BadRequestException('این واسط دوره‌ی بازی ندارد؛ دوره‌ی تازه بدهید.');
-      period.companyUserIds = [...new Set([...period.companyUserIds, ...ids])];
-      const saved = await this.periods.save(period);
-      return { periodId: saved.id, startAt: saved.startAt, expireAt: saved.expireAt };
-    }
-    const latest = await this.periods.findOne({ where: { userId, expireAt: MoreThan(now) }, order: { expireAt: 'DESC' } });
-    const startAt = latest ? latest.expireAt : now;
-    const saved = await this.periods.save(
-      this.periods.create({ userId, companyUserIds: ids, startAt, expireAt: new Date(startAt.getTime() + input.days * DAY_MS), orderId: null, grantedBy: adminUserId }),
-    );
-    return { periodId: saved.id, startAt: saved.startAt, expireAt: saved.expireAt };
+    const remaining = await this.remaining(order.userId);
+    await this.announce(REDIS_CHANNELS.brokerAccessDecided, order, { approved: true, remaining });
+    return { orderId: order.id, userId: order.userId, remaining };
   }
 
   async rejectOrder(orderId: string, adminUserId: string, reason: string, now = new Date()) {
@@ -335,13 +369,19 @@ export class BrokerAccessService {
     return { orderId };
   }
 
+  private titleOf(order: BrokerAccessOrder): string {
+    return brokerOrderTitle({ kind: order.kind, requests: order.requests, companies: order.companyUserIds.length });
+  }
+
   /** The admins (a new receipt) or the broker (a decision) hear of it through SubscriptionNotifier; failures are only logged. */
   private async announce(channel: string, order: BrokerAccessOrder, extra: Partial<BrokerAccessOrderEvent> = {}): Promise<void> {
     const event: BrokerAccessOrderEvent = {
       orderId: order.id,
       userId: order.userId,
       kind: order.kind,
+      title: this.titleOf(order),
       companies: order.companyUserIds.length,
+      requests: order.requests ?? null,
       amount: order.amount,
       currency: order.currency,
       ...extra,
@@ -353,8 +393,9 @@ export class BrokerAccessService {
     return {
       id: order.id,
       kind: order.kind,
+      title: this.titleOf(order),
       companies: order.companyUserIds.map((id) => ({ userId: id, name: names?.get(id) ?? '—' })),
-      durationDays: order.durationDays,
+      requests: order.requests ?? null,
       amount: order.amount,
       currency: order.currency,
       status: order.status,

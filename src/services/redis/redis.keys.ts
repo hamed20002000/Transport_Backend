@@ -234,12 +234,18 @@ export interface CompanyFeatureOrderEvent {
 export interface BrokerAccessOrderEvent {
   orderId: string;
   userId: string;
-  kind: 'NEW' | 'ADD';
+  kind: 'NEW' | 'ADD' | 'PACKAGE';
+  /** «بسته‌ی ۱۰۰ درخواست بار» (absent in events published before packages) */
+  title?: string;
   companies: number;
+  /** PACKAGE: the load requests bought */
+  requests?: number | null;
   amount: string;
   currency: string;
   /** a decision; absent for a new receipt */
   approved?: boolean;
+  /** approved: the broker's requests left after it */
+  remaining?: number;
   expireAt?: string;
   reason?: string;
 }

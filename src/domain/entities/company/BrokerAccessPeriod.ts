@@ -3,8 +3,8 @@ import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, Primary
 import { User } from '../auth/User';
 
 /**
- * یک دوره‌ی دسترسی واسط: بار این شرکت‌ها را از startAt تا expireAt می‌بیند و درخواست می‌دهد. شرکتی که وسط دوره
- * اضافه می‌شود به همین ردیف می‌آید؛ orderId سفارش NEW است که دوره را ساخت (null: هدیه‌ی ادمین، grantedBy).
+ * شرکت‌هایی که واسط خودش انتخاب کرده و (وقتی ادمین سقف شرکت گذاشته) فقط بار همان‌ها را می‌بیند؛ expireAt null یعنی
+ * بی‌زمان (خریدهای قدیمی مدت داشتند). orderId سفارش قدیمی NEW است که آن را ساخت (null: انتخاب خود واسط یا ادمین).
  */
 @Entity('BrokerAccessPeriod')
 @Index('IDX_BrokerAccessPeriod_user', ['userId', 'expireAt'])
@@ -25,8 +25,8 @@ export class BrokerAccessPeriod {
   @Column({ type: 'timestamp' })
   startAt!: Date;
 
-  @Column({ type: 'timestamp' })
-  expireAt!: Date;
+  @Column({ type: 'timestamp', nullable: true })
+  expireAt!: Date | null;
 
   @Column({ type: 'uuid', nullable: true, unique: true })
   orderId?: string | null;

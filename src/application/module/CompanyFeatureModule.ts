@@ -20,12 +20,13 @@ import { CompanyInviteController, CompanyInviteInfoController } from '../../pres
 import { AppSetting } from '../../domain/entities/setting/AppSetting';
 import { BrokerAccessOrder } from '../../domain/entities/company/BrokerAccessOrder';
 import { BrokerAccessPeriod } from '../../domain/entities/company/BrokerAccessPeriod';
+import { BrokerRequestCredit } from '../../domain/entities/company/BrokerRequestCredit';
 import { BrokerAccessService } from '../../services/company/brokerAccess.service';
 import { BrokerAccessController } from '../../presentation/controllers/company/broker-access.controller';
 
 /** شرکت مادر، منوهای پولی شرکت‌های غیرمادر و خرید واسط برای دیدن بار شرکت‌ها؛ CompanyFeatureGuard را هر ماژولی که import کند می‌تواند بگذارد. */
 @Module({
-  imports: [TypeOrmModule.forFeature([User, CompanyFeaturePlan, CompanyTierPlan, CompanyFeatureOrder, CompanyFeatureGrant, CompanyInvite, AppSetting, BrokerAccessOrder, BrokerAccessPeriod]), RedisModule, HttpModule],
+  imports: [TypeOrmModule.forFeature([User, CompanyFeaturePlan, CompanyTierPlan, CompanyFeatureOrder, CompanyFeatureGrant, CompanyInvite, AppSetting, BrokerAccessOrder, BrokerAccessPeriod, BrokerRequestCredit]), RedisModule, HttpModule],
   controllers: [CompanyFeatureController, CompanyInviteController, CompanyInviteInfoController, AccountVerificationController, CompanyVerificationController, BrokerAccessController],
   providers: [CompanyFeatureService, CompanyFeatureGuard, CompanyInviteService, InviteSmsService, AccountVerificationService, BrokerAccessService],
   exports: [CompanyFeatureService, CompanyFeatureGuard, CompanyInviteService, InviteSmsService, AccountVerificationService, BrokerAccessService],

@@ -23,7 +23,7 @@ import { CargoListingService } from './cargoListing.service';
 import { CargoSearch } from './cargoSearch';
 import { WhatsappDialogBridge } from './whatsappDialogBridge';
 import { DriverProfileService } from '../driver/driverProfile.service';
-import { BrokerAccessService } from '../company/brokerAccess.service';
+import { BrokerAccessService, BrokerBlock } from '../company/brokerAccess.service';
 import { NotificationsGateway } from './notifications.gateway';
 import { WebPushService } from './webPush.service';
 
@@ -86,9 +86,19 @@ export class CargoTripService {
     @Optional() private readonly brokerAccess?: BrokerAccessService,
   ) {}
 
-  /** Companies whose loads this user sees: null for all (a driver, or broker purchase off); a broker gets what it bought. */
+  /** Companies whose loads this user sees: null for all (a driver, or nothing sold to brokers); a broker gets what it bought. */
   visiblePublishers(userId: string): Promise<string[] | null> {
     return this.brokerAccess ? this.brokerAccess.visiblePublishers(userId) : Promise.resolve(null);
+  }
+
+  /** A broker with no load requests left (packages used up); false for drivers. */
+  outOfRequests(userId: string): Promise<boolean> {
+    return this.brokerAccess ? this.brokerAccess.outOfRequests(userId) : Promise.resolve(false);
+  }
+
+  /** Why a broker sees no loads (no companies picked); null when nothing keeps it (and for others). */
+  brokerBlocked(userId: string): Promise<BrokerBlock | null> {
+    return this.brokerAccess ? this.brokerAccess.blocked(userId) : Promise.resolve(null);
   }
 
   //#region ----------- Driver ------------------------------------------------
@@ -143,7 +153,15 @@ export class CargoTripService {
     request ??= this.requests.create({ listingId, driverUserId, companyUserId: listing.publisherUserId });
     request.status = CargoRequestStatus.Pending;
     request.decidedAt = null;
-    const saved = await this.requests.save(request);
+    // a broker's packages count its requests (noCredit); one not saved is given back
+    const charged = this.brokerAccess ? await this.brokerAccess.useRequest(driverUserId) : false;
+    let saved: CargoRequest;
+    try {
+      saved = await this.requests.save(request);
+    } catch (error) {
+      if (charged) await this.brokerAccess!.refundRequest(driverUserId);
+      throw error;
+    }
 
     const full = (await this.requests.findById(saved.id))!;
     const driver = await this.contact(driverUserId);

@@ -1205,7 +1205,7 @@ export class CargoDialog implements BotDialog, OnModuleInit {
   private async openCargoView(ctx: BotContext, page: number): Promise<BotReply> {
     const tripTypes = await this.profiles.tripTypesOf(ctx.userId);
     const publisherUserIds = await this.trips.visiblePublishers(ctx.userId);
-    // a broker that has bought no companies yet: how to see loads
+    // a broker that has picked no companies yet: how to see loads
     if (publisherUserIds?.length === 0) {
       return {
         text: `${this.t('find.title')}\n\n${this.t('find.brokerNoAccess')}`,
@@ -1229,9 +1229,12 @@ export class CargoDialog implements BotDialog, OnModuleInit {
         .join('\n\n➖➖➖\n\n');
       if (pages > 1) body += `\n\n${this.t('find.page', { page: fa(page), pages: fa(pages) })}`;
     }
+    // a broker with its packages used up: told before it opens a load, with the way to buy more
+    const outOfRequests = result.items.length > 0 && (await this.trips.outOfRequests(ctx.userId));
     return {
-      text: `${this.t('find.title')}\n\n${body}`,
+      text: [this.t('find.title'), outOfRequests ? this.t('find.noCredit') : '', body].filter(Boolean).join('\n\n'),
       actions: new Rows()
+        .add(...(outOfRequests ? [{ id: BROKER_ACCESS_ACTION, label: this.t('actions.buyRequests') }] : []))
         .grid(requests)
         .add(...this.pager(Action.OpenCargo, page, pages))
         .add({ id: Action.Filters, label: this.t('actions.filters') }, this.back()).actions,

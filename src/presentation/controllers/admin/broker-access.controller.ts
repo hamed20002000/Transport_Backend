@@ -1,7 +1,7 @@
 import { resolve } from 'path';
 import { Body, Controller, Get, Headers, HttpCode, Logger, NotFoundException, Param, ParseUUIDPipe, Post, Put, Query, Req, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsString, IsUUID, Matches, Max, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
 
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { SubscriptionOrderStatus } from 'src/domain/enums/subscription';
@@ -14,42 +14,33 @@ import { RejectReceiptDto } from './subscription-order.controller';
 type AdminRequest = Parameters<typeof requireAdmin>[0];
 
 export class UpdateBrokerAccessPolicyDto {
-  /** خاموش = واسط بار همه‌ی شرکت‌ها را بی‌خرید می‌بیند. */
-  @IsBoolean()
-  enabled!: boolean;
+  /** واسط تا این تعداد شرکت انتخاب می‌کند؛ null: بار همه‌ی شرکت‌ها */
+  @IsOptional() @IsInt() @Min(1) @Max(1000)
+  maxCompanies: number | null = null;
 
-  /** شرکت‌هایی که basePrice می‌پوشاند. */
-  @IsInt() @Min(1) @Max(1000)
-  includedCompanies!: number;
+  /** خاموش = درخواست بار رایگان */
+  @IsBoolean()
+  packagesEnabled!: boolean;
+
+  /** درخواست‌های هر بسته */
+  @IsInt() @Min(1) @Max(100_000)
+  packageSize!: number;
 
   // A decimal string keeps bigint amounts exact across JSON and JavaScript.
   @IsString() @Matches(/^(0|[1-9][0-9]{0,17})$/)
-  basePrice!: string;
-
-  /** هر شرکت بیشتر از includedCompanies */
-  @IsString() @Matches(/^(0|[1-9][0-9]{0,17})$/)
-  extraCompanyPrice!: string;
-
-  @IsInt() @Min(1) @Max(3650)
-  durationDays!: number;
+  packagePrice!: string;
 
   @IsIn(['IRR', 'GBP', 'EUR', 'SAR', 'CNY'])
   currency: string = 'IRR';
 }
 
-export class GrantBrokerAccessDto {
-  /** NEW: a period of days after any open one; ADD: companies added to the open period */
-  @IsIn(['NEW', 'ADD'])
-  kind!: 'NEW' | 'ADD';
-
-  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(500) @IsUUID('all', { each: true })
-  companyUserIds!: string[];
-
-  @IsInt() @Min(1) @Max(3650)
-  days: number = 30;
+/** Load requests given to a broker without a purchase. */
+export class GrantBrokerRequestsDto {
+  @IsInt() @Min(1) @Max(100_000)
+  requests!: number;
 }
 
-/** قیمت و روشن/خاموش بودن خرید واسط، بررسی فیش‌ها و دسترسی بی‌خرید (هدیه) برای یک واسط. */
+/** قواعد واسط (سقف شرکت، بسته‌ی درخواست)، بررسی فیش‌ها و درخواست بی‌خرید (هدیه) برای یک واسط. */
 @Controller('api/admin/broker-access')
 @UseGuards(JwtAuthGuard)
 export class BrokerAccessAdminController {
@@ -69,7 +60,7 @@ export class BrokerAccessAdminController {
   @Put('policy')
   setPolicy(@Req() request: AdminRequest, @Body() dto: UpdateBrokerAccessPolicyDto) {
     const adminUserId = requireAdmin(request)!;
-    return this.access.setPolicy({ ...dto }, adminUserId);
+    return this.access.setPolicy({ ...dto, maxCompanies: dto.maxCompanies ?? null }, adminUserId);
   }
 
   @Get('brokers')
@@ -78,17 +69,17 @@ export class BrokerAccessAdminController {
     return this.access.listBrokers();
   }
 
-  /** دوره و شرکت‌های یک واسط و شرکت‌های قابل انتخاب، همان که خودش در صفحه‌ی خرید می‌بیند. */
+  /** شرکت‌های انتخاب‌شده و درخواست‌های مانده‌ی یک واسط، همان که خودش در صفحه‌اش می‌بیند. */
   @Get('brokers/:userId')
   brokerStatus(@Req() request: AdminRequest, @Param('userId', ParseUUIDPipe) userId: string) {
     requireAdmin(request);
     return this.access.status(userId);
   }
 
-  @Post('brokers/:userId/grants')
-  grant(@Req() request: AdminRequest, @Param('userId', ParseUUIDPipe) userId: string, @Body() dto: GrantBrokerAccessDto) {
-    const adminUserId = requireAdmin(request)!;
-    return this.access.grant(userId, dto, adminUserId);
+  @Post('brokers/:userId/requests')
+  grantRequests(@Req() request: AdminRequest, @Param('userId', ParseUUIDPipe) userId: string, @Body() dto: GrantBrokerRequestsDto) {
+    requireAdmin(request);
+    return this.access.grantRequests(userId, dto.requests);
   }
 
   /** پیش‌فرض: سفارش‌های منتظر بررسی. */

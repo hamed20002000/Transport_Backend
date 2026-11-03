@@ -30,6 +30,7 @@ import { MapMarker, MapMarkerKind, StaticMapService } from '../routing/staticMap
 import { CargoTripService } from './cargoTrip.service';
 import { TripAction } from 'src/domain/constants/bot/TripAction';
 import { LOAD_REQUESTER_ROLES } from './loadRequesters';
+import { BROKER_ACCESS_ACTION } from '../company/brokerAccessDialog';
 
 const PREFIX = 'tr:';
 const Action = {
@@ -262,15 +263,19 @@ export class TripDialog implements BotDialog, OnModuleInit {
 
   private async request(ctx: BotContext, listingId: string): Promise<BotReply> {
     let notice: string;
+    let noCredit = false;
     try {
       const request = await this.trips.request(ctx.userId, listingId);
       notice = this.t('request.sent', { cargo: this.trips.cargoTitle(request) });
     } catch (error) {
+      // a button of an older message, from before the packages ran out
+      noCredit = error instanceof ConflictException && error.message === 'noCredit';
       notice = this.conflictText(error, 'request');
     }
     return {
       text: notice,
       actions: new Rows()
+        .add(...(noCredit ? [{ id: BROKER_ACCESS_ACTION, label: this.t('actions.buyRequests') }] : []))
         .add(
           { id: `${Action.DriverRequests}1`, label: this.t('actions.myRequests') },
           { id: FIND_CARGO, label: this.t('actions.findCargo') },
@@ -542,7 +547,14 @@ export class TripDialog implements BotDialog, OnModuleInit {
         label: this.t('actions.cargoReturns', { count: fa(insight.returnLoads.fromDestination) }),
       });
     }
-    if (listing.status === CargoListingStatus.Open) secondRow.push({ id: `${Action.Request}${listing.id}`, label: this.t('actions.requestThis') });
+    // a broker with its packages used up gets no request button, but the way to buy more
+    const outOfRequests = listing.status === CargoListingStatus.Open && (await this.trips.outOfRequests(ctx.userId));
+    if (outOfRequests) lines.push(this.t('errors.noCredit'));
+    if (listing.status === CargoListingStatus.Open) {
+      secondRow.push(outOfRequests
+        ? { id: BROKER_ACCESS_ACTION, label: this.t('actions.buyRequests') }
+        : { id: `${Action.Request}${listing.id}`, label: this.t('actions.requestThis') });
+    }
     rows.add(...secondRow);
     if (insight.originPoint && insight.destinationPoint) {
       rows.add({ id: 'map', label: this.t('actions.openMap'), url: this.mapsUrl(insight.originPoint, insight.destinationPoint) });

@@ -8,6 +8,7 @@ import { RecordStatus } from '../../domain/enums/RecordStatus';
 import { MessengerBotService } from '../messengerBot/core/messengerBot.service';
 import { RedisService } from '../redis/redis.service';
 import { VERIFICATION_PROFILE_PATH, VerifiedKind } from '../company/accountVerification.service';
+import { brokerOrderTitle } from '../company/brokerAccess.service';
 import { AccountSignedInEvent, AccountVerificationEvent, BrokerAccessOrderEvent, CompanyFeatureOrderEvent, PaymentReceiptSubmittedEvent, REDIS_CHANNELS, SubscriptionDecidedEvent } from '../redis/redis.keys';
 import { NotificationsGateway } from './notifications.gateway';
 import { WebPushService } from './webPush.service';
@@ -38,6 +39,8 @@ const APPROVED_NEXT: Record<VerifiedKind, string> = {
 const currencyNames: Record<string, string> = { IRR: 'ریال', IRT: 'تومان' };
 const fa = (value: number | string) => Number(value).toLocaleString('fa-IR');
 const faDate = (iso: string) => new Date(iso).toLocaleDateString('fa-IR', { year: 'numeric', month: 'long', day: 'numeric' });
+// an event published before tiers has no title
+const brokerEventTitle = (event: BrokerAccessOrderEvent) => event.title ?? brokerOrderTitle({ kind: event.kind, requests: event.requests, companies: event.companies });
 
 interface OrderSummary {
   phoneNumber: string;
@@ -191,8 +194,8 @@ export class SubscriptionNotifier implements OnModuleInit {
   /** A broker sent a receipt for companies' loads (web, bots or WhatsApp): every admin hears of it. */
   async brokerReceipt(event: BrokerAccessOrderEvent): Promise<void> {
     const price = `${fa(event.amount)} ${currencyNames[event.currency] ?? event.currency}`;
-    const what = `${event.kind === 'ADD' ? 'افزودن' : 'خرید'} بار ${fa(event.companies)} شرکت`;
-    const text = `🧾 رسید واسط: ${what} · ${price}\nبرای بررسی به «خرید واسط» در پنل ادمین بروید.`;
+    const what = brokerEventTitle(event);
+    const text = `🧾 رسید واسط: ${what} · ${price}\nبرای بررسی به «واسط» در پنل ادمین بروید.`;
     this.gateway.sendToRoles(['ADMIN'], BROKER_ACCESS_RECEIPT_SOCKET_EVENT, { orderId: event.orderId });
     for (const adminId of await this.adminIds()) {
       await Promise.all([
@@ -205,15 +208,18 @@ export class SubscriptionNotifier implements OnModuleInit {
 
   /** The admin decided on a broker's receipt: the broker hears of it in the app, its bots and WhatsApp. */
   async brokerDecided(event: BrokerAccessOrderEvent): Promise<void> {
-    const text = event.approved
-      ? `✅ بار ${fa(event.companies)} شرکت برای شما باز شد${event.expireAt ? ` و تا ${faDate(event.expireAt)} می‌بینیدشان` : ''}.`
-      : `رسید خرید بار شرکت‌ها تأیید نشد.\nدلیل: ${event.reason ?? '—'}\nلطفاً دوباره پرداخت کنید یا رسید درست را بفرستید («🔓 خرید بار شرکت‌ها»).`;
+    const what = brokerEventTitle(event);
+    const text = !event.approved
+      ? `رسید ${what} تأیید نشد.\nدلیل: ${event.reason ?? '—'}\nلطفاً دوباره پرداخت کنید یا رسید درست را بفرستید («🔓 شرکت‌ها و بسته‌ها»).`
+      : event.kind === 'PACKAGE'
+        ? `✅ ${fa(event.requests ?? 0)} درخواست بار به اعتبار شما اضافه شد${event.remaining !== undefined ? `؛ الان ${fa(event.remaining)} درخواست دارید` : ''}.`
+        : `✅ بار ${fa(event.companies)} شرکت برای شما باز شد.`;
     this.gateway.sendToUser(event.userId, BROKER_ACCESS_CHANGED_SOCKET_EVENT, { approved: event.approved });
     await Promise.all([
-      this.push.sendToUser(event.userId, { title: `ترابوت · ${event.approved ? 'شرکت‌ها باز شد' : 'رسید تأیید نشد'}`, body: text, url: '/account/broker?tab=access' })
+      this.push.sendToUser(event.userId, { title: `ترابوت · ${!event.approved ? 'رسید تأیید نشد' : event.kind === 'PACKAGE' ? 'بسته‌ی درخواست فعال شد' : 'شرکت‌ها باز شد'}`, body: text, url: '/account/broker?tab=access' })
         .catch((error: Error) => this.logger.warn(`Broker decision push to ${event.userId} failed: ${error.message}`)),
       this.messengers(event.userId, text),
-      this.decisionSms(event.userId, `خرید بار ${fa(event.companies)} شرکت`, !!event.approved),
+      this.decisionSms(event.userId, what, !!event.approved),
     ]);
   }
 
