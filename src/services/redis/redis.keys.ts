@@ -247,7 +247,7 @@ export interface CompanyFeatureOrderEvent {
 export interface BrokerAccessOrderEvent {
   orderId: string;
   userId: string;
-  kind: 'NEW' | 'ADD' | 'PACKAGE';
+  kind: 'NEW' | 'ADD' | 'PACKAGE' | 'SUGGESTION';
   /** «بسته‌ی ۱۰۰ درخواست بار» (absent in events published before packages) */
   title?: string;
   companies: number;
