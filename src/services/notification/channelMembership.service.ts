@@ -6,10 +6,12 @@ import { IBotLinkRepository } from '../../domain/repositories/messengerBot/IBotL
 import { WhatsappService } from '../../application/services/agent/services/whatsapp.service';
 import { MessengerBotService } from '../messengerBot/core/messengerBot.service';
 import { BotPlatform } from '../messengerBot/core/botPlatform';
+import { MESSENGER_ORDER } from './messengerOrder';
 import { CHANNEL_STATUS_SOCKET_EVENT, NotificationsGateway } from './notifications.gateway';
 
 type DeliveryRoute = ChannelPlatform;
-const DELIVERY_ORDER: DeliveryRoute[] = ['telegram', 'whatsapp', 'bale', 'rubika', 'eitaa'];
+// one messenger per notice, the same order as every other notice
+const DELIVERY_ORDER: DeliveryRoute[] = [...MESSENGER_ORDER];
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -96,12 +98,11 @@ export class ChannelMembershipNotifier {
   }
 
   /**
-   * اول همان پیام‌رسانِ گروه/کانال، بعد بقیه به ترتیب -- اگر یکی فیلتر یا قطع
-   * بود (یا کاربر به آن وصل نبود) سراغ بعدی می‌رود. گروه‌های واتساپ/تلگرام/
-   * بله/روبیکا همه همین‌طور؛ اولین ارسال موفق کافی است.
+   * به ترتیب MESSENGER_ORDER، مثل بقیه‌ی اعلان‌ها -- اگر یکی فیلتر یا قطع بود (یا کاربر به آن وصل
+   * نبود) سراغ بعدی می‌رود؛ اولین ارسال موفق کافی است.
    */
   private async deliverOffline(userId: string, event: ChannelMembershipChangedEvent, text: string): Promise<void> {
-    const order = [...new Set<DeliveryRoute>([event.platform, ...DELIVERY_ORDER])];
+    const order = DELIVERY_ORDER;
 
     for (const platform of order) {
       try {

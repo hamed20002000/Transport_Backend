@@ -19,6 +19,7 @@ import { ReceiptAccessService } from 'src/services/subscription/receiptAccess.se
 import { SubscriptionRewardService } from 'src/services/subscription/subscriptionReward.service';
 import { isStoredReceipt } from 'src/services/subscription/receiptStorage';
 import { RedisService } from 'src/services/redis/redis.service';
+import { orderedLinks } from 'src/services/notification/messengerOrder';
 import { REDIS_CHANNELS, SubscriptionDecidedEvent } from 'src/services/redis/redis.keys';
 
 type AdminRequest = Parameters<typeof requireAdmin>[0];
@@ -202,12 +203,13 @@ export class SubscriptionOrderController {
 
   /**
    * Who hears about the decision: a bot order goes back to the bot it came from; an order from the app
-   * (providerUserId = the user) to every bot the user has linked. The app itself shows the result on the
-   * subscription page.
+   * (providerUserId = the user) to the user's one bot (MESSENGER_ORDER; WhatsApp hears it from SubscriptionNotifier).
+   * The app itself shows the result on the subscription page.
    */
   private async notifyTargets(orderId: string, providerUserId: string): Promise<string[]> {
     const order = await this.orders.findOne({ where: { id: orderId } });
     if (order?.provider !== CommunicationProvider.Web) return [providerUserId];
-    return (await this.botLinks.findAllByUserId(providerUserId)).map((link) => link.externalUserId);
+    const [first] = orderedLinks(await this.botLinks.findAllByUserId(providerUserId), (platform) => this.bots.hasPlatform(platform));
+    return first ? [first.externalUserId] : [];
   }
 }

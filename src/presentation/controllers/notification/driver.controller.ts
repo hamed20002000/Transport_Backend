@@ -24,6 +24,7 @@ import {
   UploadedFile,
   UseGuards,
   UseInterceptors,
+  Headers,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 
@@ -54,6 +55,8 @@ import { GeoPoint } from 'src/services/routing/geo';
 import { RoutingService } from 'src/services/routing/routing.service';
 import { routeStationsSpeech } from 'src/services/speech/stationSpeech';
 import { TextToSpeechService } from 'src/services/speech/textToSpeech.service';
+import { webChannel } from 'src/domain/entities/analytics/usageChannel';
+import { UsageService } from 'src/services/analytics/usage.service';
 import { I18nService } from 'nestjs-i18n';
 
 type AuthRequest = { user?: JwtPayload };
@@ -119,6 +122,7 @@ export class DriverController {
     private readonly cargoVoice: CargoVoiceService,
     private readonly borders: BorderStatusService,
     private readonly accounts: AccountVerificationService,
+    private readonly usage: UsageService,
   ) {}
 
   private requester(request: AuthRequest): Promise<string> {
@@ -184,9 +188,12 @@ export class DriverController {
 
   // مسیرها (مسافت، زمان، سوخت، ترافیک)، بار برگشتی و فاصله‌ی راننده تا مبدأ
   @Get('loads/:id/insight')
-  async loadInsight(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string) {
-    const insight = await this.insight.build(id, await this.requester(request));
+  async loadInsight(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string, @Headers('x-app-mode') mode?: string) {
+    const requester = await this.requester(request);
+    const insight = await this.insight.build(id, requester);
     if (!insight) throw new NotFoundException('Cargo listing not found.');
+    // a load's details opened in the app or a browser (the admin's notification engagement)
+    void this.usage.event(requester, 'load_detail', webChannel(mode), id);
     return {
       listing: this.listings.toView(insight.listing),
       originPoint: insight.originPoint,
@@ -296,8 +303,8 @@ export class DriverController {
 
   // خطاهای 409 با کلید: taken، own، already، rejected
   @Post('requests')
-  async createRequest(@Req() request: AuthRequest, @Body() dto: CreateCargoRequestDto) {
-    return this.requestView(await this.trips.request(await this.requester(request), dto.listingId));
+  async createRequest(@Req() request: AuthRequest, @Body() dto: CreateCargoRequestDto, @Headers('x-app-mode') mode?: string) {
+    return this.requestView(await this.trips.request(await this.requester(request), dto.listingId, webChannel(mode)));
   }
 
   // بار سپرده‌شده توسط شرکت: تأیید (سفر شروع می‌شود و بار «برداشته شد») یا رد

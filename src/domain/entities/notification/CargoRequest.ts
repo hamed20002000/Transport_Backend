@@ -69,6 +69,10 @@ export class CargoRequest {
   @Column({ type: 'timestamp', nullable: true })
   deliveryRemindedAt?: Date | null;
 
+  /** where the request was made: the app (pwa), a browser (web), a messenger, or the assistant (agent); null before it was recorded */
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  source?: string | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 

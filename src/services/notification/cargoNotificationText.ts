@@ -67,6 +67,44 @@ export function buildCargoTakenText(originalText: string): string {
   return `❌ این بار برداشته شد\n\n${originalText}`;
 }
 
+/** A load as a line of a summary message. */
+export interface CargoDigestItem {
+  code?: string | null;
+  origin: string;
+  destination: string;
+  cargoType?: string | null;
+  weight?: string | null;
+  vehicleType?: string | null;
+  price?: string | null;
+  taken: boolean;
+}
+
+/** The most loads one summary lists; the rest are counted. */
+export const CARGO_DIGEST_MAX_ITEMS = 10;
+
+/**
+ * Several loads to a driver in one message: a line each («۱) TRB123 · تهران ← مشهد · کاشی · ۲۲ تن · ۴۵٬۰۰۰٬۰۰۰»),
+ * a taken one marked; past CARGO_DIGEST_MAX_ITEMS only counted. hint: how to see one (WhatsApp, which has no buttons).
+ */
+export function buildCargoDigestText(items: CargoDigestItem[], hint?: string): string {
+  const fa = (value: number) => value.toLocaleString('fa-IR');
+  const lines = items.slice(0, CARGO_DIGEST_MAX_ITEMS).map((item, index) => {
+    const details = [item.code, `${item.origin} ← ${item.destination}`, item.cargoType, groupDigits(item.weight), item.vehicleType, groupDigits(item.price)]
+      .filter((part) => part && String(part).trim())
+      .join(' · ');
+    return `${fa(index + 1)}) ${item.taken ? '❌ برداشته شد · ' : ''}${details}`;
+  });
+  const more = items.length - CARGO_DIGEST_MAX_ITEMS;
+  return [
+    `📦 ${fa(items.length)} بار تازه برای شما`,
+    lines.join('\n\n'),
+    more > 0 ? `و ${fa(more)} بار دیگر؛ همه را در «پیدا کردن بار» ببینید.` : '',
+    hint ?? '',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
 export interface CargoListingFields {
   // کد پیگیری؛ شرکت نمی‌تواند عوضش کند و CargoListingService تعیینش می‌کند.
   code?: string | null;

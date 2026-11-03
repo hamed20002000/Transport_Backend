@@ -32,6 +32,9 @@ export interface IBotLinkRepository {
    * @returns 
    */  findAllByUserId(userId: string): Promise<BotLink[]>;
 
+  /** The bot links of many users at once (announcing a load to thousands of drivers). */
+  findAllByUserIds(userIds: string[]): Promise<BotLink[]>;
+
 
      /**
    * کاربر و بات مربوطه رو همزمان به صورت اتمیک دخیره میکنه

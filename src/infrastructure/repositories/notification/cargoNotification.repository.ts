@@ -25,6 +25,8 @@ export type NewCargoNotification = Pick<CargoNotification, 'userId' | 'sourceMes
     Pick<CargoNotification, 'listingId' | 'telegramNextRetryAt' | 'baleNextRetryAt' | 'rubikaNextRetryAt' | 'eitaaNextRetryAt' | 'whatsappNextRetryAt' | 'telegramStatus' | 'baleStatus' | 'rubikaStatus' | 'eitaaStatus' | 'whatsappStatus'>
   >;
 
+const INSERT_BATCH = 1000;
+
 @Injectable()
 export class CargoNotificationRepository {
   constructor(@InjectRepository(CargoNotification) private readonly repository: Repository<CargoNotification>) {}
@@ -34,18 +36,61 @@ export class CargoNotificationRepository {
    * فقط شناسه‌ی ردیف‌هایی که واقعاً ساخته شدند برگردانده می‌شود.
    */
   async insertIgnoringDuplicates(rows: NewCargoNotification[]): Promise<Set<string>> {
-    if (rows.length === 0) return new Set();
+    const inserted = new Set<string>();
+    // a batch at a time: one INSERT takes at most 65535 values, a few thousand drivers' rows
+    for (let start = 0; start < rows.length; start += INSERT_BATCH) {
+      const result = await this.repository
+        .createQueryBuilder()
+        .insert()
+        .into(CargoNotification)
+        .values(rows.slice(start, start + INSERT_BATCH) as QueryDeepPartialEntity<CargoNotification>[])
+        .orIgnore()
+        .returning(['id'])
+        .execute();
+      for (const row of result.raw as { id: string }[]) inserted.add(row.id);
+    }
+    return inserted;
+  }
 
-    const result = await this.repository
-      .createQueryBuilder()
-      .insert()
-      .into(CargoNotification)
-      .values(rows as QueryDeepPartialEntity<CargoNotification>[])
-      .orIgnore()
-      .returning(['id'])
-      .execute();
+  /** Notices with their loads (a summary of a driver's loads). */
+  findManyWithListing(ids: string[]): Promise<CargoNotification[]> {
+    if (!ids.length) return Promise.resolve([]);
+    return this.repository.find({ where: { id: In(ids) }, relations: { listing: true }, order: { createdAt: 'ASC' } });
+  }
 
-    return new Set((result.raw as { id: string }[]).map((row) => row.id));
+  /** The notices one messenger message carries: one load, or several in a summary. */
+  findByMessage(messenger: 'telegram' | 'bale' | 'rubika' | 'eitaa' | 'whatsapp', chatId: string, messageId: string): Promise<CargoNotification[]> {
+    const query = this.repository.createQueryBuilder('n').leftJoinAndSelect('n.listing', 'listing').orderBy('n.createdAt', 'ASC');
+    if (messenger === 'whatsapp') {
+      return query.where(`n."whatsappMessageKey" ->> 'remoteJid' = :chatId AND n."whatsappMessageKey" ->> 'id' = :messageId`, { chatId, messageId }).getMany();
+    }
+    return query.where(`n."${messenger}ChatId" = :chatId AND n."${messenger}MessageId"::text = :messageId`, { chatId, messageId }).getMany();
+  }
+
+  /** One notice with its load, as it is now (the delivery queue works on the latest state). */
+  findWithListing(id: string): Promise<CargoNotification | null> {
+    return this.repository.findOne({ where: { id }, relations: { listing: true } });
+  }
+
+  /**
+   * The delivery queue could not take these notices (RabbitMQ down): the retry worker sends them instead, through the
+   * messengers still pending.
+   */
+  async scheduleRetry(ids: string[], at: Date): Promise<void> {
+    for (let start = 0; start < ids.length; start += INSERT_BATCH) {
+      const chunk = ids.slice(start, start + INSERT_BATCH);
+      const pending = NotificationDeliveryStatus.Pending;
+      await this.repository.query(
+        `UPDATE "CargoNotification" SET
+           "telegramNextRetryAt" = CASE WHEN "telegramStatus" = $2 THEN $1 END,
+           "baleNextRetryAt" = CASE WHEN "baleStatus" = $2 THEN $1 END,
+           "rubikaNextRetryAt" = CASE WHEN "rubikaStatus" = $2 THEN $1 END,
+           "eitaaNextRetryAt" = CASE WHEN "eitaaStatus" = $2 THEN $1 END,
+           "whatsappNextRetryAt" = CASE WHEN "whatsappStatus" = $2 THEN $1 END
+         WHERE id = ANY($3::uuid[])`,
+        [at, pending, chunk],
+      );
+    }
   }
 
   /** اعلان‌های پیشنهادی (به شرکت‌ها) یک پیام بار. */
@@ -65,11 +110,6 @@ export class CargoNotificationRepository {
   /** اعلان‌های راننده‌ها برای یک بار منتشرشده. */
   findByListing(listingId: string): Promise<CargoNotification[]> {
     return this.repository.find({ where: { listingId }, relations: { listing: true } });
-  }
-
-  /** متن ذخیره‌شده‌ی اعلان‌های یک بار (پنل وب و ویرایش پیام‌ها از همین متن است). */
-  async updateTextByListing(listingId: string, text: string): Promise<void> {
-    await this.repository.update({ listingId }, { text });
   }
 
   /** پیشنهاد (نه بار منتشرشده) همین کاربر که کد بارش در payload این است. */
@@ -189,6 +229,29 @@ export class CargoNotificationRepository {
     options: { unreadOnly: boolean; kind?: CargoNotificationKind; take: number },
   ): Promise<CargoNotification[]> {
     return this.findPageForUser(userId, { ...options, skip: 0 }).then(([rows]) => rows);
+  }
+
+  /**
+   * Deletes, a batch at a time, the drivers' notices no longer needed: of a load taken before takenBefore (its
+   * messages are already marked taken), and any created before createdBefore. A company's suggestions stay: they are
+   * its inbox. The rows deleted.
+   */
+  async deleteFinished(takenBefore: Date, createdBefore: Date, batch = 5000): Promise<number> {
+    let deleted = 0;
+    for (;;) {
+      const [rows]: [unknown[], number] = await this.repository.query(
+        `DELETE FROM "CargoNotification" WHERE id IN (
+           SELECT n.id FROM "CargoNotification" n
+             LEFT JOIN "CargoListing" l ON l.id = n."listingId"
+            WHERE n."listingId" IS NOT NULL
+              AND ((l.status = 'TAKEN' AND l."takenAt" < $1) OR n."createdAt" < $2)
+            LIMIT $3)
+         RETURNING id`,
+        [takenBefore, createdBefore, batch],
+      );
+      deleted += rows.length;
+      if (rows.length < batch) return deleted;
+    }
   }
 
   countUnread(userId: string): Promise<number> {

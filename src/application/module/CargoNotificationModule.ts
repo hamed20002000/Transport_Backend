@@ -37,6 +37,8 @@ import {
 import { DriverController } from '../../presentation/controllers/notification/driver.controller';
 import { CargoAlertFilterService } from '../../services/notification/cargoAlertFilter.service';
 import { CargoDeliveryRetryWorker } from '../../services/notification/cargoDeliveryRetryWorker.service';
+import { CargoNotificationCleanupWorker } from '../../services/notification/cargoNotificationCleanupWorker.service';
+import { CargoDeliveryQueue } from '../../services/notification/cargoDeliveryQueue.service';
 import { CargoOfferExpiryWorker } from '../../services/notification/cargoOfferExpiryWorker.service';
 import { CargoDeliveryReminderWorker } from '../../services/notification/cargoDeliveryReminderWorker.service';
 import { CargoEventConsumer } from '../../services/notification/cargoEventConsumer.service';
@@ -89,6 +91,7 @@ import { DriverCargoTools } from '../../services/notification/driverCargoTools';
 import { AppSectionTools } from '../../services/notification/appSectionTools';
 import { CargoContactSync } from '../../services/notification/cargoContactSync.service';
 import { InviteUsageNotifier } from '../../services/notification/inviteUsageNotifier.service';
+import { UsageController } from '../../presentation/controllers/analytics/usage.controller';
 import { DriverProfileTools } from '../../services/driver/driverProfileTools';
 
 /**
@@ -119,7 +122,7 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
     // مسیر، مسافت، سوخت و جایگاه‌های سوخت برای جزئیات بار راننده
     RoutingModule,
   ],
-  controllers: [CargoNotificationController, CargoListingController, CargoAlertFilterController, DriverController, PushController, CompanyFactoryController, FactoryController, FactoryInviteController, CompanyDriverInviteController, DriverInviteInfoController, CargoImageController],
+  controllers: [UsageController, CargoNotificationController, CargoListingController, CargoAlertFilterController, DriverController, PushController, CompanyFactoryController, FactoryController, FactoryInviteController, CompanyDriverInviteController, DriverInviteInfoController, CargoImageController],
   providers: [
     FactoryService,
     FactoryDialog,
@@ -150,6 +153,8 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
     NotificationsGateway,
     CargoEventConsumer,
     CargoDeliveryRetryWorker,
+    CargoNotificationCleanupWorker,
+    CargoDeliveryQueue,
     // بار سپرده‌شده‌ای که راننده تا پایان مهلت تأیید نکرد
     CargoOfferExpiryWorker,
     CargoDeliveryReminderWorker,

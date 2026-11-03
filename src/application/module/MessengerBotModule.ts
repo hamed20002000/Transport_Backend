@@ -46,6 +46,7 @@ import { SubscriptionModule } from './SubscriptionModule';
 import { CompanyFeatureModule } from './CompanyFeatureModule';
 import { ChannelModule } from './ChannelModule';
 import { MarketModule } from './MarketModule';
+import { UsageService } from '../../services/analytics/usage.service';
 import { MarketBotService } from 'src/services/market/marketBot.service';
 
 @Module({
@@ -106,10 +107,13 @@ import { MarketBotService } from 'src/services/market/marketBot.service';
     MessengerLinkCodeService,
     // پیام قیمت ارز و طلا که هر ۳۰ دقیقه ویرایش می‌شود
     MarketBotService,
+    // آمار استفاده (فعالیت روزانه، رویدادها، اعلان‌های رسیده) برای پنل ادمین
+    UsageService,
   ],
 
   exports: [
     BOT_LINK_REPOSITORY,
+    UsageService,
 
     BotIdentityService,
 

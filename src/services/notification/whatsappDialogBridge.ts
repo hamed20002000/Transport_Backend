@@ -1,4 +1,4 @@
-import { forwardRef, Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { forwardRef, Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { I18nService } from 'nestjs-i18n';
 
 import { WhatsappService } from 'src/application/services/agent/services/whatsapp.service';
@@ -16,6 +16,7 @@ import { RedisService } from '../redis/redis.service';
 import { CompanyFeatureService } from '../company/companyFeature.service';
 import { AccountVerificationService } from '../company/accountVerification.service';
 import { COMPANY_FEATURE_BY_MENU_ACTION, COMPANY_FEATURE_TITLES } from 'src/domain/enums/companyFeature';
+import { UsageService } from '../analytics/usage.service';
 import { BROKER_ROLE, LOAD_REQUESTER_ROLES } from './loadRequesters';
 
 // گزینه‌های آخرین پیام تا این مدت با شماره قابل انتخاب‌اند.
@@ -97,6 +98,7 @@ export class WhatsappDialogBridge implements OnModuleInit {
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     private readonly companyFeatures: CompanyFeatureService,
     private readonly verification: AccountVerificationService,
+    @Optional() private readonly usage?: UsageService,
   ) {}
 
   onModuleInit(): void {
@@ -114,6 +116,7 @@ export class WhatsappDialogBridge implements OnModuleInit {
   //#region ----------- Incoming --------------------------------------------------
 
   async handleText(jid: string, userId: string, text: string): Promise<boolean> {
+    void this.usage?.active(userId, 'whatsapp');
     const ctx = this.ctx(userId);
     const value = text.trim();
     const menu = await this.getMenu(userId);
@@ -222,6 +225,7 @@ export class WhatsappDialogBridge implements OnModuleInit {
     userId: string,
     location: { latitude: number; longitude: number; live: boolean },
   ): Promise<boolean> {
+    void this.usage?.active(userId, 'whatsapp');
     const ctx = this.ctx(userId);
     // به‌روزرسانی‌های بعدی Live Location بی‌صدا
     const edited = location.live
@@ -269,6 +273,7 @@ export class WhatsappDialogBridge implements OnModuleInit {
   //#region ----------- Helpers ---------------------------------------------------
 
   async handleDocument(jid: string, userId: string, document: BotDocument): Promise<boolean> {
+    void this.usage?.active(userId, 'whatsapp');
     const ctx = this.ctx(userId);
     for (const dialog of this.registry.all()) {
       const reply = await dialog.handleDocument?.(ctx, document);

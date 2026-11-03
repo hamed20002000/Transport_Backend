@@ -21,6 +21,14 @@ export const KEY_PREFIXES = {
   // یک اعلان گوشی برای هر موج پیشنهاد بار: پنجره‌ی ارسال و «در این پنجره بار تازه آمد»
   cargoSuggestionPushWindow: 'push:cargo-suggestion-window:v1',
   cargoSuggestionPushPending: 'push:cargo-suggestion-pending:v1',
+  // a driver's loads in one messenger message: the window after a load was sent, the loads held for the summary,
+  // and «a summary is on its way» (CargoNotificationService.deliverQueued)
+  cargoDigestWindow: 'messenger:cargo-digest-window:v1',
+  cargoDigestPending: 'messenger:cargo-digest-pending:v1',
+  cargoDigestScheduled: 'messenger:cargo-digest-scheduled:v1',
+  // a user's activity already recorded today on a channel (UsageService): one write a day, not one per message
+  usageActiveDay: 'usage:active-day:v1',
+  usageBotDay: 'usage:bot-day:v1',
   cargoDialog: 'messenger:cargo-flow:v1',
   factoryDialog: 'messenger:factory-flow:v1',
   companyFeatureDialog: 'messenger:company-feature-flow:v1',
@@ -91,6 +99,11 @@ export type RedisKeyParts = {
   cargoSuggestionNoticeActivity: [platform: string, userId: string];
   cargoSuggestionPushWindow: [userId: string];
   cargoSuggestionPushPending: [userId: string];
+  cargoDigestWindow: [messenger: string, userId: string];
+  cargoDigestPending: [messenger: string, userId: string];
+  cargoDigestScheduled: [messenger: string, userId: string];
+  usageActiveDay: [channel: string, userId: string, day: string];
+  usageBotDay: [externalUserId: string, day: string];
   cargoDialog: [platform: string, externalUserId: string];
   factoryDialog: [platform: string, externalUserId: string];
   companyFeatureDialog: [platform: string, externalUserId: string];

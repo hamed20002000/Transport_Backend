@@ -117,7 +117,7 @@ export class DriverCargoTools implements OnModuleInit {
 
         const cargo = cargoLine(listing);
         try {
-          const request = await self.trips.request(ctx.userId, listing.id);
+          const request = await self.trips.request(ctx.userId, listing.id, 'agent');
           // کارت همان بار با درخواست تازه، مثل صفحه بعد از زدن «درخواست بار»
           const card = { ...listing, myRequest: { id: request.id, status: request.status }, kind: 'driver_load' };
           return ctx.done(

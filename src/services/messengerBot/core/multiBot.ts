@@ -22,6 +22,9 @@ type PlatformClient = Pick<
   on(event: string, listener: (...args: any[]) => void): unknown;
 };
 
+// files remembered for sending again by id (a load's picture and voice, while it is being announced)
+const MAX_REUSED_FILES = 500;
+
 /**
  * یک «ربات» با رابط TelegramBot که پشتش ربات‌های تلگرام، بله و روبیکا هستند.
  * شناسه‌های چت/کاربر/فایل/callback پیام‌رسان‌های غیرتلگرام با پیشوند
@@ -34,6 +37,8 @@ export class MultiBot extends EventEmitter {
   private readonly logger = new Logger(MultiBot.name);
   private readonly clients = new Map<BotPlatform, PlatformClient>();
   private commands: TelegramBot.BotCommand[] = [];
+  /** «platform:reuseKey» → the file id the messenger gave the first upload (Telegram and Bale send it again by id) */
+  private readonly uploaded = new Map<string, string>();
 
   /**
    * سرویس هر پیام‌رسان (TelegramBotService، BaleBotService، RubikaBotService)
@@ -106,16 +111,51 @@ export class MultiBot extends EventEmitter {
     await client.sendLocation(nativeId, latitude, longitude);
   }
 
-  /** عکس (مثلاً نقشه‌ی مسیر و جایگاه‌های سوخت) با زیرنویس. */
-  async sendPhoto(chatId: string | number, photo: Buffer, caption?: string) {
-    const { client, nativeId } = this.route(chatId);
-    await client.sendPhoto(nativeId, photo, caption ? { caption: dialablePhones(caption) } : {}, { filename: 'map.jpg', contentType: 'image/jpeg' });
+  /**
+   * عکس (مثلاً نقشه‌ی مسیر و جایگاه‌های سوخت) با زیرنویس. reuseKey: the same picture to many chats (a load to its
+   * drivers) is uploaded once per messenger; Telegram and Bale send the rest by the file id of the first.
+   */
+  async sendPhoto(chatId: string | number, photo: Buffer, caption?: string, reuseKey?: string) {
+    const { platform, client, nativeId } = this.route(chatId);
+    const options = caption ? { caption: dialablePhones(caption) } : {};
+    await this.sendMedia(platform, reuseKey, photo, (file) =>
+      client.sendPhoto(nativeId, file as Buffer, options, { filename: 'map.jpg', contentType: 'image/jpeg' }),
+      (message) => message.photo?.[message.photo.length - 1]?.file_id);
   }
 
-  /** پیام صوتی ogg/opus (تلگرام و بله sendVoice؛ روبیکا فایل Voice). */
-  async sendVoice(chatId: string | number, voice: Buffer, caption?: string) {
-    const { client, nativeId } = this.route(chatId);
-    await client.sendVoice(nativeId, voice, caption ? { caption: dialablePhones(caption) } : {}, { filename: 'voice.ogg', contentType: 'audio/ogg' });
+  /** پیام صوتی ogg/opus (تلگرام و بله sendVoice؛ روبیکا فایل Voice). reuseKey: as for sendPhoto. */
+  async sendVoice(chatId: string | number, voice: Buffer, caption?: string, reuseKey?: string) {
+    const { platform, client, nativeId } = this.route(chatId);
+    const options = caption ? { caption: dialablePhones(caption) } : {};
+    await this.sendMedia(platform, reuseKey, voice, (file) =>
+      client.sendVoice(nativeId, file as Buffer, options, { filename: 'voice.ogg', contentType: 'audio/ogg' }),
+      (message) => message.voice?.file_id);
+  }
+
+  /** By the file id of an earlier upload when there is one (an id the messenger no longer knows: uploaded again). */
+  private async sendMedia(
+    platform: BotPlatform,
+    reuseKey: string | undefined,
+    file: Buffer,
+    send: (file: Buffer | string) => Promise<unknown>,
+    fileIdOf: (message: TelegramBot.Message) => string | undefined,
+  ): Promise<void> {
+    const key = reuseKey && (platform === 'telegram' || platform === 'bale') ? `${platform}:${reuseKey}` : null;
+    const known = key ? this.uploaded.get(key) : undefined;
+    if (known) {
+      try {
+        await send(known);
+        return;
+      } catch {
+        this.uploaded.delete(key!);
+      }
+    }
+    const message = (await send(file)) as TelegramBot.Message | undefined;
+    const fileId = key && message ? fileIdOf(message) : undefined;
+    if (key && fileId) {
+      this.uploaded.set(key, fileId);
+      if (this.uploaded.size > MAX_REUSED_FILES) this.uploaded.delete(this.uploaded.keys().next().value!);
+    }
   }
 
   /** فایل با نام دلخواه (مثل فایل نمونه‌ی اکسل). */

@@ -1,11 +1,11 @@
-import { ConflictException, forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConflictException, forwardRef, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { QueryFailedError } from 'typeorm';
 
 import { CargoDetectedEvent } from '../../domain/constants/cargoEvents';
 import { CargoListing } from '../../domain/entities/notification/CargoListing';
 import { CargoNotification } from '../../domain/entities/notification/CargoNotification';
-import { CargoListingStatus, CargoTripType } from '../../domain/enums/notification';
+import { CargoListingStatus, CargoTripType, NotificationDeliveryStatus } from '../../domain/enums/notification';
 import { CargoSearch, matchesCargoSearch, prepareCargoSearch } from './cargoSearch';
 import { CargoAudienceRepository, type PublisherContact } from '../../infrastructure/repositories/notification/cargoAudience.repository';
 import { CargoListingRepository, type ListingStage } from '../../infrastructure/repositories/notification/cargoListing.repository';
@@ -17,16 +17,18 @@ import { CargoAlertFilterService } from './cargoAlertFilter.service';
 import { CargoNotificationService } from './cargoNotification.service';
 import { SubscriptionPolicyService } from '../subscription/subscriptionPolicy.service';
 import { groupDigits } from '../../domain/helper/digitGroups';
-import { buildCargoListingText, buildCargoTakenText, cargoTextWithCard, CargoListingFields } from './cargoNotificationText';
-import { whatsappCards } from '../messengerBot/core/botCard';
+import { buildCargoListingText, CargoListingFields } from './cargoNotificationText';
 import { CargoTripTypeService, driverKindForLoad, parseTripType } from './cargoTripType';
 import { CompanyAnnounceService } from './companyAnnounce.service';
 import { WebPushService } from './webPush.service';
+import { CargoDeliveryQueue, DeliveryJob } from './cargoDeliveryQueue.service';
+import { MESSENGER_ORDER, Messenger } from './messengerOrder';
 import { NoCargoRecipientsException } from './cargoAnnouncementError';
 import { AgentGateway } from '../../application/services/agent/agent.gateway';
 import { BOT_LINK_REPOSITORY } from '../../domain/repositories/repository.tokens';
 import { IBotLinkRepository } from '../../domain/repositories/messengerBot/IBotLinkRepository';
 import { BOT_PLATFORMS } from '../messengerBot/core/botPlatform';
+import { UsageService } from '../analytics/usage.service';
 import {
   CARGO_LISTING_CHANGED_SOCKET_EVENT,
   CARGO_NOTIFICATION_SOCKET_EVENT,
@@ -75,15 +77,8 @@ export function replaceContactPhones(phones: string[], from: string[], to: strin
   return next.length ? next : phones;
 }
 
-const WHATSAPP_EDIT_WINDOW_MS = 14 * 60 * 1000;
-
-const TAKEN_REACTION = '❌';
-
 const OPEN_SCAN_LIMIT = 1000;
 
-// ارسال به راننده‌ها در پس‌زمینه انجام می‌شود؛ اگر برنامه وسط کار بسته شود،
-// worker تلاش مجدد بعد از این مدت ارسال‌های باقی‌مانده را می‌فرستد.
-const PUBLISH_SAFETY_RETRY_MS = 5 * 60 * 1000;
 
 /**
  * انتشار بار توسط شرکت برای راننده‌ها و اعلام «برداشته شد».
@@ -95,6 +90,31 @@ const PUBLISH_SAFETY_RETRY_MS = 5 * 60 * 1000;
  */
 /** Loads announced to each driver in one auto-announce turn, for a single phone notification at its end. */
 type PushBatch = Map<string, CargoListing[]>;
+
+/** One phone notification for one load, or a summary for several («۱۰ بار تازه»). */
+function loadsPush(listings: CargoListing[]) {
+  const fa = (value: number) => value.toLocaleString('fa-IR');
+  const routes = listings.slice(0, 2).map((listing) => `${listing.origin} ← ${listing.destination}`).join('، ');
+  const more = listings.length > 2 ? ` و ${fa(listings.length - 2)} بار دیگر` : '';
+  const companies = [...new Set(listings.map((listing) => listing.companyName).filter(Boolean))];
+  const company = companies.length === 1 ? ` · ${companies[0]}` : '';
+  return {
+    title: listings.length === 1 ? 'ترابوت · بار تازه' : `ترابوت · ${fa(listings.length)} بار تازه`,
+    body: `📦 ${routes}${more}${company}`,
+    url: '/account/driver/loads',
+  };
+}
+
+/** An edit for each message of a load sent to a driver, in the messenger that has it. */
+function editJobs(rows: CargoNotification[]): DeliveryJob[] {
+  return rows.flatMap((row): DeliveryJob[] => {
+    const sent = MESSENGER_ORDER.filter((messenger) =>
+      messenger === 'whatsapp' ? !!row.whatsappMessageKey?.remoteJid : !!row[`${messenger}ChatId`] && !!row[`${messenger}MessageId`]);
+    return sent.map((messenger) => ({ id: row.id, messenger, kind: 'edit' }));
+  });
+}
+
+const deliveryStatusColumn = (messenger: Messenger) => `${messenger}Status` as 'telegramStatus' | 'baleStatus' | 'rubikaStatus' | 'eitaaStatus' | 'whatsappStatus';
 
 @Injectable()
 export class CargoListingService {
@@ -117,6 +137,8 @@ export class CargoListingService {
     @Inject(BOT_LINK_REPOSITORY) private readonly botLinks: IBotLinkRepository,
     private readonly requests: CargoRequestRepository,
     private readonly push: WebPushService,
+    private readonly deliveryQueue: CargoDeliveryQueue,
+    @Optional() private readonly usage?: UsageService,
   ) {}
 
   /** نمونه‌ی پیشنهادی برای انتشار؛ شرکت می‌تواند قبل از ارسال ویرایشش کند. */
@@ -182,8 +204,7 @@ export class CargoListingService {
   private async propagateText(listings: CargoListing[]): Promise<void> {
     for (const listing of listings) {
       try {
-        await this.notifications.updateTextByListing(listing.id, listing.text);
-        for (const row of await this.notifications.findByListing(listing.id)) await this.editSent(row, cargoTextWithCard(listing.text));
+        await this.queueJobs(editJobs(await this.notifications.findByListing(listing.id)), `listing ${listing.id} (new contact)`);
       } catch (error) {
         this.logger.warn(`Contact update of listing ${listing.id} failed: ${(error as Error).message}`);
       }
@@ -339,71 +360,78 @@ export class CargoListingService {
     return recipients;
   }
 
-  /** pushBatch: the phone notification waits for the end of the auto-announce turn (one per driver). */
+  /**
+   * pushBatch: the phone notification waits for the end of the auto-announce turn (one per driver). The messengers go
+   * through CargoDeliveryQueue: one job per driver, through its first messenger (MESSENGER_ORDER), at each messenger's
+   * pace; the company's request does not wait for them.
+   */
   private async sendToDrivers(listing: CargoListing, recipients: string[], pushBatch?: PushBatch): Promise<number> {
-
-    const safetyRetryAt = new Date(Date.now() + PUBLISH_SAFETY_RETRY_MS);
+    // each driver's messengers; the ones it has not linked are skipped from the start
+    const routes = await this.delivery.routes(recipients);
+    const status = (driverId: string, messenger: Messenger) =>
+      routes.get(driverId)?.includes(messenger) ? NotificationDeliveryStatus.Pending : NotificationDeliveryStatus.Skipped;
     await this.notifications.insertIgnoringDuplicates(
       recipients.map((driverId) => ({
         userId: driverId,
         sourceMessageId: listing.sourceMessageId,
         listingId: listing.id,
-        text: listing.text,
-        payload: this.toView(listing) as unknown as Record<string, unknown>,
-        telegramNextRetryAt: safetyRetryAt,
-        baleNextRetryAt: safetyRetryAt,
-        rubikaNextRetryAt: safetyRetryAt,
-        whatsappNextRetryAt: safetyRetryAt,
+        // no copy of the load per driver: its text and details are read from the load (CargoNotification.listing)
+        text: '',
+        payload: {},
+        telegramStatus: status(driverId, 'telegram'),
+        baleStatus: status(driverId, 'bale'),
+        rubikaStatus: status(driverId, 'rubika'),
+        eitaaStatus: status(driverId, 'eitaa'),
+        whatsappStatus: status(driverId, 'whatsapp'),
       })),
     );
 
-    // اعلام دوباره: راننده‌ای که قبلاً گرفته ردیفش «ارسال‌شده» است و deliver دوباره نمی‌فرستد
-    const rows = (await this.notifications.findByListing(listing.id)).filter((row) => recipients.includes(row.userId));
+    // اعلام دوباره: راننده‌ای که قبلاً گرفته ردیفش «ارسال‌شده» است و دوباره فرستاده نمی‌شود
+    const wanted = new Set(recipients);
+    const rows = (await this.notifications.findByListing(listing.id)).filter((row) => wanted.has(row.userId));
     for (const row of rows) {
       this.gateway.sendToUser(row.userId, CARGO_NOTIFICATION_SOCKET_EVENT, this.delivery.toView(row));
     }
 
     if (pushBatch) {
       for (const row of rows) pushBatch.set(row.userId, [...(pushBatch.get(row.userId) ?? []), listing]);
+    } else {
+      // phone notification of the installed app, even while it is closed
+      void this.push.sendToMany(new Map(rows.map((row) => [row.userId, loadsPush([listing])])))
+        .then((reached) => this.usage?.delivered('push', reached))
+        .catch((error: Error) => this.logger.warn(`Cargo web push of listing ${listing.id} failed: ${error.message}`));
     }
 
-    // تلگرام/واتساپ برای تعداد زیاد راننده زمان می‌برد؛ درخواست شرکت منتظر نمی‌ماند.
-    void this.dispatch(listing, rows, !pushBatch);
+    const jobs = rows.flatMap((row): DeliveryJob[] => {
+      if (MESSENGER_ORDER.some((messenger) => row[deliveryStatusColumn(messenger)] === NotificationDeliveryStatus.Sent)) return [];
+      const messenger = MESSENGER_ORDER.find((item) => row[deliveryStatusColumn(item)] === NotificationDeliveryStatus.Pending);
+      return messenger ? [{ id: row.id, messenger, kind: 'send' }] : [];
+    });
+    void this.queueJobs(jobs, `listing ${listing.id}`);
 
-    this.logger.log(`Listing ${listing.id} (${listing.tripType}) announced to ${rows.length} driver(s)`);
+    this.logger.log(`Listing ${listing.id} (${listing.tripType}) announced to ${rows.length} driver(s); ${jobs.length} messenger notice(s) queued`);
     return rows.length;
   }
 
-  private async dispatch(listing: CargoListing, rows: CargoNotification[], push: boolean): Promise<void> {
-    // phone notification of the installed app, even while it is closed; quick, so before the messengers
-    if (push) await Promise.all(rows.map((row) => this.pushLoads(row.userId, [listing])));
+  /** Into the delivery queue; what RabbitMQ did not take, the retry worker sends instead (sends) or is edited here (edits). */
+  private async queueJobs(jobs: DeliveryJob[], what: string): Promise<void> {
+    if (!jobs.length) return;
     try {
-      for (const row of rows) {
-        await this.delivery.deliver(row);
+      const failed = await this.deliveryQueue.enqueue(jobs);
+      const sends = failed.filter((job) => job.kind === 'send').map((job) => job.id);
+      if (sends.length) await this.notifications.scheduleRetry(sends, new Date());
+      const edits = failed.filter((job) => job.kind === 'edit');
+      for (const job of edits) {
+        await this.delivery.editQueued(job.id, job.messenger).catch((error: Error) => this.logger.warn(`Editing notice ${job.id} failed: ${error.message}`));
       }
     } catch (error) {
-      this.logger.error(`Dispatching listing ${listing.id} failed; the retry worker will resume it`, (error as Error).stack);
+      this.logger.error(`Queueing the notices of ${what} failed`, (error as Error).stack);
     }
   }
 
   private async sendPushBatch(pushBatch: PushBatch): Promise<void> {
-    await Promise.all([...pushBatch].map(([userId, listings]) => this.pushLoads(userId, listings)));
-  }
-
-  /** One phone notification for one load, or a summary for several («۱۰ بار تازه»). */
-  private async pushLoads(userId: string, listings: CargoListing[]): Promise<void> {
-    if (!listings.length) return;
-    const fa = (value: number) => value.toLocaleString('fa-IR');
-    const routes = listings.slice(0, 2).map((listing) => `${listing.origin} ← ${listing.destination}`).join('، ');
-    const more = listings.length > 2 ? ` و ${fa(listings.length - 2)} بار دیگر` : '';
-    const companies = [...new Set(listings.map((listing) => listing.companyName).filter(Boolean))];
-    const company = companies.length === 1 ? ` · ${companies[0]}` : '';
-    const message = {
-      title: listings.length === 1 ? 'ترابوت · بار تازه' : `ترابوت · ${fa(listings.length)} بار تازه`,
-      body: `📦 ${routes}${more}${company}`,
-      url: '/account/driver/loads',
-    };
-    await this.push.sendToUser(userId, message).catch((error: Error) => this.logger.warn(`Cargo web push to ${userId} failed: ${error.message}`));
+    const reached = await this.push.sendToMany(new Map([...pushBatch].map(([userId, listings]) => [userId, loadsPush(listings)])));
+    await this.usage?.delivered('push', reached);
   }
 
   /**
@@ -565,10 +593,9 @@ export class CargoListingService {
         status: listing.status,
         takenAt: listing.takenAt ?? null,
       });
-
-      const text = cargoTextWithCard(taken ? buildCargoTakenText(row.text) : row.text);
-      await this.editSent(row, text, taken ? TAKEN_REACTION : '');
     }
+    // the messages sent: edited through the delivery queue, at each messenger's pace
+    await this.queueJobs(editJobs(rows), `listing ${listing.id} (${taken ? 'taken' : 'open'})`);
 
     this.logger.log(`Listing ${listing.id} is now ${listing.status}; updated ${rows.length} driver notification(s)`);
   }
@@ -577,35 +604,6 @@ export class CargoListingService {
    * The messages already sent to one driver get this text. A WhatsApp message past its edit window cannot change:
    * it gets `reaction` instead when there is one (❌ for a taken load).
    */
-  private async editSent(row: CargoNotification, text: string, reaction?: string): Promise<void> {
-    // پیام‌های ربات‌ها (تلگرام، بله، روبیکا) -- chatId پیشونددار مسیر را تعیین می‌کند.
-    const botMessages: [string, string | null | undefined, number | string | null | undefined][] = [
-      ['Telegram', row.telegramChatId, row.telegramMessageId],
-      ['Bale', row.baleChatId, row.baleMessageId],
-      ['Rubika', row.rubikaChatId, row.rubikaMessageId],
-    ];
-    for (const [channel, chatId, messageId] of botMessages) {
-      if (!chatId || !messageId) continue;
-      await this.tryUpdate(`${channel} edit`, row, () => this.bots.editNotification(chatId, messageId, text));
-    }
-
-    if (row.whatsappMessageKey?.remoteJid) {
-      const key = row.whatsappMessageKey;
-      const canEdit = row.whatsappSentAt && Date.now() - row.whatsappSentAt.getTime() < WHATSAPP_EDIT_WINDOW_MS;
-      if (canEdit) await this.tryUpdate('WhatsApp update', row, () => this.whatsapp.editNotification(key, whatsappCards(text)));
-      else if (reaction !== undefined) await this.tryUpdate('WhatsApp update', row, () => this.whatsapp.reactToNotification(key, reaction));
-    }
-  }
-
-  /** ویرایش پیام قبلی؛ خطا فقط لاگ می‌شود تا بقیه‌ی راننده‌ها به‌روز شوند. */
-  private async tryUpdate(channel: string, row: CargoNotification, update: () => Promise<void>): Promise<void> {
-    try {
-      await update();
-    } catch (error) {
-      this.logger.warn(`${channel} of cargo notification ${row.id} failed: ${(error as Error).message}`);
-    }
-  }
-
   private async getSuggestion(userId: string, notificationId: string): Promise<CargoNotification> {
     const suggestion = await this.notifications.findOneForUser(notificationId, userId);
     if (!suggestion || suggestion.listingId) throw new NotFoundException('Cargo suggestion not found.');

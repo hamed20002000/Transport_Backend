@@ -2,7 +2,7 @@ import { invitedAccountTypes } from 'src/services/company/inviteUsage';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, forwardRef } from '@nestjs/common';
 import { markInvitesUsed } from 'src/services/company/inviteUsage';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import type {
   WASocket,
   WAMessage,
@@ -1497,6 +1497,16 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   // whose "userId" parameter is really the same req.user.userid value that
   // flows through AgentGateway.sendToolResult (see the comment on
   // sendYesNoConfirmation below for the same note).
+  /** Which of these users have linked WhatsApp (announcing a load to thousands of drivers at once). */
+  async linkedUserIds(userIds: string[]): Promise<Set<string>> {
+    const linked = new Set<string>();
+    for (let start = 0; start < userIds.length; start += 1000) {
+      const rows = await this.userMappingRepo.find({ where: { userid: In(userIds.slice(start, start + 1000)) }, select: { userid: true } });
+      for (const row of rows) linked.add(row.userid);
+    }
+    return linked;
+  }
+
   async getJidForUsername(userid: string): Promise<string | null> {
     const row = await this.userMappingRepo.findOne({ where: { userid } });
 

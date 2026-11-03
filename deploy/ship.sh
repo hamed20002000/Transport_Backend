@@ -82,8 +82,21 @@ for pair in "TRANSPORT_SRC=$src/transport_backend" "TARABARI_SRC=$src/tarabari_b
   key=${pair%%=*}
   grep -q "^$key=" .env && sed -i -E "s#^$key=.*#$pair#" .env || echo "$pair" >> .env
 done
+prev_tag=$(sed -n -E 's/^TAG=//p' .env)
 sed -i -E "s/^TAG=.*/TAG=$tag/" .env
 docker compose build --progress plain transport tarabari web
+# what rollback.sh needs to come back here: the version running now, each database's last migration, and a backup
+# taken just before this version touches the databases
+last_migration() {
+  docker compose exec -T postgres sh -c "psql -U \"\$POSTGRES_USER\" -d $1 -tAc 'SELECT name FROM migrations ORDER BY id DESC LIMIT 1'" 2>/dev/null || true
+}
+transport_migration=$(last_migration Transport)
+tarabari_migration=$(last_migration Tarabari)
+docker compose exec -T backup /backup.sh now
+backup=$(docker compose exec -T backup sh -c 'ls -1 /backups | grep "^20" | sort | tail -1')
+printf 'PREV_TAG=%s\nTRANSPORT_MIGRATION=%s\nTARABARI_MIGRATION=%s\nBACKUP=%s\n' \
+  "$prev_tag" "$transport_migration" "$tarabari_migration" "$backup" > "$dir/ship-logs/$tag.prev"
+echo "  before: $prev_tag, backup $backup"
 docker compose up -d
 docker compose exec -T transport npm run typeorm -- migration:run
 docker compose exec -T tarabari npm run typeorm -- migration:run
@@ -100,4 +113,4 @@ if ! ssh_ "grep -q '^SHIP_RESULT ok' '$LOGS/$TAG.log'"; then
   echo "the build or a migration failed on the server: $LOGS/$TAG.log (the running version is unchanged unless 'up' ran)" >&2
   exit 1
 fi
-echo "done: $SERVER runs $TAG (back to an older one: ./ship.sh $SERVER <older TAG>)"
+echo "done: $SERVER runs $TAG (if it misbehaves: ./rollback.sh $SERVER)"

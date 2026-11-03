@@ -175,10 +175,10 @@ export class DriverProfileService {
     return this.get(userId);
   }
 
-  /** پیش‌فرض روشن: راننده‌ای که هنوز پروفایل ندارد هم صدا می‌گیرد. */
+  /** پیش‌فرض خاموش (پیام صوتی در پیام‌رسان خودکار پخش نمی‌شود)؛ راننده از تنظیمات ربات روشنش می‌کند. */
   async wantsCargoVoice(userId: string): Promise<boolean> {
     const driver = await this.profiles.findOne({ where: { userId }, select: { userId: true, cargoVoice: true } });
-    return driver?.cargoVoice ?? true;
+    return driver?.cargoVoice ?? false;
   }
 
   async setCargoVoice(userId: string, enabled: boolean): Promise<void> {
@@ -409,7 +409,7 @@ export class DriverProfileService {
       lastName: user.lastName ?? null,
       nationalCode: user.nationalCode ?? null,
       ...Object.fromEntries(DRIVER_FIELDS.map((f) => [f, driver?.[f] ?? null])),
-      cargoVoice: driver?.cargoVoice ?? true,
+      cargoVoice: driver?.cargoVoice ?? false,
       tripType: driver?.tripType ?? CargoTripType.Domestic,
       tripTypes: driverTripTypes(driver?.tripTypes?.length ? driver.tripTypes : [driver?.tripType]),
       driverKind: driverKindOf(driver?.tripTypes?.length ? driver.tripTypes : [driver?.tripType]),

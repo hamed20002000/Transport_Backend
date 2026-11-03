@@ -24,7 +24,9 @@ import { CargoSearch } from './cargoSearch';
 import { WhatsappDialogBridge } from './whatsappDialogBridge';
 import { DriverProfileService } from '../driver/driverProfile.service';
 import { BrokerAccessService, BrokerBlock } from '../company/brokerAccess.service';
+import { sendThroughOne } from './messengerOrder';
 import { NotificationsGateway } from './notifications.gateway';
+import { UsageChannel } from 'src/domain/entities/analytics/usageChannel';
 import { WebPushService } from './webPush.service';
 
 export const CARGO_REQUEST_CHANGED_SOCKET_EVENT = 'cargo-request-changed';
@@ -135,7 +137,8 @@ export class CargoTripService {
     };
   }
 
-  async request(driverUserId: string, listingId: string): Promise<CargoRequest> {
+  /** source: where the request was made (the app, a browser, a messenger, the assistant), for the admin's figures. */
+  async request(driverUserId: string, listingId: string, source: UsageChannel | null = null): Promise<CargoRequest> {
     const listing = await this.listings.findById(listingId);
     if (!listing) throw new NotFoundException('Cargo listing not found.');
     if (listing.status !== CargoListingStatus.Open) throw new ConflictException('taken');
@@ -153,6 +156,7 @@ export class CargoTripService {
     request ??= this.requests.create({ listingId, driverUserId, companyUserId: listing.publisherUserId });
     request.status = CargoRequestStatus.Pending;
     request.decidedAt = null;
+    request.source = source;
     // a broker's packages count its requests (noCredit); one not saved is given back
     const charged = this.brokerAccess ? await this.brokerAccess.useRequest(driverUserId) : false;
     let saved: CargoRequest;
@@ -783,23 +787,19 @@ export class CargoTripService {
   }
 
   /**
-   * به همه‌ی پیام‌رسان‌هایی که کاربر وصل کرده (و واتساپ)؛ خطای یکی بقیه را متوقف نمی‌کند. push: عنوان اعلان گوشی
+   * از یک پیام‌رسان کاربر (MESSENGER_ORDER: اولین که وصل کرده و پیام را گرفت)، و اعلان گوشی. push: عنوان اعلان گوشی
    * (پیش‌فرض «ترابوت») و صفحه‌ای که باز می‌کند (پیش‌فرض از روی دکمه‌ها: pushUrl).
    */
   private async notify(userId: string, text: string, actions: BotAction[] = [], push: { title?: string; url?: string } = {}): Promise<void> {
-    const bots = async () => {
-      const links = await this.botLinks.findAllByUserId(userId);
-      await Promise.all(links.filter((link) => link.chatId && this.bots.hasPlatform(link.platform)).map(async (link) => {
-        try {
-          await this.bots.sendActionNotification(link.chatId, text, actions);
-        } catch (error) {
-          this.logger.warn(`Trip notification to ${userId} on ${link.platform} failed: ${(error as Error).message}`);
-        }
-      }));
-    };
+    const messenger = async () =>
+      sendThroughOne(
+        await this.botLinks.findAllByUserId(userId),
+        (platform) => this.bots.hasPlatform(platform),
+        { bot: (link) => this.bots.sendActionNotification(link.chatId, text, actions), whatsapp: () => this.whatsapp.notify(userId, text, actions) },
+        (platform, error) => this.logger.warn(`Trip notification to ${userId} on ${platform} failed: ${error.message}`),
+      );
     await Promise.all([
-      bots().catch((error: Error) => this.logger.warn(`Trip bot notification to ${userId} failed: ${error.message}`)),
-      this.whatsapp.notify(userId, text, actions).catch((error: Error) => this.logger.warn(`Trip notification to ${userId} on WhatsApp failed: ${error.message}`)),
+      messenger().catch((error: Error) => this.logger.warn(`Trip notification to ${userId} failed: ${error.message}`)),
       // the same news as a phone notification of the installed app, even while it is closed
       this.push
         ?.sendToUser(userId, { title: push.title ?? 'ترابوت', body: text, url: push.url ?? pushUrl(actions) })
@@ -807,24 +807,21 @@ export class CargoTripService {
     ]);
   }
 
+  /** The text and the pin through the user's one messenger (MESSENGER_ORDER). */
   private async notifyLocation(userId: string, text: string, latitude: number, longitude: number): Promise<boolean> {
-    let sent = false;
-    for (const link of await this.botLinks.findAllByUserId(userId)) {
-      if (!link.chatId || !this.bots.hasPlatform(link.platform)) continue;
-      try {
-        await this.bots.sendNotification(link.chatId, text);
-        await this.bots.sendLocation(link.chatId, latitude, longitude);
-        sent = true;
-      } catch (error) {
-        this.logger.warn(`Location to ${userId} on ${link.platform} failed: ${(error as Error).message}`);
-      }
-    }
-    try {
-      if (await this.whatsapp.sendLocation(userId, text, latitude, longitude)) sent = true;
-    } catch (error) {
-      this.logger.warn(`Location to ${userId} on WhatsApp failed: ${(error as Error).message}`);
-    }
-    return sent;
+    const used = await sendThroughOne(
+      await this.botLinks.findAllByUserId(userId),
+      (platform) => this.bots.hasPlatform(platform),
+      {
+        bot: async (link) => {
+          await this.bots.sendNotification(link.chatId, text);
+          await this.bots.sendLocation(link.chatId, latitude, longitude);
+        },
+        whatsapp: () => this.whatsapp.sendLocation(userId, text, latitude, longitude),
+      },
+      (platform, error) => this.logger.warn(`Location to ${userId} on ${platform} failed: ${error.message}`),
+    );
+    return used !== null;
   }
 
   private t(key: string, args?: Record<string, string | number>): string {

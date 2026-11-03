@@ -97,8 +97,8 @@ export class DriverProfile {
   @Column({ type: 'uuid', array: true, default: () => "'{}'::uuid[]" })
   companyUserIds!: string[];
 
-  // بار اعلام‌شده در پیام‌رسان‌ها با صدا هم خوانده شود (راننده پشت فرمان)
-  @Column({ type: 'boolean', default: true })
+  // بار اعلام‌شده در پیام‌رسان‌ها با صدا هم خوانده شود (راننده پشت فرمان)؛ پیش‌فرض خاموش، چون پیام صوتی خودکار پخش نمی‌شود
+  @Column({ type: 'boolean', default: false })
   cargoVoice!: boolean;
 
   @UpdateDateColumn()

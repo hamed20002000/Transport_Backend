@@ -15,6 +15,7 @@ import { WebPushService } from './webPush.service';
 import { WhatsappDialogBridge } from './whatsappDialogBridge';
 import { DecisionSmsService } from './decisionSms.service';
 import { planExpiringText, type PlanExpiringNotice } from '../company/planExpiring';
+import { sendThroughOne } from './messengerOrder';
 
 export const PAYMENT_RECEIPT_SOCKET_EVENT = 'payment-receipt';
 export const SUBSCRIPTION_CHANGED_SOCKET_EVENT = 'subscription-changed';
@@ -151,11 +152,7 @@ export class SubscriptionNotifier implements OnModuleInit {
         body,
         url: event.accountType === 'DRIVER' ? '/account/driver/subscription' : '/',
       }).catch((error: Error) => this.logger.warn(`Decision push to ${event.userId} failed: ${error.message}`)),
-      // the bots already heard the decision from the admin endpoint; WhatsApp only from here
-      this.whatsapp.notify(event.userId, `${title}\n${body}`)
-        .catch((error: Error) => this.logger.warn(`Decision to ${event.userId} on WhatsApp failed: ${error.message}`)),
-      // …but not the reward: that goes to the bots too
-      gift ? this.botsOnly(event.userId, gift) : Promise.resolve(),
+      this.decisionMessenger(event.userId, `${title}\n${body}`, gift),
       this.decisionSms(event.userId, plan, event.approved),
     ]);
   }
@@ -313,25 +310,32 @@ export class SubscriptionNotifier implements OnModuleInit {
     return this.sms.send(userId, title, approved).catch((error: Error) => this.logger.warn(`Decision SMS to ${userId} failed: ${error.message}`));
   }
 
-  private async botsOnly(userId: string, text: string): Promise<void> {
-    const links = await this.botLinks.findAllByUserId(userId);
-    await Promise.all(links
-      .filter((link) => link.chatId && this.bots.hasPlatform(link.platform))
-      .map((link) => this.bots.sendNotification(link.chatId!, text)
-        .catch((error: Error) => this.logger.warn(`Reward notice to ${userId} on ${link.platform} failed: ${error.message}`))));
+  /**
+   * A subscription decision: the bot the order came from (or the user's first bot) heard it from the admin endpoint,
+   * so a bot user only gets the reward here; a user whose messenger is WhatsApp gets all of it there.
+   */
+  private async decisionMessenger(userId: string, text: string, gift: string): Promise<void> {
+    await sendThroughOne(
+      await this.botLinks.findAllByUserId(userId),
+      (platform) => this.bots.hasPlatform(platform),
+      {
+        bot: async (link) => {
+          if (gift) await this.bots.sendNotification(link.chatId, gift);
+        },
+        whatsapp: () => this.whatsapp.notify(userId, gift ? `${text}\n${gift}` : text),
+      },
+      (messenger, error) => this.logger.warn(`Decision to ${userId} on ${messenger} failed: ${error.message}`),
+    );
   }
 
-  /** A user's linked bots and WhatsApp, like any other notice (messengers behave alike). */
+  /** A notice through the user's one messenger (MESSENGER_ORDER: the first it has linked that takes it). */
   private async messengers(userId: string, text: string): Promise<void> {
-    const links = await this.botLinks.findAllByUserId(userId);
-    await Promise.all([
-      ...links
-        .filter((link) => link.chatId && this.bots.hasPlatform(link.platform))
-        .map((link) => this.bots.sendNotification(link.chatId!, text)
-          .catch((error: Error) => this.logger.warn(`Notice to ${userId} on ${link.platform} failed: ${error.message}`))),
-      this.whatsapp.notify(userId, text)
-        .catch((error: Error) => this.logger.warn(`Notice to ${userId} on WhatsApp failed: ${error.message}`)),
-    ]);
+    await sendThroughOne(
+      await this.botLinks.findAllByUserId(userId),
+      (platform) => this.bots.hasPlatform(platform),
+      { bot: (link) => this.bots.sendNotification(link.chatId, text), whatsapp: () => this.whatsapp.notify(userId, text) },
+      (messenger, error) => this.logger.warn(`Notice to ${userId} on ${messenger} failed: ${error.message}`),
+    );
   }
 
   private async adminIds(): Promise<string[]> {

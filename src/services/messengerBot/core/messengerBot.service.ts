@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
   OnModuleInit,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { MultiBot } from './multiBot';
@@ -36,6 +37,7 @@ import {
   BotAgentContext,
 } from './botAgentBridge';
 
+import { UsageService } from '../../analytics/usage.service';
 import {
   BotCallback,
 } from '../../../domain/constants/bot/BotCallback';
@@ -80,6 +82,7 @@ export class MessengerBotService implements OnModuleInit {
     private readonly subscriptionStatus: SubscriptionStatusService,
     private readonly market: MarketBotService,
     private readonly companyFeatures: CompanyFeatureService,
+    @Optional() private readonly usage?: UsageService,
   ) {}
 
   /*
@@ -152,6 +155,9 @@ export class MessengerBotService implements OnModuleInit {
 
     const chatId =
       message.chat.id.toString();//شناسه چت که در چت خصوصی همون from.idهست ولی در کانال و گروه فرق داره 
+
+    // the user was active in this messenger today (the admin's usage figures)
+    void this.usage?.activeOnBot(externalUserId);
 
     this.keyboard.clearCallbackMessage(chatId);// پاک کردن منوی قبلی از لیست ویرایش ها چون الان داریم متن یا ویس رو پردازش میکنیم
 
@@ -366,6 +372,7 @@ export class MessengerBotService implements OnModuleInit {
     if (!chatId) {
       return;
     }
+    void this.usage?.activeOnBot(externalUserId);
 
     // دکمه‌ی کیبورد پایین روبیکا (polling) هم مثل متن تایپ‌شده پیامی از کاربر زیر
     // منوست؛ ویرایش منو جواب را بالای آن می‌برد.
@@ -858,13 +865,13 @@ export class MessengerBotService implements OnModuleInit {
   }
 
   /** پیام صوتی ogg/opus (مثلاً خواندن بار اعلام‌شده برای راننده). */
-  async sendVoiceNotification(chatId: string, audio: Buffer, caption?: string): Promise<void> {
-    await this.requireBot().sendVoice(chatId, audio, caption);
+  async sendVoiceNotification(chatId: string, audio: Buffer, caption?: string, reuseKey?: string): Promise<void> {
+    await this.requireBot().sendVoice(chatId, audio, caption, reuseKey);
   }
 
   /** عکس (مثل تصویر بار در نمایش تصویری)؛ خطا بالا می‌رود تا فرستنده تصمیم بگیرد. */
-  async sendPhotoNotification(chatId: string, image: Buffer, caption?: string): Promise<void> {
-    await this.multiBot.sendPhoto(chatId, image, caption);
+  async sendPhotoNotification(chatId: string, image: Buffer, caption?: string, reuseKey?: string): Promise<void> {
+    await this.multiBot.sendPhoto(chatId, image, caption, reuseKey);
   }
 
   /** پین نقشه (مثلاً موقعیت راننده برای شرکت). */

@@ -5,7 +5,7 @@ import { RecordStatus } from '../../../domain/enums/RecordStatus';
 import { NotFoundException } from '@nestjs/common';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 
 import { BotLink } from '../../../domain/entities/agent/BotLink';
 import { IBotLinkRepository } from '../../../domain/repositories/messengerBot/IBotLinkRepository';
@@ -85,6 +85,14 @@ export class BotLinkRepository
   //#region -------------------------- به دست آوردن بات های کاربر -------------------------------------
   async findAllByUserId(userId: string): Promise<BotLink[]> {
     return this.repository.find({ where: { userId }, order: { lastInteractionAt: { direction: 'DESC', nulls: 'LAST' } } });
+  }
+
+  async findAllByUserIds(userIds: string[]): Promise<BotLink[]> {
+    const links: BotLink[] = [];
+    for (let start = 0; start < userIds.length; start += 1000) {
+      links.push(...(await this.repository.find({ where: { userId: In(userIds.slice(start, start + 1000)) } })));
+    }
+    return links;
   }
   //#endregion -----------------------------------------------------------------------------------------
 

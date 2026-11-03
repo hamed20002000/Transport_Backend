@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { I18nService } from 'nestjs-i18n';
 
 import { cargoLine, fa } from 'src/application/services/agent/tools/toolKit';
@@ -30,6 +30,8 @@ import { MapMarker, MapMarkerKind, StaticMapService } from '../routing/staticMap
 import { CargoTripService } from './cargoTrip.service';
 import { TripAction } from 'src/domain/constants/bot/TripAction';
 import { LOAD_REQUESTER_ROLES } from './loadRequesters';
+import { messengerOf } from '../analytics/usageChannelOf';
+import { UsageService } from '../analytics/usage.service';
 import { BROKER_ACCESS_ACTION } from '../company/brokerAccessDialog';
 
 const PREFIX = 'tr:';
@@ -134,6 +136,7 @@ export class TripDialog implements BotDialog, OnModuleInit {
     private readonly i18n: I18nService,
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     private readonly speech: TextToSpeechService,
+    @Optional() private readonly usage?: UsageService,
   ) {}
 
   onModuleInit(): void {
@@ -265,7 +268,7 @@ export class TripDialog implements BotDialog, OnModuleInit {
     let notice: string;
     let noCredit = false;
     try {
-      const request = await this.trips.request(ctx.userId, listingId);
+      const request = await this.trips.request(ctx.userId, listingId, messengerOf(ctx));
       notice = this.t('request.sent', { cargo: this.trips.cargoTitle(request) });
     } catch (error) {
       // a button of an older message, from before the packages ran out
@@ -481,6 +484,8 @@ export class TripDialog implements BotDialog, OnModuleInit {
    * مسیر، فاصله‌ی خودش تا مبدأ، بار برگشتی از مقصد و مسیرهای جایگزین.
    */
   private async cargoDetail(ctx: BotContext, listingId: string): Promise<BotReply> {
+    // a load's details opened in this messenger (the admin's notification engagement)
+    void this.usage?.event(ctx.userId, 'load_detail', messengerOf(ctx), listingId);
     await ctx.progress?.(this.t('detail.computing'));
     const insight = await this.insights.build(listingId, ctx.userId);
     if (!insight) return { text: this.t('notFound'), actions: [{ id: FIND_CARGO, label: this.t('actions.findCargo') }, this.back()] };

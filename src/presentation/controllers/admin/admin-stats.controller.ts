@@ -1,4 +1,4 @@
-import { Controller, Get, Req, UseGuards } from '@nestjs/common';
+import { Controller, DefaultValuePipe, Get, ParseIntPipe, Query, Req, UseGuards } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
@@ -59,6 +59,105 @@ export class AdminStatsController {
       this.loads(),
     ]);
     return { users, revenue, otherCurrencies, pendingReceipts: pending, topDrivers, loads, generatedAt: new Date().toISOString() };
+  }
+
+  /**
+   * How drivers use the app and the messengers, over the last `days` days (7 to 365):
+   * - pwa: drivers who ever opened the installed app (PWA), of all drivers;
+   * - push: drivers with phone notifications on (on one device at least);
+   * - weeklyActive: drivers active in the last 7 days, through any channel and through each;
+   * - messengerToApp: of the drivers active in a messenger, how many also opened the app or the site; and the
+   *   links in messenger messages (or phone notifications) that opened it, by where they were;
+   * - requestSource: the load requests made, by where (app, browser, each messenger, the assistant);
+   * - engagement: per channel, the load notices delivered and how many led to the load's details or a request
+   *   there (for push: notifications tapped).
+   * Recorded since the usage tables came (UsageService): earlier days have nothing.
+   */
+  @Get('usage')
+  async usage(@Req() request: AdminRequest, @Query('days', new DefaultValuePipe(30), ParseIntPipe) days: number) {
+    requireAdmin(request);
+    const window = Math.min(Math.max(days, 7), 365);
+    const since = new Date(Date.now() - window * DAY_MS);
+    const n = (value: unknown) => Number(value ?? 0);
+    const MESSENGERS = ['bale', 'eitaa', 'rubika', 'telegram', 'whatsapp'];
+    const drivers = `SELECT u.id FROM "User" u JOIN "UserRole" ur ON ur."userId" = u.id
+                      JOIN "Role" r ON r.id = ur."roleId" AND r."recordStatus" = $1 AND r.name = 'DRIVER' WHERE u."recordStatus" = $1`;
+    const today = `(now() AT TIME ZONE 'Asia/Tehran')::date`;
+
+    const [[base], weekly, crossChannel, linkOpens, requests, delivered, interactions, pushClicks] = await Promise.all([
+      this.dataSource.query(
+        `WITH d AS (${drivers})
+         SELECT (SELECT count(*) FROM d) AS drivers,
+                (SELECT count(DISTINCT a."userId") FROM "UserActivityDay" a JOIN d ON d.id = a."userId" WHERE a.channel = 'pwa') AS pwa,
+                (SELECT count(DISTINCT p."userId") FROM "WebPushSubscription" p JOIN d ON d.id = p."userId") AS push,
+                (SELECT count(DISTINCT a."userId") FROM "UserActivityDay" a JOIN d ON d.id = a."userId" WHERE a.day > ${today} - 7) AS "weeklyActive"`,
+        [RecordStatus.Active],
+      ),
+      this.dataSource.query(
+        `WITH d AS (${drivers})
+         SELECT a.channel, count(DISTINCT a."userId") AS users FROM "UserActivityDay" a JOIN d ON d.id = a."userId"
+          WHERE a.day > ${today} - 7 GROUP BY a.channel`,
+        [RecordStatus.Active],
+      ),
+      this.dataSource.query(
+        `WITH d AS (${drivers}),
+              m AS (SELECT DISTINCT a."userId" FROM "UserActivityDay" a JOIN d ON d.id = a."userId"
+                     WHERE a.day > ${today} - $2::int AND a.channel = ANY($3::text[]))
+         SELECT (SELECT count(*) FROM m) AS messenger,
+                (SELECT count(*) FROM m WHERE EXISTS (SELECT 1 FROM "UserActivityDay" w WHERE w."userId" = m."userId"
+                   AND w.day > ${today} - $2::int AND w.channel IN ('pwa', 'web'))) AS "alsoApp"`,
+        [RecordStatus.Active, window, MESSENGERS],
+      ),
+      this.dataSource.query(
+        `SELECT channel, count(*) AS opens, count(DISTINCT "userId") AS users FROM "UsageEvent"
+          WHERE kind = 'link_open' AND "createdAt" >= $1 GROUP BY channel`,
+        [since],
+      ),
+      this.dataSource.query(
+        `SELECT COALESCE(source, 'unknown') AS source, count(*) AS requests FROM "CargoRequest" WHERE "createdAt" >= $1 GROUP BY 1`,
+        [since],
+      ),
+      this.dataSource.query(
+        `SELECT channel, sum(delivered) AS delivered FROM "NotificationDailyStat" WHERE day > ${today} - $1::int GROUP BY channel`,
+        [window],
+      ),
+      // a driver and a load count once per channel, whether it opened the details, asked for it, or both
+      this.dataSource.query(
+        `SELECT channel, count(*) AS interacted FROM (
+           SELECT channel, "userId", "listingId" FROM "UsageEvent" WHERE kind = 'load_detail' AND "createdAt" >= $1 AND "listingId" IS NOT NULL
+           UNION
+           SELECT source, "driverUserId", "listingId" FROM "CargoRequest" WHERE "createdAt" >= $1 AND source IS NOT NULL
+         ) t GROUP BY channel`,
+        [since],
+      ),
+      this.dataSource.query(`SELECT count(*) AS clicks FROM "UsageEvent" WHERE kind = 'push_click' AND "createdAt" >= $1`, [since]),
+    ]);
+
+    const total = n(base.drivers);
+    const rate = (part: number, whole: number) => (whole ? Math.round((part / whole) * 1000) / 10 : 0);
+    const byChannel = <T extends Record<string, unknown>>(rows: T[], key: keyof T, value: keyof T) =>
+      Object.fromEntries(rows.map((row) => [String(row[key]), n(row[value])]));
+    const sent = byChannel(delivered as Array<{ channel: string; delivered: string }>, 'channel', 'delivered');
+    const acted = byChannel(interactions as Array<{ channel: string; interacted: string }>, 'channel', 'interacted');
+    acted.push = n(pushClicks[0]?.clicks);
+    const [cross] = crossChannel;
+    return {
+      days: window,
+      drivers: total,
+      pwa: { installed: n(base.pwa), rate: rate(n(base.pwa), total) },
+      push: { subscribed: n(base.push), rate: rate(n(base.push), total) },
+      weeklyActive: { drivers: n(base.weeklyActive), rate: rate(n(base.weeklyActive), total), byChannel: byChannel(weekly, 'channel', 'users') },
+      messengerToApp: {
+        messengerDrivers: n(cross.messenger),
+        alsoApp: n(cross.alsoApp),
+        rate: rate(n(cross.alsoApp), n(cross.messenger)),
+        linkOpens: (linkOpens as Array<{ channel: string; opens: string; users: string }>).map((row) => ({ channel: row.channel, opens: n(row.opens), users: n(row.users) })),
+      },
+      requestSource: byChannel(requests, 'source', 'requests'),
+      engagement: [...new Set([...Object.keys(sent), ...Object.keys(acted)])]
+        .filter((channel) => sent[channel] || acted[channel])
+        .map((channel) => ({ channel, delivered: sent[channel] ?? 0, interacted: acted[channel] ?? 0, rate: rate(acted[channel] ?? 0, sent[channel] ?? 0) })),
+    };
   }
 
   /** Drivers and companies, and how many of them are subscribed, in their free month, or must buy. */
