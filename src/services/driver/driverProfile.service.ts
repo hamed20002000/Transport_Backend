@@ -186,6 +186,17 @@ export class DriverProfileService {
   }
 
   /** کارت چند راننده به همان ترتیب userIds؛ کاربری که پیدا نشد حذف می‌شود. */
+  /** Of these mobiles, those already a driver of the company (a broker's driver it need not invite). */
+  async companyDriverMobiles(companyUserId: string, mobiles: string[]): Promise<Set<string>> {
+    if (!mobiles.length) return new Set();
+    const rows: Array<{ mobile: string }> = await this.dataSource.query(
+      `SELECT u.mobile FROM "User" u JOIN "DriverProfile" p ON p."userId" = u.id
+        WHERE u.mobile = ANY($1::text[]) AND $2::uuid = ANY(p."companyUserIds")`,
+      [mobiles, companyUserId],
+    );
+    return new Set(rows.map((row) => row.mobile));
+  }
+
   async cards(userIds: string[]): Promise<DriverCard[]> {
     if (!userIds.length) return [];
     const rows: Array<Record<string, unknown>> = await this.dataSource.query(

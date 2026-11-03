@@ -9,6 +9,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
+import type { BrokerDriver } from '../../helper/brokerDriver';
 import { CargoRequestStatus } from '../../enums/notification';
 import { User } from '../auth/User';
 import { CargoListing } from './CargoListing';
@@ -72,6 +73,13 @@ export class CargoRequest {
   /** where the request was made: the app (pwa), a browser (web), a messenger, or the assistant (agent); null before it was recorded */
   @Column({ type: 'varchar', length: 20, nullable: true })
   source?: string | null;
+
+  /**
+   * A broker's request (driverUserId is the broker's): the driver it asks for, as the broker gave it. No account is
+   * made for the driver; the company sees it and may invite the driver by this mobile.
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  forDriver?: BrokerDriver | null;
 
   @CreateDateColumn()
   createdAt!: Date;

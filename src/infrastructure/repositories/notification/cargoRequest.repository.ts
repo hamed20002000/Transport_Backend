@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, LessThan, MoreThanOrEqual, Not, Repository, type SelectQueryBuilder } from 'typeorm';
+import type { BrokerDriver } from 'src/domain/helper/brokerDriver';
 
 import { CargoRequest } from '../../../domain/entities/notification/CargoRequest';
 import { DriverLocation } from '../../../domain/entities/notification/DriverLocation';
@@ -30,6 +31,19 @@ export class CargoRequestRepository {
 
   save(request: CargoRequest): Promise<CargoRequest> {
     return this.repository.save(request);
+  }
+
+  /** The drivers a broker asked loads for, the latest of each mobile, newest first. */
+  async recentBrokerDrivers(brokerUserId: string, limit: number): Promise<BrokerDriver[]> {
+    const rows: Array<{ forDriver: BrokerDriver }> = await this.repository.query(
+      `SELECT "forDriver" FROM (
+         SELECT DISTINCT ON ("forDriver"->>'mobile') "forDriver", "createdAt" FROM "CargoRequest"
+          WHERE "driverUserId" = $1 AND "forDriver" IS NOT NULL
+          ORDER BY "forDriver"->>'mobile', "createdAt" DESC
+       ) latest ORDER BY "createdAt" DESC LIMIT $2`,
+      [brokerUserId, limit],
+    );
+    return rows.map((row) => row.forDriver);
   }
 
   findById(id: string): Promise<CargoRequest | null> {

@@ -30,7 +30,16 @@ export interface BrokerAccessPolicy {
   packageSize: number;
   packagePrice: string;
   currency: string;
+  /** «معرفی راننده» (DriverSuggestionService): bought in packages of suggestionPackageSize at suggestionPackagePrice */
+  suggestionsEnabled: boolean;
+  suggestionPackageSize: number;
+  suggestionPackagePrice: string;
+  /** how many drivers one suggestion asks */
+  suggestionDrivers: number;
 }
+
+/** What a package buys: load requests, or «معرفی راننده». */
+export type BrokerPack = 'REQUEST' | 'SUGGESTION';
 
 const DEFAULT_POLICY: BrokerAccessPolicy = {
   maxCompanies: null,
@@ -38,10 +47,15 @@ const DEFAULT_POLICY: BrokerAccessPolicy = {
   packageSize: 50,
   packagePrice: '0',
   currency: 'IRR',
+  suggestionsEnabled: false,
+  suggestionPackageSize: 10,
+  suggestionPackagePrice: '0',
+  suggestionDrivers: 5,
 };
 
 /** «بسته‌ی ۱۰۰ درخواست بار», «خرید بار ۳ شرکت» (older orders): what an order bought, for notices and payments */
 export function brokerOrderTitle(order: { kind: BrokerOrderKind; requests?: number | null; companies: number }): string {
+  if (order.kind === 'SUGGESTION') return `بسته‌ی ${Number(order.requests ?? 0).toLocaleString('fa-IR')} معرفی راننده`;
   if (order.kind === 'PACKAGE') return `بسته‌ی ${Number(order.requests ?? 0).toLocaleString('fa-IR')} درخواست بار`;
   return `${order.kind === 'ADD' ? 'افزودن' : 'خرید'} بار ${order.companies.toLocaleString('fa-IR')} شرکت`;
 }
@@ -86,6 +100,10 @@ export class BrokerAccessService {
       packageSize: stored.packageSize ?? DEFAULT_POLICY.packageSize,
       packagePrice: stored.packagePrice ?? DEFAULT_POLICY.packagePrice,
       currency: stored.currency ?? DEFAULT_POLICY.currency,
+      suggestionsEnabled: stored.suggestionsEnabled ?? DEFAULT_POLICY.suggestionsEnabled,
+      suggestionPackageSize: stored.suggestionPackageSize ?? DEFAULT_POLICY.suggestionPackageSize,
+      suggestionPackagePrice: stored.suggestionPackagePrice ?? DEFAULT_POLICY.suggestionPackagePrice,
+      suggestionDrivers: stored.suggestionDrivers ?? DEFAULT_POLICY.suggestionDrivers,
     };
     this.cached = { policy, expiresAt: Date.now() + LOCAL_TTL_MS };
     return policy;
@@ -93,8 +111,13 @@ export class BrokerAccessService {
 
   async setPolicy(policy: BrokerAccessPolicy, adminUserId: string): Promise<BrokerAccessPolicy> {
     if (policy.packagesEnabled && BigInt(policy.packagePrice) <= 0n) throw new BadRequestException('قیمت بسته را وارد کنید.');
-    const { maxCompanies, packagesEnabled, packageSize, packagePrice, currency } = policy;
-    await this.settings.save({ key: SETTING_KEY, value: { maxCompanies, packagesEnabled, packageSize, packagePrice, currency }, updatedByUserId: adminUserId });
+    if (policy.suggestionsEnabled && BigInt(policy.suggestionPackagePrice) <= 0n) throw new BadRequestException('قیمت بسته‌ی معرفی راننده را وارد کنید.');
+    const { maxCompanies, packagesEnabled, packageSize, packagePrice, currency, suggestionsEnabled, suggestionPackageSize, suggestionPackagePrice, suggestionDrivers } = policy;
+    await this.settings.save({
+      key: SETTING_KEY,
+      value: { maxCompanies, packagesEnabled, packageSize, packagePrice, currency, suggestionsEnabled, suggestionPackageSize, suggestionPackagePrice, suggestionDrivers },
+      updatedByUserId: adminUserId,
+    });
     this.cached = undefined;
     return this.getPolicy();
   }
@@ -158,20 +181,45 @@ export class BrokerAccessService {
     return (await this.credits.findOne({ where: { userId } }))?.remaining ?? 0;
   }
 
+  /** The broker's «معرفی راننده» left. */
+  async suggestionsLeft(userId: string): Promise<number> {
+    return (await this.credits.findOne({ where: { userId } }))?.suggestions ?? 0;
+  }
+
+  /**
+   * One «معرفی راننده» off the broker's credit, in one guarded statement (two at once cannot both take the last).
+   * Throws ConflictException('noSuggestions') with none left, BadRequest while the admin has it off.
+   */
+  async useSuggestion(userId: string): Promise<void> {
+    if (!(await this.getPolicy()).suggestionsEnabled) throw new BadRequestException('معرفی راننده الان فعال نیست.');
+    const [updated]: [Array<{ userId: string }>, number] = await this.dataSource.query(
+      `UPDATE "BrokerRequestCredit" SET suggestions = suggestions - 1, "updatedAt" = now() WHERE "userId" = $1 AND suggestions > 0 RETURNING "userId"`,
+      [userId],
+    );
+    if (!updated.length) throw new ConflictException('noSuggestions');
+  }
+
+  /** A suggestion that found no driver to ask is given back. */
+  async refundSuggestion(userId: string): Promise<void> {
+    await this.addCredit(this.dataSource.manager, userId, 1, 'SUGGESTION');
+  }
+
   /** وضعیت برای صفحه‌ی خرید: قواعد، شرکت‌های انتخاب‌شده و قابل انتخاب، درخواست‌های مانده و آخرین خریدها. */
   async status(userId: string, now = new Date()) {
-    const [policy, companies, names, selection, remaining, latestOrders] = await Promise.all([
+    const [policy, companies, names, selection, remaining, suggestions, latestOrders] = await Promise.all([
       this.getPolicy(),
       this.companyList(),
       this.companyNames(),
       this.currentSelection(userId, now),
       this.remaining(userId),
+      this.suggestionsLeft(userId),
       this.orders.find({ where: { userId }, order: { createdAt: 'DESC' }, take: 20 }),
     ]);
     return {
       policy,
       selected: (selection?.companyUserIds ?? []).map((id) => ({ userId: id, name: names.get(id) ?? '—' })),
       remaining,
+      suggestions,
       blocked: policy.maxCompanies !== null && !selection?.companyUserIds.length ? ('noCompanies' as const) : null,
       companies,
       orders: latestOrders.map((order) => this.orderView(order, names)),
@@ -180,11 +228,11 @@ export class BrokerAccessService {
 
   /** واسط‌های فعال برای صفحه‌ی ادمین، با شمار شرکت‌های انتخاب‌شده و درخواست‌های مانده. */
   async listBrokers(now = new Date()) {
-    const rows: Array<{ userId: string; name: string | null; mobile: string | null; accountCode: string | null; companies: number | null; remaining: number | null }> =
+    const rows: Array<{ userId: string; name: string | null; mobile: string | null; accountCode: string | null; companies: number | null; remaining: number | null; suggestions: number | null }> =
       await this.dataSource.query(
         `SELECT u.id AS "userId",
            COALESCE(NULLIF(u."companyName", ''), NULLIF(concat_ws(' ', u."firstName", u."lastName"), ''), u.username) AS name,
-           u.mobile, u."accountCode", cardinality(p."companyUserIds") AS companies, c.remaining
+           u.mobile, u."accountCode", cardinality(p."companyUserIds") AS companies, c.remaining, c.suggestions
          FROM "User" u
          LEFT JOIN LATERAL (
            SELECT "companyUserIds" FROM "BrokerAccessPeriod"
@@ -198,7 +246,7 @@ export class BrokerAccessService {
          ORDER BY name`,
         [RecordStatus.Active, BROKER_ROLE, now],
       );
-    return rows.map((row) => ({ ...row, companies: row.companies ?? 0, remaining: row.remaining ?? 0 }));
+    return rows.map((row) => ({ ...row, companies: row.companies ?? 0, remaining: row.remaining ?? 0, suggestions: row.suggestions ?? 0 }));
   }
 
   /**
@@ -306,38 +354,44 @@ export class BrokerAccessService {
     await this.addCredit(this.dataSource.manager, userId, 1);
   }
 
-  private async addCredit(manager: EntityManager, userId: string, requests: number): Promise<void> {
+  private async addCredit(manager: EntityManager, userId: string, count: number, pack: BrokerPack = 'REQUEST'): Promise<void> {
+    const column = pack === 'SUGGESTION' ? 'suggestions' : 'remaining';
     await manager.query(
-      `INSERT INTO "BrokerRequestCredit" ("userId", remaining) VALUES ($1, $2)
-       ON CONFLICT ("userId") DO UPDATE SET remaining = "BrokerRequestCredit".remaining + EXCLUDED.remaining, "updatedAt" = now()`,
-      [userId, requests],
+      `INSERT INTO "BrokerRequestCredit" ("userId", ${column}) VALUES ($1, $2)
+       ON CONFLICT ("userId") DO UPDATE SET ${column} = "BrokerRequestCredit".${column} + EXCLUDED.${column}, "updatedAt" = now()`,
+      [userId, count],
     );
   }
 
-  /** Requests given by the admin without a purchase (a gift, or to make up for something). */
-  async grantRequests(userId: string, requests: number) {
+  /** Requests (or suggestions) given by the admin without a purchase (a gift, or to make up for something). */
+  async grantRequests(userId: string, requests: number, pack: BrokerPack = 'REQUEST') {
     if (!(await this.isBroker(userId))) throw new NotFoundException('واسطی با این شناسه پیدا نشد.');
-    await this.addCredit(this.dataSource.manager, userId, requests);
-    return { remaining: await this.remaining(userId) };
+    await this.addCredit(this.dataSource.manager, userId, requests, pack);
+    return { remaining: await this.remaining(userId), suggestions: await this.suggestionsLeft(userId) };
   }
 
-  /** A broker buys some packages with the receipt photo; the admin reviews it. */
-  async submitPackageOrder(userId: string, packages: number, receiptPath: string) {
+  /** A broker buys some packages (of load requests, or of «معرفی راننده») with the receipt photo; the admin reviews it. */
+  async submitPackageOrder(userId: string, packages: number, receiptPath: string, pack: BrokerPack = 'REQUEST') {
     if (!(await this.isBroker(userId))) throw new BadRequestException('بسته‌ی درخواست فقط برای حساب واسط است.');
     const policy = await this.getPolicy();
-    if (!policy.packagesEnabled) throw new BadRequestException('درخواست بار الان رایگان است و خرید لازم ندارد.');
+    const suggestion = pack === 'SUGGESTION';
+    if (suggestion && !policy.suggestionsEnabled) throw new BadRequestException('معرفی راننده الان فعال نیست.');
+    if (!suggestion && !policy.packagesEnabled) throw new BadRequestException('درخواست بار الان رایگان است و خرید لازم ندارد.');
     if (!Number.isInteger(packages) || packages < 1 || packages > MAX_PACKAGES) throw new BadRequestException('تعداد بسته معتبر نیست.');
-    const open = await this.orders.findOne({ where: { userId, kind: 'PACKAGE', status: SubscriptionOrderStatus.ReceiptSubmitted } });
+    const kind = suggestion ? 'SUGGESTION' : 'PACKAGE';
+    const size = suggestion ? policy.suggestionPackageSize : policy.packageSize;
+    const price = suggestion ? policy.suggestionPackagePrice : policy.packagePrice;
+    const open = await this.orders.findOne({ where: { userId, kind, status: SubscriptionOrderStatus.ReceiptSubmitted } });
     if (open) throw new ConflictException(`رسید قبلی شما برای ${this.titleOf(open)} در حال بررسی است.`);
     const order = await this.orders.save(
       this.orders.create({
         userId,
-        kind: 'PACKAGE',
+        kind,
         periodId: null,
         companyUserIds: [],
         durationDays: null,
-        requests: packages * policy.packageSize,
-        amount: (BigInt(policy.packagePrice) * BigInt(packages)).toString(),
+        requests: packages * size,
+        amount: (BigInt(price) * BigInt(packages)).toString(),
         currency: policy.currency,
         status: SubscriptionOrderStatus.ReceiptSubmitted,
         receiptPath,
@@ -376,11 +430,12 @@ export class BrokerAccessService {
       if (!order) throw new NotFoundException('سفارش پیدا نشد.');
       if (order.status !== SubscriptionOrderStatus.ReceiptSubmitted) throw new ConflictException('این سفارش قبلاً بررسی شده است.');
       if (order.kind === 'PACKAGE') await this.addCredit(manager, order.userId, order.requests ?? 0);
+      else if (order.kind === 'SUGGESTION') await this.addCredit(manager, order.userId, order.requests ?? 0, 'SUGGESTION');
       else await this.addCompanies(manager, order.userId, order.companyUserIds, now, order.id);
       await manager.update(BrokerAccessOrder, { id: order.id }, { status: SubscriptionOrderStatus.Approved, reviewedBy: adminUserId, reviewedAt: now });
       return order;
     });
-    const remaining = await this.remaining(order.userId);
+    const remaining = order.kind === 'SUGGESTION' ? await this.suggestionsLeft(order.userId) : await this.remaining(order.userId);
     await this.announce(REDIS_CHANNELS.brokerAccessDecided, order, { approved: true, remaining });
     return { orderId: order.id, userId: order.userId, remaining };
   }

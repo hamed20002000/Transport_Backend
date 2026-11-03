@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsLatitude, IsLongitude, IsNotEmpty, IsString, IsUUID, MaxLength } from 'class-validator';
+import { IsBoolean, IsLatitude, IsLongitude, IsNotEmpty, IsObject, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
 // شرکت بار را به این راننده می‌سپارد («برداشته شد»)
 export class OfferCargoDto {
@@ -14,6 +14,17 @@ export class RespondOfferDto {
 }
 
 export class CreateCargoRequestDto {
+  @IsUUID()
+  listingId!: string;
+
+  // a broker's request: the driver it is for (checked by readBrokerDriver in CargoTripService.request)
+  @IsOptional()
+  @IsObject()
+  forDriver?: Record<string, unknown>;
+}
+
+// واسط: «معرفی راننده» برای این بار
+export class SuggestDriversDto {
   @IsUUID()
   listingId!: string;
 }

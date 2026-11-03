@@ -18,6 +18,10 @@ export class BrokerRequestCredit {
   @Column({ type: 'int', default: 0 })
   remaining!: number;
 
+  /** «معرفی راننده» left: each suggestion that reached a driver takes one */
+  @Column({ type: 'int', default: 0 })
+  suggestions!: number;
+
   @UpdateDateColumn()
   updatedAt!: Date;
 }

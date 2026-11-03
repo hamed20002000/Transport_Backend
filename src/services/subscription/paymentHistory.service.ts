@@ -37,7 +37,7 @@ interface PaymentRow {
   feature: CompanyFeature | null;
   tier: CompanyTier | null;
   features: CompanyFeature[] | null;
-  brokerKind: 'NEW' | 'ADD' | 'PACKAGE' | null;
+  brokerKind: 'NEW' | 'ADD' | 'PACKAGE' | 'SUGGESTION' | null;
   companies: number | null;
   requests?: number | null;
 }
@@ -104,6 +104,9 @@ function titleOf(row: PaymentRow): { title: string; detail: string | null } {
   }
   if (row.kind === 'FEATURE') {
     return { title: `بخش «${(row.feature && COMPANY_FEATURE_TITLES[row.feature]) || row.planTitle || 'امکانات'}»`, detail: row.planTitle };
+  }
+  if (row.kind === 'BROKER' && row.brokerKind === 'SUGGESTION') {
+    return { title: `بسته‌ی ${Number(row.requests ?? 0).toLocaleString('fa-IR')} معرفی راننده`, detail: null };
   }
   if (row.kind === 'BROKER' && row.brokerKind === 'PACKAGE') {
     return { title: `بسته‌ی ${Number(row.requests ?? 0).toLocaleString('fa-IR')} درخواست بار`, detail: null };

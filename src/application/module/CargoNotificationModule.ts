@@ -59,6 +59,9 @@ import { FactoryService } from '../../services/company/factory.service';
 import { FactoryDialog } from '../../services/company/factoryDialog';
 import { DriverInvite } from '../../domain/entities/company/DriverInvite';
 import { BrokerInvite } from '../../domain/entities/company/BrokerInvite';
+import { BrokerDriverOffer } from '../../domain/entities/company/BrokerDriverOffer';
+import { CargoPointsService } from '../../services/notification/cargoPoints.service';
+import { DriverSuggestionService } from '../../services/notification/driverSuggestion.service';
 import { BrokerInviteService } from '../../services/company/brokerInvite.service';
 import { BrokerInviteInfoController, CompanyBrokerInviteController } from '../../presentation/controllers/company/broker-invite.controller';
 import { DriverInviteService } from '../../services/company/driverInvite.service';
@@ -105,7 +108,7 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
 @Module({
   imports: [
     BorderModule,
-    TypeOrmModule.forFeature([CargoNotification, CargoAlertFilter, CargoListing, CargoRequest, DriverLocation, DriverLocationLog, DriverProfile, CompanyAnnounceSetting, WebPushSubscription, FactoryInvite, FactoryCompany, FactoryCargo, DriverInvite, BrokerInvite]),
+    TypeOrmModule.forFeature([CargoNotification, CargoAlertFilter, CargoListing, CargoRequest, DriverLocation, DriverLocationLog, DriverProfile, CompanyAnnounceSetting, WebPushSubscription, FactoryInvite, FactoryCompany, FactoryCargo, DriverInvite, BrokerInvite, BrokerDriverOffer]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -131,6 +134,8 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
     FactoryDialog,
     DriverInviteService,
     BrokerInviteService,
+    CargoPointsService,
+    DriverSuggestionService,
     InviteExpiryWorker,
     CompanyPlanExpiryWorker,
     CargoImageService,

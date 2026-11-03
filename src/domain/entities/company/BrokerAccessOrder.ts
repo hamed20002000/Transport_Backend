@@ -8,7 +8,8 @@ import { SubscriptionOrderStatus } from '../../enums/subscription';
  * NEW و ADD خریدهای قدیمی شرکت‌ها هستند (حالا شرکت‌ها را واسط بی‌پول انتخاب می‌کند). مبلغ و تعداد از تنظیمات همان
  * لحظه کپی می‌شوند تا تغییر بعدی روی سفارش ثبت‌شده اثر نکند.
  */
-export type BrokerOrderKind = 'NEW' | 'ADD' | 'PACKAGE';
+// PACKAGE: load requests; SUGGESTION: «معرفی راننده» (requests is how many, for both)
+export type BrokerOrderKind = 'NEW' | 'ADD' | 'PACKAGE' | 'SUGGESTION';
 
 @Entity('BrokerAccessOrder')
 @Index('IDX_BrokerAccessOrder_user', ['userId', 'createdAt'])

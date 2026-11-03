@@ -96,6 +96,23 @@ export class CargoListing {
   @Column({ type: 'timestamp', nullable: true })
   takenAt?: Date | null;
 
+  // where the origin and destination are (geocoded once, CargoPointsWorker): «معرفی راننده» finds drivers of routes
+  // near this one; null until found (or when not found: pointsCheckedAt says it was tried)
+  @Column({ type: 'double precision', nullable: true })
+  originLat?: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  originLng?: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  destinationLat?: number | null;
+
+  @Column({ type: 'double precision', nullable: true })
+  destinationLng?: number | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  pointsCheckedAt?: Date | null;
+
   // داخلی/صادراتی/وارداتی از مبدأ و مقصد (یا انتخاب شرکت)؛ فقط راننده‌های همین نوع اعلامش را می‌گیرند
   @Column({ type: 'varchar', length: 10, default: CargoTripType.Domestic })
   tripType!: CargoTripType;

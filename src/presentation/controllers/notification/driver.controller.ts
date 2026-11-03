@@ -33,7 +33,8 @@ import { SubscriptionGuard } from 'src/auth/guards/subscription.guard';
 import { JwtPayload } from 'src/domain/entities/auth/jwt-payload.dto';
 import { CargoRequest } from 'src/domain/entities/notification/CargoRequest';
 import { CargoRequestStatus, CargoTripType } from 'src/domain/enums/notification';
-import { CreateCargoRequestDto, DriverLocationDto, DriverPlaceDto, RespondOfferDto } from 'src/dto/notification/DriverDto';
+import { CreateCargoRequestDto, DriverLocationDto, DriverPlaceDto, RespondOfferDto, SuggestDriversDto } from 'src/dto/notification/DriverDto';
+import { DriverSuggestionService } from 'src/services/notification/driverSuggestion.service';
 import { UpdateDriverProfileDto } from 'src/dto/notification/DriverProfileDto';
 import {
   DRIVER_PHOTO_KINDS,
@@ -63,6 +64,13 @@ type AuthRequest = { user?: JwtPayload };
 
 // بیشترین نقطه‌ی هر مسیر در پاسخ؛ برای کشیدن طرح مسیر کافی است.
 const ROUTE_POINTS = 120;
+
+function brokerOnly(request: AuthRequest): string {
+  const user = request.user;
+  if (!user?.userId) throw new UnauthorizedException();
+  if (!user.roles?.includes('BROKER')) throw new ForbiddenException('onlyBroker');
+  return user.userId;
+}
 
 function currentDriverId(request: AuthRequest): string {
   const user = request.user;
@@ -123,6 +131,7 @@ export class DriverController {
     private readonly borders: BorderStatusService,
     private readonly accounts: AccountVerificationService,
     private readonly usage: UsageService,
+    private readonly suggestions: DriverSuggestionService,
   ) {}
 
   private requester(request: AuthRequest): Promise<string> {
@@ -301,10 +310,40 @@ export class DriverController {
     return { items: items.map((item) => this.requestView(item)), total, ...paging };
   }
 
-  // خطاهای 409 با کلید: taken، own، already، rejected
+  // واسط: «معرفی راننده» (پولی) برای یک بار؛ 409 noSuggestions / taken / notPurchased / already
+  @Post('suggestions')
+  suggest(@Req() request: AuthRequest, @Body() dto: SuggestDriversDto) {
+    return this.suggestions.suggest(brokerOnly(request), dto.listingId);
+  }
+
+  // واسط: معرفی‌هایی که هنوز منتظر جواب راننده‌اند
+  @Get('suggestions')
+  waitingSuggestions(@Req() request: AuthRequest) {
+    return this.suggestions.waiting(brokerOnly(request));
+  }
+
+  // راننده: پیشنهادهای واسط‌ها که هنوز می‌تواند جواب بدهد
+  @Get('broker-offers')
+  brokerOffers(@Req() request: AuthRequest) {
+    return this.suggestions.openFor(currentDriverId(request));
+  }
+
+  // راننده: «می‌خواهم» / «نه»؛ accepted، declined، closed (دیگر باز نیست) یا profile (پروفایل ناقص)
+  @Patch('broker-offers/:id')
+  async answerBrokerOffer(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RespondOfferDto) {
+    return { result: await this.suggestions.answer(currentDriverId(request), id, dto.accept) };
+  }
+
+  // واسط: راننده‌هایی که قبلاً برایشان درخواست داده، برای انتخاب دوباره
+  @Get('requests/drivers')
+  async brokerDrivers(@Req() request: AuthRequest) {
+    return this.trips.recentBrokerDrivers(await this.requester(request));
+  }
+
+  // خطاهای 409 با کلید: taken، own، already، rejected؛ 400 برای مشخصات راننده‌ی ناقص واسط
   @Post('requests')
   async createRequest(@Req() request: AuthRequest, @Body() dto: CreateCargoRequestDto, @Headers('x-app-mode') mode?: string) {
-    return this.requestView(await this.trips.request(await this.requester(request), dto.listingId, webChannel(mode)));
+    return this.requestView(await this.trips.request(await this.requester(request), dto.listingId, webChannel(mode), dto.forDriver));
   }
 
   // بار سپرده‌شده توسط شرکت: تأیید (سفر شروع می‌شود و بار «برداشته شد») یا رد
@@ -393,6 +432,8 @@ export class DriverController {
       // تحویل را اعلام کرده و منتظر تأیید شرکت است
       deliveryReportedAt: item.deliveryReportedAt ?? null,
       offerExpiresAt: item.offerExpiresAt ?? null,
+      // a broker's request: the driver it is for
+      forDriver: item.forDriver ?? null,
       listing: item.listing ? this.listings.toView(item.listing) : null,
     };
   }

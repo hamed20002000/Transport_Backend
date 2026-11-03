@@ -25,4 +25,7 @@ export const TripAction = {
   // راننده بار سپرده‌شده را تأیید/رد می‌کند
   OfferYes: 'tr:oy:', // + requestId
   OfferNo: 'tr:on:', // + requestId
+  // راننده‌ی معرفی‌شده به واسط (DriverSuggestionService): می‌خواهم / نه
+  SuggestionYes: 'tr:sy:', // + BrokerDriverOffer.id
+  SuggestionNo: 'tr:sn:', // + BrokerDriverOffer.id
 } as const;

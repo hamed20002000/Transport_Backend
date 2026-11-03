@@ -1,7 +1,8 @@
-import { ConflictException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { I18nService } from 'nestjs-i18n';
 
 import { cargoLine, fa } from 'src/application/services/agent/tools/toolKit';
+import { BrokerDriver, BrokerDriverField, brokerDriverLine, readBrokerDriver } from 'src/domain/helper/brokerDriver';
 import { CargoRequest } from '../../domain/entities/notification/CargoRequest';
 import { DriverLocation } from '../../domain/entities/notification/DriverLocation';
 import { CargoListingStatus, CargoRequestStatus } from '../../domain/enums/notification';
@@ -138,7 +139,25 @@ export class CargoTripService {
   }
 
   /** source: where the request was made (the app, a browser, a messenger, the assistant), for the admin's figures. */
-  async request(driverUserId: string, listingId: string, source: UsageChannel | null = null): Promise<CargoRequest> {
+  /**
+   * forDriver: a broker's request is for a driver it names (BrokerDriver), required from a broker and kept with the
+   * request; a driver's own request ignores it. charge: false for the request a «معرفی راننده» made (the suggestion
+   * was paid already), so it takes nothing off the broker's request packages.
+   */
+  async request(
+    driverUserId: string,
+    listingId: string,
+    source: UsageChannel | null = null,
+    forDriver?: Partial<Record<BrokerDriverField, unknown>> | null,
+    { charge = true }: { charge?: boolean } = {},
+  ): Promise<CargoRequest> {
+    const broker = await this.isBroker(driverUserId);
+    let driverFor: BrokerDriver | null = null;
+    if (broker) {
+      const read = readBrokerDriver(forDriver);
+      if ('error' in read) throw new BadRequestException(read.error);
+      driverFor = read.driver;
+    }
     const listing = await this.listings.findById(listingId);
     if (!listing) throw new NotFoundException('Cargo listing not found.');
     if (listing.status !== CargoListingStatus.Open) throw new ConflictException('taken');
@@ -157,8 +176,9 @@ export class CargoTripService {
     request.status = CargoRequestStatus.Pending;
     request.decidedAt = null;
     request.source = source;
+    request.forDriver = driverFor;
     // a broker's packages count its requests (noCredit); one not saved is given back
-    const charged = this.brokerAccess ? await this.brokerAccess.useRequest(driverUserId) : false;
+    const charged = this.brokerAccess && charge ? await this.brokerAccess.useRequest(driverUserId) : false;
     let saved: CargoRequest;
     try {
       saved = await this.requests.save(request);
@@ -169,8 +189,11 @@ export class CargoTripService {
 
     const full = (await this.requests.findById(saved.id))!;
     const driver = await this.contact(driverUserId);
-    const broker = await this.isBroker(driverUserId);
-    const text = this.t(broker ? 'notify.newBrokerRequest' : 'notify.newRequest', { driver: this.describe(driver), cargo: this.cargoTitle(full) });
+    const text = this.t(broker ? 'notify.newBrokerRequest' : 'notify.newRequest', {
+      driver: this.describe(driver),
+      cargo: this.cargoTitle(full),
+      forDriver: driverFor ? brokerDriverLine(driverFor) : '',
+    });
     this.changed(full, { type: 'newRequest', text });
     await this.notify(
       listing.publisherUserId,
@@ -210,6 +233,17 @@ export class CargoTripService {
   }
 
   // status: only that state (the driver home counts delivered and pending from the total)
+  /** The user's request for this load that still waits or runs, if any. */
+  async activeRequestFor(userId: string, listingId: string): Promise<CargoRequest | null> {
+    const request = await this.requests.findByListingAndDriver(listingId, userId);
+    return request && [CargoRequestStatus.Pending, CargoRequestStatus.Offered, CargoRequestStatus.Accepted].includes(request.status) ? request : null;
+  }
+
+  /** A broker's drivers from its earlier requests, to pick one again instead of typing it. */
+  recentBrokerDrivers(brokerUserId: string, limit = 8): Promise<BrokerDriver[]> {
+    return this.requests.recentBrokerDrivers(brokerUserId, limit);
+  }
+
   driverRequests(driverUserId: string, page: number, pageSize: number, status?: CargoRequestStatus) {
     return this.requests.findPageForDriver(
       driverUserId,
@@ -242,6 +276,7 @@ export class CargoTripService {
     const [items, total] = await this.companyRequests(companyUserId, page, pageSize);
     const cards = await this.profiles.cards([...new Set(items.map((item) => item.driverUserId))]);
     const cardOf = new Map(cards.map((card) => [card.userId, card]));
+    const forDriver = await this.forDriverViews(companyUserId, items);
     return {
       total,
       page,
@@ -262,8 +297,19 @@ export class CargoTripService {
             }
           : null,
         driver: cardOf.get(item.driverUserId) ?? null,
+        forDriver: forDriver(item),
       })),
     };
+  }
+
+  /**
+   * The driver of each broker's request, and whether the company may invite it: not when it is one of the company's
+   * drivers already.
+   */
+  private async forDriverViews(companyUserId: string, items: CargoRequest[]) {
+    const mobiles = [...new Set(items.flatMap((item) => (item.forDriver ? [item.forDriver.mobile] : [])))];
+    const known = mobiles.length ? await this.profiles.companyDriverMobiles(companyUserId, mobiles) : new Set<string>();
+    return (item: CargoRequest) => (item.forDriver ? { ...item.forDriver, companyDriver: known.has(item.forDriver.mobile) } : null);
   }
 
   countCompanyRequests(companyUserId: string): Promise<number> {
@@ -295,6 +341,7 @@ export class CargoTripService {
     ]);
     const cardOf = new Map(cards.map((card) => [card.userId, card]));
     const locationOf = new Map(locations);
+    const forDriver = await this.forDriverViews(companyUserId, items);
     return {
       total,
       page,
@@ -320,6 +367,7 @@ export class CargoTripService {
               }
             : null,
           driver: cardOf.get(item.driverUserId) ?? null,
+          forDriver: forDriver(item),
           location: location
             ? { latitude: location.latitude, longitude: location.longitude, receivedAt: location.receivedAt, liveUntil: location.liveUntil ?? null }
             : null,
@@ -790,7 +838,8 @@ export class CargoTripService {
    * از یک پیام‌رسان کاربر (MESSENGER_ORDER: اولین که وصل کرده و پیام را گرفت)، و اعلان گوشی. push: عنوان اعلان گوشی
    * (پیش‌فرض «ترابوت») و صفحه‌ای که باز می‌کند (پیش‌فرض از روی دکمه‌ها: pushUrl).
    */
-  private async notify(userId: string, text: string, actions: BotAction[] = [], push: { title?: string; url?: string } = {}): Promise<void> {
+  /** A notice through the user's one messenger (MESSENGER_ORDER) and the app's phone notification. */
+  async notify(userId: string, text: string, actions: BotAction[] = [], push: { title?: string; url?: string } = {}): Promise<void> {
     const messenger = async () =>
       sendThroughOne(
         await this.botLinks.findAllByUserId(userId),

@@ -12,7 +12,7 @@ import { BotAction, BotContext, BotDialog, BotDialogRegistry, BotDocument, BotRe
 import { BROKER_ROLE } from '../notification/loadRequesters';
 import { RedisService } from '../redis/redis.service';
 import { receiptDir } from '../subscription/receiptStorage';
-import { BrokerAccessService, MAX_PACKAGES } from './brokerAccess.service';
+import { BrokerAccessPolicy, BrokerAccessService, BrokerPack, MAX_PACKAGES } from './brokerAccess.service';
 
 const PREFIX = 'ba:';
 const Action = {
@@ -25,6 +25,9 @@ const Action = {
   /** how many packages; then one count picked (+ count) */
   Buy: `${PREFIX}g`,
   Packages: `${PREFIX}k`,
+  /** the same for «معرفی راننده» packages */
+  BuySuggestions: `${PREFIX}j`,
+  SuggestionPackages: `${PREFIX}m`,
   Cancel: `${PREFIX}q`,
   Close: `${PREFIX}b`,
 } as const;
@@ -43,12 +46,21 @@ const fa = (value: number | string) => Number(value).toLocaleString('fa-IR');
 const price = (amount: string, currency: string) => `${fa(amount)} ${currencyNames[currency] ?? currency}`;
 const cardGroups = (card: string) => card.replace(/\D/g, '').replace(/(\d{4})(?=\d)/g, '$1 ');
 
+/** What one package of this kind is: on or off, how many it holds, its price, and the text describing it. */
+function packTerms(policy: BrokerAccessPolicy, pack: BrokerPack) {
+  return pack === 'SUGGESTION'
+    ? { enabled: policy.suggestionsEnabled, size: policy.suggestionPackageSize, price: policy.suggestionPackagePrice, packageKey: 'suggestionPackage' }
+    : { enabled: policy.packagesEnabled, size: policy.packageSize, price: policy.packagePrice, packageKey: 'package' };
+}
+
 /** Companies being picked, or packages chosen and their receipt photo awaited. */
 interface Session {
   kind: 'PICK' | 'PACKAGE';
   selected: string[];
   page: number;
   packages?: number;
+  /** what the packages buy (absent: load requests, as before) */
+  pack?: BrokerPack;
   awaitingReceipt?: boolean;
 }
 
@@ -106,8 +118,10 @@ export class BrokerAccessDialog implements BotDialog, OnModuleInit {
         await this.clearSession(ctx);
         return this.list(ctx, this.t('cancelled'));
       }
-      if (id === Action.Buy) return this.buy(ctx);
-      if (id.startsWith(Action.Packages)) return this.pay(ctx, Number(id.slice(Action.Packages.length)));
+      if (id === Action.Buy) return this.buy(ctx, 'REQUEST');
+      if (id === Action.BuySuggestions) return this.buy(ctx, 'SUGGESTION');
+      if (id.startsWith(Action.Packages)) return this.pay(ctx, Number(id.slice(Action.Packages.length)), 'REQUEST');
+      if (id.startsWith(Action.SuggestionPackages)) return this.pay(ctx, Number(id.slice(Action.SuggestionPackages.length)), 'SUGGESTION');
       if (id === Action.Pick) {
         const status = await this.access.status(ctx.userId);
         return this.pick(ctx, { kind: 'PICK', selected: status.selected.map((company) => company.userId), page: 1 });
@@ -141,7 +155,7 @@ export class BrokerAccessDialog implements BotDialog, OnModuleInit {
     await writeFile(path, file);
     await this.clearSession(ctx);
     try {
-      await this.access.submitPackageOrder(ctx.userId, session.packages, path);
+      await this.access.submitPackageOrder(ctx.userId, session.packages, path, session.pack ?? 'REQUEST');
     } catch (error) {
       if (error instanceof ConflictException || error instanceof BadRequestException) return this.list(ctx, (error as Error).message);
       throw error;
@@ -156,6 +170,7 @@ export class BrokerAccessDialog implements BotDialog, OnModuleInit {
     const { policy } = status;
     const home = [{ id: Action.Close, label: this.t('actions.home') }];
     const reviewing = status.orders.some((order) => order.kind === 'PACKAGE' && order.status === 'RECEIPT_SUBMITTED');
+    const reviewingSuggestions = status.orders.some((order) => order.kind === 'SUGGESTION' && order.status === 'RECEIPT_SUBMITTED');
     const lines = [notice, this.t('title')];
     if (policy.packagesEnabled) {
       lines.push(
@@ -165,6 +180,13 @@ export class BrokerAccessDialog implements BotDialog, OnModuleInit {
       );
     } else {
       lines.push(this.t('freeRequests'));
+    }
+    if (policy.suggestionsEnabled) {
+      lines.push(
+        this.t('suggestions', { left: fa(status.suggestions), drivers: fa(policy.suggestionDrivers) }),
+        this.t('suggestionPackage', { size: fa(policy.suggestionPackageSize), price: price(policy.suggestionPackagePrice, policy.currency) }),
+        reviewingSuggestions ? this.t('reviewing') : '',
+      );
     }
     if (policy.maxCompanies === null) lines.push(this.t('allCompanies'));
     else {
@@ -176,24 +198,26 @@ export class BrokerAccessDialog implements BotDialog, OnModuleInit {
     }
     const buttons: BotAction[][] = [
       policy.packagesEnabled && !reviewing ? [{ id: Action.Buy, label: this.t('actions.buy') }] : [],
+      policy.suggestionsEnabled && !reviewingSuggestions ? [{ id: Action.BuySuggestions, label: this.t('actions.buySuggestions') }] : [],
       policy.maxCompanies !== null ? [{ id: Action.Pick, label: this.t(status.selected.length ? 'actions.change' : 'actions.pick') }] : [],
     ];
     return { text: lines.filter(Boolean).join('\n\n'), actions: this.rows(...buttons, home) };
   }
 
-  /** How many packages: a few counts, each with its price. */
-  private async buy(ctx: BotContext): Promise<BotReply> {
+  /** How many packages (of load requests, or of «معرفی راننده»): a few counts, each with its price. */
+  private async buy(ctx: BotContext, pack: BrokerPack): Promise<BotReply> {
     const { policy } = await this.access.status(ctx.userId);
-    if (!policy.packagesEnabled) return this.list(ctx);
+    const terms = packTerms(policy, pack);
+    if (!terms.enabled) return this.list(ctx);
     return {
-      text: [this.t('package', { size: fa(policy.packageSize), price: price(policy.packagePrice, policy.currency) }), this.t('howMany')].join('\n\n'),
+      text: [this.t(terms.packageKey, { size: fa(terms.size), price: price(terms.price, policy.currency) }), this.t('howMany')].join('\n\n'),
       actions: this.rows(
         ...PACKAGE_CHOICES.map((count) => [{
-          id: `${Action.Packages}${count}`,
-          label: this.t('actions.packages', {
+          id: `${pack === 'SUGGESTION' ? Action.SuggestionPackages : Action.Packages}${count}`,
+          label: this.t(pack === 'SUGGESTION' ? 'actions.suggestionPackages' : 'actions.packages', {
             count: fa(count),
-            requests: fa(count * policy.packageSize),
-            price: price((BigInt(policy.packagePrice) * BigInt(count)).toString(), policy.currency),
+            requests: fa(count * terms.size),
+            price: price((BigInt(terms.price) * BigInt(count)).toString(), policy.currency),
           }),
         }]),
         [{ id: Action.List, label: this.t('actions.back') }],
@@ -202,16 +226,17 @@ export class BrokerAccessDialog implements BotDialog, OnModuleInit {
   }
 
   /** The card for the packages chosen; the receipt photo is awaited. */
-  private async pay(ctx: BotContext, packages: number): Promise<BotReply> {
+  private async pay(ctx: BotContext, packages: number, pack: BrokerPack): Promise<BotReply> {
     const { policy } = await this.access.status(ctx.userId);
-    if (!policy.packagesEnabled || !Number.isInteger(packages) || packages < 1 || packages > MAX_PACKAGES) return this.list(ctx);
+    const terms = packTerms(policy, pack);
+    if (!terms.enabled || !Number.isInteger(packages) || packages < 1 || packages > MAX_PACKAGES) return this.list(ctx);
     const card = this.config.get<string>('CARD_NO', '');
     if (!card) return this.list(ctx, this.t('noCard'));
-    await this.redis.setJson(this.sessionKey(ctx), { kind: 'PACKAGE', selected: [], page: 1, packages, awaitingReceipt: true } satisfies Session, SESSION_TTL_SECONDS);
+    await this.redis.setJson(this.sessionKey(ctx), { kind: 'PACKAGE', selected: [], page: 1, packages, pack, awaitingReceipt: true } satisfies Session, SESSION_TTL_SECONDS);
     return {
-      text: this.t('pay', {
-        requests: fa(packages * policy.packageSize),
-        price: price((BigInt(policy.packagePrice) * BigInt(packages)).toString(), policy.currency),
+      text: this.t(pack === 'SUGGESTION' ? 'paySuggestions' : 'pay', {
+        requests: fa(packages * terms.size),
+        price: price((BigInt(terms.price) * BigInt(packages)).toString(), policy.currency),
         card: cardGroups(card),
         owner: this.config.get<string>('CARD_OWNER', '') || '—',
       }),
