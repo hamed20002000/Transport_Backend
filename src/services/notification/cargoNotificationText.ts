@@ -2,6 +2,7 @@ import { CargoTripType } from '../../domain/enums/notification';
 import { TRIP_TYPE_LABELS } from './cargoTripType';
 import { CargoDetectedEvent } from '../../domain/constants/cargoEvents';
 import { card } from '../messengerBot/core/botCard';
+import { groupDigits } from '../../domain/helper/digitGroups';
 
 // messengers have no text colour: the orange mark makes the code (what drivers quote on the phone) stand out,
 // like the orange code chip on the web cards
@@ -14,9 +15,9 @@ export function buildCargoNotificationText(event: CargoDetectedEvent): string {
     ['مبدا', event.origin],
     ['مقصد', event.destination],
     ['نوع بار', event.cargoType],
-    ['وزن', event.weight],
+    ['وزن', groupDigits(event.weight)],
     ['نوع ماشین', event.vehicleType],
-    ['کرایه', event.price],
+    ['کرایه', groupDigits(event.price)],
     ['توضیحات', event.extraNotes],
   ];
 
@@ -93,9 +94,9 @@ export function buildCargoListingText(fields: CargoListingFields): string {
     ['مقصد', fields.destination],
     ['نوع حمل', fields.tripType ? TRIP_TYPE_LABELS[fields.tripType] : null],
     ['نوع بار', fields.cargoType],
-    ['وزن', fields.weight],
+    ['وزن', groupDigits(fields.weight)],
     ['نوع ماشین', fields.vehicleType],
-    ['کرایه', fields.price],
+    ['کرایه', groupDigits(fields.price)],
     ['توضیحات', fields.extraNotes],
     ['تماس', fields.contactPhones.join(' - ')],
   ];

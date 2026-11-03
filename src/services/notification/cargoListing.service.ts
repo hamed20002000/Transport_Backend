@@ -16,6 +16,7 @@ import { MessengerBotService } from '../messengerBot/core/messengerBot.service';
 import { CargoAlertFilterService } from './cargoAlertFilter.service';
 import { CargoNotificationService } from './cargoNotification.service';
 import { SubscriptionPolicyService } from '../subscription/subscriptionPolicy.service';
+import { groupDigits } from '../../domain/helper/digitGroups';
 import { buildCargoListingText, buildCargoTakenText, cargoTextWithCard, CargoListingFields } from './cargoNotificationText';
 import { whatsappCards } from '../messengerBot/core/botCard';
 import { CargoTripTypeService, driverKindForLoad, parseTripType } from './cargoTripType';
@@ -280,6 +281,9 @@ export class CargoListingService {
     announce: boolean,
     pushBatch?: PushBatch,
   ) {
+    // «۴۵۰۰۰۰۰۰» → «۴۵٬۰۰۰٬۰۰۰», whichever way the load came in (web, bots, WhatsApp, Excel)
+    const grouped = (value?: string | null) => (groupDigits(value)?.length ?? 0) <= 100 ? groupDigits(value) : value; // the columns' length
+    fields = { ...fields, weight: grouped(fields.weight), price: grouped(fields.price) };
     const contact = await this.audience.findPublisherContact(userId);
     // داخلی/صادراتی/وارداتی همیشه از مبدأ و مقصد؛ شرکت انتخابش نمی‌کند
     const tripType = await this.tripTypes.classifyListing(fields.origin, fields.destination);

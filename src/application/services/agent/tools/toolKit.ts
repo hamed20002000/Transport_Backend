@@ -4,6 +4,7 @@ import { normalizePersianText } from 'src/domain/helper/persianText';
 import { ContextManager } from '../contextManager';
 import { AgentListItem, AgentRequest, RequestResult } from '../types';
 import messages from '../localFiles/messages.json';
+import { groupDigits } from 'src/domain/helper/digitGroups';
 
 /** چیزی که ToolRegister به handler می‌دهد: پارامترهای استخراج‌شده + req و sessionId */
 export interface ToolParam {
@@ -220,7 +221,7 @@ export interface CargoSummaryFields {
 export function cargoLine(cargo: CargoSummaryFields | null | undefined): string {
   if (!cargo) return '';
   const route = [cargo.origin, cargo.destination].filter(Boolean).join(' به ');
-  return [route, cargo.cargoType, cargo.weight, cargo.vehicleType, cargo.price].filter(Boolean).join(' · ');
+  return [route, cargo.cargoType, groupDigits(cargo.weight), cargo.vehicleType, groupDigits(cargo.price)].filter(Boolean).join(' · ');
 }
 
 export const numbered = (lines: string[]): string => lines.map((line, i) => `${fa(i + 1)}. ${line}`).join('\n');
