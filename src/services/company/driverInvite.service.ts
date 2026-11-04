@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 
@@ -78,7 +78,17 @@ export class DriverInviteService {
   }
 
 
-  private async inviteAll(companyUserId: string, drivers: DriverInviteInput[]): Promise<DriverInviteOutcome[]> {
+  /**
+   * The parent company registers drivers itself, by name and number: each account is made (or a driver found) and
+   * joins the company's drivers at once, as if it had come in; no link and no SMS. The same rules as an invite
+   * (a company's number, a driver already in Trabot, another company's invite waiting: refused).
+   */
+  async register(companyUserId: string, drivers: Array<{ mobile: string; name: string }>): Promise<{ outcomes: DriverInviteOutcome[] }> {
+    if (!(await this.features.isParent(companyUserId))) throw new ForbiddenException('فقط شرکت مادر راننده را مستقیم ثبت می‌کند.');
+    return { outcomes: await this.inviteAll(companyUserId, drivers, true) };
+  }
+
+  private async inviteAll(companyUserId: string, drivers: DriverInviteInput[], direct = false): Promise<DriverInviteOutcome[]> {
     if (!drivers.length) throw new BadRequestException('دست‌کم یک شماره وارد کنید.');
     if (drivers.length > MAX_DRIVER_INVITES) throw new BadRequestException(`حداکثر ${MAX_DRIVER_INVITES} راننده در هر بار.`);
     const outcomes: DriverInviteOutcome[] = [];
@@ -92,7 +102,7 @@ export class DriverInviteService {
       if (seen.has(mobile)) continue;
       seen.add(mobile);
       try {
-        outcomes.push({ mobile, ...(await this.dataSource.transaction((manager) => this.inviteOne(manager, companyUserId, mobile, name?.trim() || null))) });
+        outcomes.push({ mobile, ...(await this.dataSource.transaction((manager) => this.inviteOne(manager, companyUserId, mobile, name?.trim() || null, direct))) });
       } catch (error) {
         if (!(error instanceof ConflictException)) throw error;
         outcomes.push({ mobile, status: 'refused', reason: error.message });
@@ -101,13 +111,17 @@ export class DriverInviteService {
     return outcomes;
   }
 
-  private async inviteOne(manager: EntityManager, companyUserId: string, mobile: string, name: string | null) {
+  private async inviteOne(manager: EntityManager, companyUserId: string, mobile: string, name: string | null, direct = false) {
     let driver = await manager.findOne(User, { where: { mobile }, relations: { userRoles: { role: true } } });
     const created = !this.driverAccount(driver);
     if (created) {
       const role = await manager.findOne(Role, { where: { name: DRIVER_ROLE, recordStatus: RecordStatus.Active } });
       if (!role) throw new BadRequestException('نقش راننده در سامانه تعریف نشده است.');
+      // checked by the parent company like any driver (AccountVerificationService), invited or registered by a company
+      // or not: it fills in its profile and asks before it works
       driver = driver ?? manager.create(User, { username: mobile, mobile, recordStatus: RecordStatus.Active });
+      // an account with no role yet (a messenger before it chose its kind) is a new driver too
+      driver.verificationStatus = 'NONE';
       if (name) {
         // «علی رضایی»: first word the first name, the rest the last name (the driver can correct it in its profile)
         const [firstName, ...rest] = name.split(/\s+/);
@@ -118,15 +132,17 @@ export class DriverInviteService {
     }
     const driverUserId = driver!.id;
     if (!created) await this.assertInvitable(manager, companyUserId, driver!);
-    // a driver that signed up on its own and is not checked yet: the company inviting it vouches for it
-    if (!created && driver!.verificationStatus !== 'APPROVED') {
-      await manager.update(User, { id: driverUserId }, { verificationStatus: 'APPROVED', verificationDecidedAt: new Date(), verificationDecidedBy: companyUserId });
-    }
     await this.join(manager, driverUserId, companyUserId);
     const existing = await manager.findOne(DriverInvite, { where: { companyUserId, driverUserId } });
-    const invite = existing && !isInviteWaiting(existing)
+    let invite = existing && !isInviteWaiting(existing)
       ? await this.renew(manager, existing)
       : existing ?? (await manager.save(DriverInvite, manager.create(DriverInvite, { companyUserId, driverUserId, mobile, token: inviteToken() })));
+    if (direct) {
+      // registered by the parent company: in at once (not waiting, never swept away with its account)
+      const done = { usedAt: invite.usedAt ?? new Date(), direct: true, revokedAt: null };
+      await manager.update(DriverInvite, { id: invite.id }, done);
+      invite = Object.assign(invite, done);
+    }
     return { status: created ? ('created' as const) : ('added' as const), driverUserId, token: invite.token };
   }
 
@@ -197,7 +213,7 @@ export class DriverInviteService {
     const rows: Array<{ driverUserId: string; name: string; mobile: string; token: string; usedAt: Date | null; createdAt: Date }> = await this.dataSource.query(
       `SELECT i."driverUserId", ${displayName('u')} AS name, i.mobile, i.token, i."usedAt", i."createdAt"
        FROM "DriverInvite" i JOIN "User" u ON u.id = i."driverUserId"
-       WHERE i."companyUserId" = $1 AND i."revokedAt" IS NULL
+       WHERE i."companyUserId" = $1 AND i."revokedAt" IS NULL AND NOT i.direct
        ORDER BY i."createdAt" DESC`,
       [companyUserId],
     );
