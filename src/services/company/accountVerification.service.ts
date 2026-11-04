@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
-import { isCompanyNationalId } from 'src/domain/helper/nationalId';
+import { isCompanyNationalId, isNationalCode } from 'src/domain/helper/nationalId';
+import { driverVerificationOn } from 'src/domain/helper/driverVerification';
 
 import { User } from 'src/domain/entities/auth/User';
 import { RecordStatus } from 'src/domain/enums/RecordStatus';
@@ -18,30 +19,40 @@ export const MAX_VERIFICATION_REQUESTS = 4;
 
 const FACTORY_ROLE = 'FACTORY';
 const BROKER_ROLE = 'BROKER';
+const DRIVER_ROLE = 'DRIVER';
 
 /** The kinds of account a parent company checks; a broker requests loads like a driver. */
-export type VerifiedKind = 'COMPANY' | 'FACTORY' | 'BROKER';
+export type VerifiedKind = 'COMPANY' | 'FACTORY' | 'BROKER' | 'DRIVER';
 
 export function verifiedKind(roles: Array<string | undefined>): VerifiedKind {
   if (roles.includes(FACTORY_ROLE)) return 'FACTORY';
   if (roles.includes(BROKER_ROLE)) return 'BROKER';
+  if (roles.includes(DRIVER_ROLE)) return 'DRIVER';
   return 'COMPANY';
 }
 
 const kindOf = (user: User) => verifiedKind((user.userRoles ?? []).map((item) => item.role?.name));
+
+/** A driver is not checked while driverVerificationOn is off: it counts as approved. */
+const checked = (kind: VerifiedKind) => kind !== 'DRIVER' || driverVerificationOn();
 
 /** Where each kind fills in its profile and asks (web panel). */
 export const VERIFICATION_PROFILE_PATH: Record<VerifiedKind, string> = {
   COMPANY: '/account/company/profile',
   FACTORY: '/account/factory',
   BROKER: '/account/broker',
+  DRIVER: '/account/driver/profile',
 };
+
+/** What a driver is checked with that its DriverProfile keeps (not the User row). */
+type DriverProfileKey = 'smartCardNumber' | 'licenseNumber';
 
 /**
  * What the parent company checks an account with before approving it: a transport company by its trade name,
- * economic code and phone; a factory and a broker by name and phone. The other profile fields help but are not required.
+ * licence number and phone; a factory by name and phone; a broker by name, the person's national code, mobile and phone
+ * (its company's national ID is optional for now). The other profile fields help but are not required.
  */
-const REQUIRED_FIELDS: Record<VerifiedKind, Array<{ key: keyof User; title: string }>> = {
+const REQUIRED_FIELDS: Record<VerifiedKind, Array<{ key: keyof User | DriverProfileKey; title: string }>> = {
   COMPANY: [
     { key: 'companyName', title: 'نام تجاری شرکت' },
     { key: 'licenseNo', title: 'شماره پروانه' },
@@ -53,17 +64,28 @@ const REQUIRED_FIELDS: Record<VerifiedKind, Array<{ key: keyof User; title: stri
   ],
   BROKER: [
     { key: 'companyName', title: 'نام واسط یا دفتر' },
+    { key: 'nationalCode', title: 'کد ملی' },
+    { key: 'contactMobiles', title: 'شماره موبایل' },
     { key: 'phone', title: 'شماره تماس' },
+  ],
+  // a driver by who it is (name, mobile) and its papers (smart card, licence), from the driver's profile
+  DRIVER: [
+    { key: 'firstName', title: 'نام' },
+    { key: 'lastName', title: 'نام خانوادگی' },
+    { key: 'mobile', title: 'شماره موبایل' },
+    { key: 'smartCardNumber', title: 'شماره کارت هوشمند' },
+    { key: 'licenseNumber', title: 'شماره گواهینامه' },
   ],
 };
 
-const NOUN: Record<VerifiedKind, string> = { COMPANY: 'شرکت حمل‌ونقل', FACTORY: 'شرکت / کارخانه', BROKER: 'واسط' };
+const NOUN: Record<VerifiedKind, string> = { COMPANY: 'شرکت حمل‌ونقل', FACTORY: 'شرکت / کارخانه', BROKER: 'واسط', DRIVER: 'راننده' };
 const REQUIRED_TEXT: Record<VerifiedKind, string> = {
   COMPANY: 'نام تجاری، شماره پروانه و شماره‌ی شرکت',
   FACTORY: 'نام و شماره‌ی کارخانه',
-  BROKER: 'نام و شماره‌ی تماس',
+  BROKER: 'نام، کد ملی، شماره موبایل و شماره‌ی تماس',
+  DRIVER: 'نام و نام خانوادگی، شماره کارت هوشمند و شماره گواهینامه',
 };
-const PROFILE_FIELDS = ['companyName', 'companyNationalId', 'economicCode', 'registrationNo', 'licenseNo', 'phone', 'postalCode', 'address'] as const;
+const PROFILE_FIELDS = ['companyName', 'nationalCode', 'companyNationalId', 'economicCode', 'registrationNo', 'licenseNo', 'phone', 'contactMobiles', 'postalCode', 'address'] as const;
 
 export interface VerificationState {
   /** NONE: fill in the profile and ask; PENDING: waiting for the parent company; APPROVED; REJECTED */
@@ -98,16 +120,24 @@ export class AccountVerificationService {
   /** تأیید شده است (هر حسابی جز شرکت و کارخانه‌ی خودثبت‌نام‌کرده‌ی تأییدنشده). */
   async isApproved(userId: string): Promise<boolean> {
     const user = await this.users.findOne({ where: { id: userId }, select: { id: true, verificationStatus: true } });
-    return !user || user.verificationStatus === 'APPROVED';
+    if (!user || user.verificationStatus === 'APPROVED') return true;
+    const withRoles = await this.users.findOne({ where: { id: userId }, relations: { userRoles: { role: true } } });
+    return !checked(kindOf(withRoles ?? user));
   }
 
   async state(userId: string): Promise<VerificationState> {
     const user = await this.users.findOne({ where: { id: userId }, relations: { userRoles: { role: true } } });
     if (!user) throw new NotFoundException('حساب پیدا نشد.');
     const remaining = Math.max(0, MAX_VERIFICATION_REQUESTS - user.verificationRequests);
-    const missing = REQUIRED_FIELDS[kindOf(user)].filter(({ key }) => !String(user[key] ?? '').trim()).map(({ title }) => title);
+    const kind = kindOf(user);
+    if (!checked(kind)) {
+      return { status: 'APPROVED', canRequest: false, remaining, missing: [], note: null, requestedAt: user.verificationRequestedAt ?? null, decidedAt: user.verificationDecidedAt ?? null };
+    }
+    const values = { ...user, ...(kind === 'DRIVER' ? await this.driverPapers(userId) : {}) } as Record<string, unknown>;
+    const missing = REQUIRED_FIELDS[kind].filter(({ key }) => !String(values[key] ?? '').trim()).map(({ title }) => title);
     // not required, but checked when given: one saved before the check-digit rule may be wrong
     if (user.companyNationalId && !isCompanyNationalId(user.companyNationalId)) missing.push('شناسه ملی درست (یا خالی)');
+    if (kind === 'BROKER' && user.nationalCode && !isNationalCode(user.nationalCode)) missing.push('کد ملی درست');
     return {
       status: user.verificationStatus,
       canRequest: (user.verificationStatus === 'NONE' || user.verificationStatus === 'REJECTED') && remaining > 0,
@@ -127,6 +157,7 @@ export class AccountVerificationService {
     const user = await this.users.findOne({ where: { id: userId }, relations: { userRoles: { role: true } } });
     if (!user || user.verificationStatus === 'APPROVED') return null;
     const kind = kindOf(user);
+    if (!checked(kind)) return null;
     const panel = this.sms.panelUrl();
     const where = panel ? `\n${panel}${VERIFICATION_PROFILE_PATH[kind]}` : '';
     const { remaining } = await this.state(userId);
@@ -170,14 +201,17 @@ export class AccountVerificationService {
       `SELECT DISTINCT u.id AS "userId", u.mobile, u."accountCode", u."verificationStatus" AS status, u."verificationRequests" AS requests,
          u."verificationNote" AS note, u."verificationRequestedAt" AS "requestedAt", u."verificationDecidedAt" AS "decidedAt",
          u."createdAt", ${PROFILE_FIELDS.map((field) => `u."${field}"`).join(', ')},
-         CASE WHEN bool_or(r.name = '${FACTORY_ROLE}') THEN 'FACTORY' WHEN bool_or(r.name = '${BROKER_ROLE}') THEN 'BROKER' ELSE 'COMPANY' END AS kind
+         u."firstName", u."lastName", p."smartCardNumber", p."licenseNumber",
+         CASE WHEN bool_or(r.name = '${FACTORY_ROLE}') THEN 'FACTORY' WHEN bool_or(r.name = '${BROKER_ROLE}') THEN 'BROKER'
+              WHEN bool_or(r.name = '${DRIVER_ROLE}') THEN 'DRIVER' ELSE 'COMPANY' END AS kind
        FROM "User" u
        JOIN "UserRole" ur ON ur."userId" = u.id
        JOIN "Role" r ON r.id = ur."roleId" AND r."recordStatus" = $2 AND r.name = ANY($3::text[])
+       LEFT JOIN "DriverProfile" p ON p."userId" = u.id
        WHERE u."verificationStatus" = ANY($1::text[]) AND u."recordStatus" = $2
-       GROUP BY u.id
+       GROUP BY u.id, p."userId"
        ORDER BY u."verificationRequestedAt" DESC NULLS LAST`,
-      [statuses, RecordStatus.Active, [...COMPANY_ROLES, FACTORY_ROLE, BROKER_ROLE]],
+      [statuses, RecordStatus.Active, [...COMPANY_ROLES, FACTORY_ROLE, BROKER_ROLE, DRIVER_ROLE]],
     );
     return rows.map((row) => ({ ...row, remaining: Math.max(0, MAX_VERIFICATION_REQUESTS - Number(row.requests)) }));
   }
@@ -235,13 +269,23 @@ export class AccountVerificationService {
 
   //#endregion
 
+  /** A driver's smart card and licence numbers, from its DriverProfile (none yet: empty). */
+  private async driverPapers(userId: string): Promise<Partial<Record<DriverProfileKey, string | null>>> {
+    const rows: Array<Record<DriverProfileKey, string | null>> = await this.dataSource.query(
+      `SELECT "smartCardNumber", "licenseNumber" FROM "DriverProfile" WHERE "userId" = $1`,
+      [userId],
+    );
+    return rows[0] ?? {};
+  }
+
   private async assertParent(userId: string): Promise<void> {
     if (!(await this.features.isParent(userId))) throw new ForbiddenException('فقط شرکت مادر درخواست‌های بررسی اعتبار را می‌بیند.');
   }
 
   private async name(userId: string): Promise<string> {
     const user = await this.users.findOne({ where: { id: userId } });
-    return user?.companyName?.trim() || user?.mobile || 'حساب';
+    const person = [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim();
+    return user?.companyName?.trim() || person || user?.mobile || 'حساب';
   }
 
   /** The parent companies (a new request) or the account (a decision) hear of it through SubscriptionNotifier. */

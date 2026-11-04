@@ -2,7 +2,7 @@ import { MAX_CONTACT_MOBILES, parseMobileList } from 'src/dto/auth/phone-number'
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsEnum, IsIn, IsOptional, IsString, Matches, MaxLength, registerDecorator } from 'class-validator';
-import { isCompanyNationalId } from 'src/domain/helper/nationalId';
+import { isCompanyNationalId, isNationalCode } from 'src/domain/helper/nationalId';
 
 import { CustomerType } from 'src/domain/enums/company.enum';
 
@@ -23,6 +23,18 @@ export const trimToNull = ({ value }: { value: unknown }) => {
  * so the field's own rule still refuses it.
  */
 /** The national ID's check digit is right (isCompanyNationalId), not only its 11 digits. */
+/** A person's national code's check digit is right (isNationalCode), not only its 10 digits. */
+function IsNationalCode() {
+  return (target: object, propertyName: string) =>
+    registerDecorator({
+      name: 'isNationalCode',
+      target: target.constructor,
+      propertyName,
+      options: { message: 'کد ملی معتبر نیست؛ رقم‌هایش را دوباره بررسی کنید.' },
+      validator: { validate: (value: unknown) => typeof value === 'string' && isNationalCode(value) },
+    });
+}
+
 function IsCompanyNationalId() {
   return (target: object, propertyName: string) =>
     registerDecorator({
@@ -74,6 +86,7 @@ export class UpdateUserProfileDto {
   @Transform(digitsToNull)
   @IsOptional()
   @Matches(/^[0-9]{10}$/, { message: 'nationalCode must be 10 digits' })
+  @IsNationalCode()
   nationalCode?: string | null;
 
   @ApiPropertyOptional({ maxLength: 200, nullable: true })

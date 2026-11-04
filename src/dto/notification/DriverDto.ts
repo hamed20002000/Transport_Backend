@@ -21,12 +21,12 @@ export class CreateCargoRequestDto {
   @IsOptional()
   @IsObject()
   forDriver?: Record<string, unknown>;
-}
 
-// واسط: «معرفی راننده» برای این بار
-export class SuggestDriversDto {
-  @IsUUID()
-  listingId!: string;
+  // an export or import load: the border picked (GET loads/:id/exit-borders), checked in CargoTripService.request
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  exitBorder?: string;
 }
 
 // موقعیتی که راننده از مرورگر (Geolocation) می‌فرستد.

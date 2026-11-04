@@ -1,4 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { CargoTripType } from 'src/domain/enums/notification';
+import { LoadBorderService } from './loadBorder.service';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 
 import { CargoListing } from '../../domain/entities/notification/CargoListing';
 import { estimateFuelLiters, FuelProfile, fuelProfileFor } from '../routing/fuelProfile';
@@ -28,6 +30,11 @@ export interface CargoRouteOption {
 
 export interface CargoInsight {
   listing: CargoListing;
+  /**
+   * The load's type as it really is: one saved domestic but going abroad (a Turkish town not known when it was
+   * saved) is export here, so its details show the borders of its route (LoadBorderService.tripTypeOf).
+   */
+  tripType: CargoTripType;
   originPoint: GeoPoint | null;
   destinationPoint: GeoPoint | null;
   profile: FuelProfile;
@@ -61,6 +68,7 @@ export class CargoInsightService {
     private readonly fuelStations: FuelStationService,
     private readonly trips: CargoTripService,
     private readonly brokerAccess: BrokerAccessService,
+    @Optional() private readonly borders?: LoadBorderService,
   ) {}
 
   // driverUserId: a broker sees only the loads of the companies it bought
@@ -69,10 +77,10 @@ export class CargoInsightService {
     if (!listing) return null;
     if (driverUserId && !(await this.brokerAccess.canSee(driverUserId, listing.publisherUserId))) return null;
 
-    const [originPoint, destinationPoint, returnLoads] = await Promise.all([
-      this.routing.geocode(listing.origin),
-      this.routing.geocode(listing.destination),
+    const [{ origin: originPoint, destination: destinationPoint }, returnLoads, tripType] = await Promise.all([
+      this.places(listing),
       this.returnLoads(listing),
+      this.borders ? this.borders.tripTypeOf(listing) : Promise.resolve(listing.tripType),
     ]);
     const profile = fuelProfileFor(listing.vehicleType);
 
@@ -109,12 +117,14 @@ export class CargoInsightService {
       }
     }
 
-    return { listing, originPoint, destinationPoint, profile, routes, returnLoads, driver };
+    return { listing, tripType, originPoint, destinationPoint, profile, routes, returnLoads, driver };
   }
 
   /** مختصات مبدأ و مقصد بار (کش‌شده؛ برای نقشه‌ی موقعیت راننده). */
   async places(listing: CargoListing | null | undefined): Promise<{ origin: GeoPoint | null; destination: GeoPoint | null }> {
     if (!listing) return { origin: null, destination: null };
+    // the side abroad of an export or import load is looked up abroad (LoadBorderService.points)
+    if (this.borders) return this.borders.points(listing);
     const [origin, destination] = await Promise.all([
       this.routing.geocode(listing.origin).catch(() => null),
       this.routing.geocode(listing.destination).catch(() => null),

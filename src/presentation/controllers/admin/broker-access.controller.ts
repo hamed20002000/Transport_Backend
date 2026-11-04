@@ -32,31 +32,12 @@ export class UpdateBrokerAccessPolicyDto {
 
   @IsIn(['IRR', 'GBP', 'EUR', 'SAR', 'CNY'])
   currency: string = 'IRR';
-
-  /** «معرفی راننده»: خاموش یعنی واسط نمی‌تواند بخواهد */
-  @IsOptional() @IsBoolean()
-  suggestionsEnabled: boolean = false;
-
-  /** معرفی‌های هر بسته */
-  @IsOptional() @IsInt() @Min(1) @Max(100_000)
-  suggestionPackageSize: number = 10;
-
-  @IsOptional() @IsString() @Matches(/^(0|[1-9][0-9]{0,17})$/)
-  suggestionPackagePrice: string = '0';
-
-  /** هر معرفی به چند راننده خبر می‌دهد */
-  @IsOptional() @IsInt() @Min(1) @Max(50)
-  suggestionDrivers: number = 5;
 }
 
 /** Load requests given to a broker without a purchase. */
 export class GrantBrokerRequestsDto {
   @IsInt() @Min(1) @Max(100_000)
   requests!: number;
-
-  /** REQUEST (default): load requests; SUGGESTION: «معرفی راننده» */
-  @IsOptional() @IsIn(['REQUEST', 'SUGGESTION'])
-  pack: 'REQUEST' | 'SUGGESTION' = 'REQUEST';
 }
 
 /** قواعد واسط (سقف شرکت، بسته‌ی درخواست)، بررسی فیش‌ها و درخواست بی‌خرید (هدیه) برای یک واسط. */
@@ -98,7 +79,7 @@ export class BrokerAccessAdminController {
   @Post('brokers/:userId/requests')
   grantRequests(@Req() request: AdminRequest, @Param('userId', ParseUUIDPipe) userId: string, @Body() dto: GrantBrokerRequestsDto) {
     requireAdmin(request);
-    return this.access.grantRequests(userId, dto.requests, dto.pack);
+    return this.access.grantRequests(userId, dto.requests);
   }
 
   /** پیش‌فرض: سفارش‌های منتظر بررسی. */

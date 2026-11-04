@@ -229,10 +229,11 @@ export class FunctionCallService {
             if (await this.companyFeatures.hasFeature(userId, CompanyFeature.Agent)) return null;
             return `🔒 بخش «${COMPANY_FEATURE_TITLES[CompanyFeature.Agent]}» برای شرکت حمل‌ونقل شما فعال نیست؛ برای استفاده آن را از «💎 خرید امکانات» در منو (یا پنل وب) بخرید.`;
         }
-        if (!isBrokerOnly(roles)) return null;
+        // a driver or broker that signed up on its own: after the parent company's approval
         if (!(await this.verification.isApproved(userId))) {
-            return '🔒 دستیار هوشمند بعد از تأیید حساب واسط فعال می‌شود؛ پروفایل را کامل کنید و «درخواست بررسی اعتبار» را بزنید.';
+            return '🔒 دستیار هوشمند بعد از تأیید حساب شما فعال می‌شود؛ پروفایل را کامل کنید و «درخواست بررسی اعتبار» را بزنید.';
         }
+        if (!isBrokerOnly(roles)) return null;
         if (await this.brokerAccess.hasOpenAccess(userId)) return null;
         return '🔒 دستیار هوشمند بعد از انتخاب شرکت‌ها فعال می‌شود؛ از «🔓 شرکت‌ها و بسته‌ها» در منو (یا پنل وب) شرکت‌هایی را که بارشان را می‌خواهید انتخاب کنید.';
     }

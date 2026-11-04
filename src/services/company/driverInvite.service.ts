@@ -118,6 +118,10 @@ export class DriverInviteService {
     }
     const driverUserId = driver!.id;
     if (!created) await this.assertInvitable(manager, companyUserId, driver!);
+    // a driver that signed up on its own and is not checked yet: the company inviting it vouches for it
+    if (!created && driver!.verificationStatus !== 'APPROVED') {
+      await manager.update(User, { id: driverUserId }, { verificationStatus: 'APPROVED', verificationDecidedAt: new Date(), verificationDecidedBy: companyUserId });
+    }
     await this.join(manager, driverUserId, companyUserId);
     const existing = await manager.findOne(DriverInvite, { where: { companyUserId, driverUserId } });
     const invite = existing && !isInviteWaiting(existing)

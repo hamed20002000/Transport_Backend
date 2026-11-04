@@ -16,7 +16,7 @@ import { JwtPayload } from 'src/domain/entities/auth/jwt-payload.dto';
 export const SELF_SERVICE_ACCOUNT_TYPES = [AccountType.Driver, AccountType.Company, AccountType.Factory, AccountType.Broker] as const;
 
 /** a transport company, factory or broker that signs up on its own is checked by a parent company (AccountVerificationService) */
-export const VERIFIED_ACCOUNT_TYPES: readonly AccountType[] = [AccountType.Company, AccountType.Factory, AccountType.Broker];
+export const VERIFIED_ACCOUNT_TYPES: readonly AccountType[] = [AccountType.Company, AccountType.Factory, AccountType.Broker, AccountType.Driver];
 
 /** a transport company or factory is always a legal entity (حقوقی); there is no «حقیقی» company */
 const LEGAL_ACCOUNT_TYPES: readonly AccountType[] = [AccountType.Company, AccountType.Factory];

@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, OnModuleInit } from '@nestjs/common';
 
 import { ContextManager } from 'src/application/services/agent/contextManager';
 import messages from 'src/application/services/agent/localFiles/messages.json';
@@ -116,8 +116,20 @@ export class DriverCargoTools implements OnModuleInit {
         }
 
         const cargo = cargoLine(listing);
+        // an export or import load: the border, from the borders toward where it goes abroad (as on the other channels)
+        let border: string | undefined;
+        const borders = await self.trips.borderChoices(listing.id).catch(() => null);
+        if (borders?.needed) {
+          border = yield* pickOne(
+            borders.options,
+            textParam(param.border),
+            { id: (name) => name, title: (name) => name, text: (name) => name },
+            format(messages.driverLoads.pickBorder, { label: borders.label }),
+          );
+          if (!border) ctx.fail(messages.driverLoads.borderNotPicked);
+        }
         try {
-          const request = await self.trips.request(ctx.userId, listing.id, 'agent');
+          const request = await self.trips.request(ctx.userId, listing.id, 'agent', undefined, border);
           // کارت همان بار با درخواست تازه، مثل صفحه بعد از زدن «درخواست بار»
           const card = { ...listing, myRequest: { id: request.id, status: request.status }, kind: 'driver_load' };
           return ctx.done(
@@ -126,6 +138,8 @@ export class DriverCargoTools implements OnModuleInit {
             { list: [card] },
           );
         } catch (error) {
+          // the server's own reason for a driver whose profile lacks the company or fare
+          if (error instanceof BadRequestException) ctx.fail(error.message);
           const reason = error instanceof ConflictException ? error.message : '';
           const known = REQUEST_CONFLICTS.find((item) => item === reason);
           ctx.fail(known ? format(messages.driverLoads[known], { cargo }) : messages.driverLoads.requestFailed);

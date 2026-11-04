@@ -81,6 +81,10 @@ export class CargoRequest {
   @Column({ type: 'jsonb', nullable: true })
   forDriver?: BrokerDriver | null;
 
+  /** the border the load leaves (or enters) Iran by, picked with the request (LoadBorderService); null: domestic */
+  @Column({ type: 'varchar', length: 60, nullable: true })
+  exitBorder?: string | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 

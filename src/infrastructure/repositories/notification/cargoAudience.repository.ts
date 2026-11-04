@@ -1,3 +1,4 @@
+import { driverVerificationOn } from 'src/domain/helper/driverVerification';
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -77,6 +78,8 @@ export class CargoAudienceRepository {
     if (publisherUserId && !(await this.isParentCompany(publisherUserId))) {
       query.andWhere('profile.companyUserIds @> ARRAY[:publisherUserId]::uuid[]', { publisherUserId });
     }
+    // a driver that signed up on its own gets loads only after a parent company checks it (AccountVerificationService)
+    if (driverVerificationOn()) query.andWhere("user.verificationStatus = 'APPROVED'");
     const rows = await query
       .andWhere('user.recordStatus = :active')
       .setParameters({

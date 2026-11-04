@@ -33,8 +33,7 @@ import { SubscriptionGuard } from 'src/auth/guards/subscription.guard';
 import { JwtPayload } from 'src/domain/entities/auth/jwt-payload.dto';
 import { CargoRequest } from 'src/domain/entities/notification/CargoRequest';
 import { CargoRequestStatus, CargoTripType } from 'src/domain/enums/notification';
-import { CreateCargoRequestDto, DriverLocationDto, DriverPlaceDto, RespondOfferDto, SuggestDriversDto } from 'src/dto/notification/DriverDto';
-import { DriverSuggestionService } from 'src/services/notification/driverSuggestion.service';
+import { CreateCargoRequestDto, DriverLocationDto, DriverPlaceDto, RespondOfferDto } from 'src/dto/notification/DriverDto';
 import { UpdateDriverProfileDto } from 'src/dto/notification/DriverProfileDto';
 import {
   DRIVER_PHOTO_KINDS,
@@ -49,7 +48,7 @@ import { BorderStatusService } from 'src/services/border/borderStatus.service';
 import { CargoListingService } from 'src/services/notification/cargoListing.service';
 import { CargoVoiceService } from 'src/services/notification/cargoVoice.service';
 import { CargoTripService } from 'src/services/notification/cargoTrip.service';
-import { LOAD_REQUESTER_ROLES, isBrokerOnly } from 'src/services/notification/loadRequesters';
+import { LOAD_REQUESTER_ROLES } from 'src/services/notification/loadRequesters';
 import { AccountVerificationService } from 'src/services/company/accountVerification.service';
 import { FUEL_KINDS, FuelKind } from 'src/services/routing/fuelStation.service';
 import { GeoPoint } from 'src/services/routing/geo';
@@ -64,13 +63,6 @@ type AuthRequest = { user?: JwtPayload };
 
 // بیشترین نقطه‌ی هر مسیر در پاسخ؛ برای کشیدن طرح مسیر کافی است.
 const ROUTE_POINTS = 120;
-
-function brokerOnly(request: AuthRequest): string {
-  const user = request.user;
-  if (!user?.userId) throw new UnauthorizedException();
-  if (!user.roles?.includes('BROKER')) throw new ForbiddenException('onlyBroker');
-  return user.userId;
-}
 
 function currentDriverId(request: AuthRequest): string {
   const user = request.user;
@@ -88,7 +80,8 @@ async function currentRequesterId(request: AuthRequest, verification: AccountVer
   if (!user?.userId) throw new UnauthorizedException();
   const roles = user.roles ?? [];
   if (!roles.some((role) => LOAD_REQUESTER_ROLES.includes(role))) throw new ForbiddenException('onlyDriver');
-  if (isBrokerOnly(roles) && !(await verification.isApproved(user.userId))) throw new ForbiddenException('notVerified');
+  // a driver or broker that signed up on its own works only after a parent company checks it
+  if (!(await verification.isApproved(user.userId))) throw new ForbiddenException('notVerified');
   return user.userId;
 }
 
@@ -131,7 +124,6 @@ export class DriverController {
     private readonly borders: BorderStatusService,
     private readonly accounts: AccountVerificationService,
     private readonly usage: UsageService,
-    private readonly suggestions: DriverSuggestionService,
   ) {}
 
   private requester(request: AuthRequest): Promise<string> {
@@ -205,6 +197,8 @@ export class DriverController {
     void this.usage.event(requester, 'load_detail', webChannel(mode), id);
     return {
       listing: this.listings.toView(insight.listing),
+      // the load's type as it really is (a load saved domestic but going abroad is export here)
+      tripType: insight.tripType,
       originPoint: insight.originPoint,
       destinationPoint: insight.destinationPoint,
       routes: insight.routes.map((route) => ({ ...route, points: thin(route.points) })),
@@ -225,6 +219,13 @@ export class DriverController {
     const route = insight?.routes[routeIndex];
     if (!route) throw new NotFoundException('Route not found.');
     return this.insight.fuelAlong(route, fuelKinds(fuel));
+  }
+
+  // مرزهایی که درخواست این بار از میانشان انتخاب می‌کند (صادراتی: سمت مقصد، وارداتی: سمت مبدأ؛ داخلی: needed=false)
+  @Get('loads/:id/exit-borders')
+  async exitBorders(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string) {
+    await this.requester(request);
+    return this.trips.borderChoices(id);
   }
 
   // وضعیت مرزهایی که یکی از مسیرهای بار از آن‌ها می‌گذرد (بار صادراتی، وارداتی، ترانزیت)
@@ -310,30 +311,6 @@ export class DriverController {
     return { items: items.map((item) => this.requestView(item)), total, ...paging };
   }
 
-  // واسط: «معرفی راننده» (پولی) برای یک بار؛ 409 noSuggestions / taken / notPurchased / already
-  @Post('suggestions')
-  suggest(@Req() request: AuthRequest, @Body() dto: SuggestDriversDto) {
-    return this.suggestions.suggest(brokerOnly(request), dto.listingId);
-  }
-
-  // واسط: معرفی‌هایی که هنوز منتظر جواب راننده‌اند
-  @Get('suggestions')
-  waitingSuggestions(@Req() request: AuthRequest) {
-    return this.suggestions.waiting(brokerOnly(request));
-  }
-
-  // راننده: پیشنهادهای واسط‌ها که هنوز می‌تواند جواب بدهد
-  @Get('broker-offers')
-  brokerOffers(@Req() request: AuthRequest) {
-    return this.suggestions.openFor(currentDriverId(request));
-  }
-
-  // راننده: «می‌خواهم» / «نه»؛ accepted، declined، closed (دیگر باز نیست) یا profile (پروفایل ناقص)
-  @Patch('broker-offers/:id')
-  async answerBrokerOffer(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RespondOfferDto) {
-    return { result: await this.suggestions.answer(currentDriverId(request), id, dto.accept) };
-  }
-
   // واسط: راننده‌هایی که قبلاً برایشان درخواست داده، برای انتخاب دوباره
   @Get('requests/drivers')
   async brokerDrivers(@Req() request: AuthRequest) {
@@ -343,7 +320,7 @@ export class DriverController {
   // خطاهای 409 با کلید: taken، own، already، rejected؛ 400 برای مشخصات راننده‌ی ناقص واسط
   @Post('requests')
   async createRequest(@Req() request: AuthRequest, @Body() dto: CreateCargoRequestDto, @Headers('x-app-mode') mode?: string) {
-    return this.requestView(await this.trips.request(await this.requester(request), dto.listingId, webChannel(mode), dto.forDriver));
+    return this.requestView(await this.trips.request(await this.requester(request), dto.listingId, webChannel(mode), dto.forDriver, dto.exitBorder));
   }
 
   // بار سپرده‌شده توسط شرکت: تأیید (سفر شروع می‌شود و بار «برداشته شد») یا رد
@@ -434,6 +411,7 @@ export class DriverController {
       offerExpiresAt: item.offerExpiresAt ?? null,
       // a broker's request: the driver it is for
       forDriver: item.forDriver ?? null,
+      exitBorder: item.exitBorder ?? item.forDriver?.exitBorder ?? null,
       listing: item.listing ? this.listings.toView(item.listing) : null,
     };
   }

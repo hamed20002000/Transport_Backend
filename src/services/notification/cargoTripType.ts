@@ -115,10 +115,29 @@ const ROUTE_SCHEMA = {
   required: ['origin_country', 'origin_in_iran', 'destination_country', 'destination_in_iran'],
 };
 
+const LATIN_PROMPT = `You get one cargo route from an Iranian freight message (origin → destination), place names in
+Persian script; one end is outside Iran. For each end give its usual Latin-script name as a world map search would find
+it, with its country: «آنتب» → «Gaziantep, Turkey», «امبارلی» → «Ambarli, Istanbul, Turkey», «قبضه» → «Kapıköy, Turkey».
+A Persian spelling of a foreign name may differ from the usual one (ب for پ, missing vowels); use the other end as
+context. null for an end you do not recognise.`;
+
+const LATIN_SCHEMA = {
+  type: 'object',
+  properties: { origin: { type: ['string', 'null'] }, destination: { type: ['string', 'null'] } },
+  required: ['origin', 'destination'],
+};
+
 // مسیر جایش عوض نمی‌شود؛ فقط جواب کامل کش می‌شود تا «نمی‌دانم» بعداً دوباره پرسیده شود
 const ROUTE_TTL_SECONDS = 180 * 24 * 3600;
 
 type Side = boolean | null;
+
+/** «Pleven, Bulgaria» → false (abroad), «Bam, Iran» → true, no country → null: by the last part, the country. */
+export function latinSide(name: string | null | undefined): Side {
+  const country = name?.split(',').pop()?.trim();
+  if (!country || !name!.includes(',')) return null;
+  return /^iran\b/i.test(country) || /islamic republic of iran/i.test(country);
+}
 
 /**
  * نوع بار از مبدأ و مقصد: ایران → خارج صادراتی، خارج → ایران وارداتی، هر دو ایران داخلی، هر دو خارج
@@ -153,6 +172,36 @@ export class CargoTripTypeService {
     return CargoTripType.Domestic;
   }
 
+  /**
+   * The Latin names of a route's ends («آنتب» → «Gaziantep, Turkey»), for finding a place abroad on the map: its
+   * Persian spelling finds a shop of the same name, or a namesake in Iran. Cached per route; null where unknown.
+   */
+  async latinNames(origin: string, destination: string): Promise<{ origin: string | null; destination: string | null }> {
+    const key = RedisService.key('placeLatinName', `${normalizePersianText(origin)} → ${normalizePersianText(destination)}`);
+    const cached = await this.redis.getJson<{ origin: string | null; destination: string | null }>(key).catch(() => null);
+    if (cached) return cached;
+    try {
+      const { content, source } = await llmAnswer({
+        messages: [
+          { role: 'system', content: LATIN_PROMPT },
+          { role: 'user', content: `${origin || '-'} → ${destination || '-'}` },
+        ],
+        format: LATIN_SCHEMA,
+        options: { temperature: 0 },
+        tier: 'light',
+        localFallback: true,
+      });
+      const answer = JSON.parse(content) as { origin: unknown; destination: unknown };
+      const name = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : null);
+      const names = { origin: name(answer.origin), destination: name(answer.destination) };
+      if (source !== 'local' && (names.origin || names.destination)) await this.redis.setJson(key, names, ROUTE_TTL_SECONDS).catch(() => undefined);
+      return names;
+    } catch (error) {
+      this.logger.warn(`Could not ask the model for the Latin names of «${origin}» → «${destination}»: ${(error as Error).message}`);
+      return { origin: null, destination: null };
+    }
+  }
+
   /** هر طرف: true داخل ایران، false خارج، null نامعلوم (یا خالی). */
   private async locate(origin: string, destination: string): Promise<[Side, Side]> {
     // undefined: در فهرست نیست و باید پرسیده شود
@@ -168,11 +217,24 @@ export class CargoTripTypeService {
     if (answer?.source === 'openai' && known.some((side, i) => side === undefined && answer!.sides[i] === null)) {
       answer = (await this.askModel(origin, destination, 'strong')) ?? answer;
     }
+    // a side the model left unknown: the country of its Latin name («پلون» → «Pleven, Bulgaria»), asked separately
+    // and steadier; the map only after that, and its answer is not cached: it finds a namesake in Iran for nearly
+    // any foreign name («پلون» in Tehran), which kept a load to Bulgaria «domestic» for half a year
+    let unsure = false;
+    const latin = known.some((side, i) => side === undefined && (answer?.sides[i] ?? null) === null) ? await this.latinNames(origin, destination) : null;
     const sides = (await Promise.all(
-      known.map(async (side, i) => (side !== undefined ? side : answer?.sides[i] ?? (await this.lookupMap(i === 0 ? origin : destination)))),
+      known.map(async (side, i) => {
+        if (side !== undefined) return side;
+        const fromModel = answer?.sides[i] ?? null;
+        if (fromModel !== null) return fromModel;
+        const fromLatin = latinSide(i === 0 ? latin?.origin : latin?.destination);
+        if (fromLatin !== null) return fromLatin;
+        unsure = true;
+        return this.lookupMap(i === 0 ? origin : destination);
+      }),
     )) as [Side, Side];
     // جواب مدل محلی کش نمی‌شود: اسم شهرهای ترکیه را گاهی ایران می‌داند؛ دفعه‌ی بعد OpenAI دوباره می‌پرسد
-    if (!sides.includes(null) && answer?.source !== 'local') await this.redis.setJson(key, sides, ROUTE_TTL_SECONDS).catch(() => undefined);
+    if (!sides.includes(null) && !unsure && answer?.source !== 'local') await this.redis.setJson(key, sides, ROUTE_TTL_SECONDS).catch(() => undefined);
     return sides;
   }
 

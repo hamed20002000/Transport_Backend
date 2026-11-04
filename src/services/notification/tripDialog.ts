@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
-import { BROKER_DRIVER_FIELDS, BrokerDriver, brokerDriverLine, readBrokerDriverField } from 'src/domain/helper/brokerDriver';
+import { BROKER_DRIVER_FIELDS, BROKER_DRIVER_IDENTITY_FIELDS, BrokerDriver, brokerDriverLine, readBrokerDriverField } from 'src/domain/helper/brokerDriver';
 import { I18nService } from 'nestjs-i18n';
 
 import { cargoLine, fa } from 'src/application/services/agent/tools/toolKit';
@@ -34,7 +34,6 @@ import { LOAD_REQUESTER_ROLES } from './loadRequesters';
 import { messengerOf } from '../analytics/usageChannelOf';
 import { UsageService } from '../analytics/usage.service';
 import { BROKER_ACCESS_ACTION } from '../company/brokerAccessDialog';
-import { DriverSuggestionService } from './driverSuggestion.service';
 
 const PREFIX = 'tr:';
 const Action = {
@@ -53,8 +52,8 @@ const Action = {
   BrokerDriver: `${PREFIX}bd:`, // + listingId:index
   BrokerNewDriver: `${PREFIX}bn:`, // + listingId
   BrokerSkip: `${PREFIX}bs`,
-  // «معرفی راننده» (پولی) برای این بار
-  BrokerSuggest: `${PREFIX}sg:`, // + listingId
+  // the border of an export or import load's request, picked from the borders toward where it goes abroad
+  Border: `${PREFIX}eb:`, // + listingId:index
   Close: `${PREFIX}close`,
 } as const;
 
@@ -66,7 +65,7 @@ const DRIVER_ROLES = ['DRIVER'];
 // what a broker (واسط) does here, like a driver: a load's detail, requesting it, its requests and cancelling one
 const REQUESTER_ACTIONS = [
   Action.Detail, Action.RouteDetail, Action.RouteFuel, Action.CargoReturns, Action.Request, Action.DriverRequests, Action.Cancel, Action.OfferYes, Action.OfferNo,
-  Action.BrokerDriver, Action.BrokerNewDriver, Action.BrokerSkip, Action.BrokerSuggest,
+  Action.BrokerDriver, Action.BrokerNewDriver, Action.BrokerSkip, Action.Border,
 ];
 const CANCEL_WORDS = ['لغو', 'انصراف', 'cancel'];
 const PAGE_SIZE = 5;
@@ -99,6 +98,8 @@ interface TripSession {
   returnCity?: string;
   /** a broker giving the driver of its request, one field after another (BROKER_DRIVER_FIELDS) */
   brokerForm?: { listingId: string; step: number; driver: Partial<BrokerDriver> };
+  /** a broker's driver given, its request waiting for the border to be picked */
+  brokerReady?: { listingId: string; driver: BrokerDriver };
 }
 
 /** ردیف‌بندی دکمه‌ها: هر add یک ردیف و grid چند ردیف دوتایی. */
@@ -151,7 +152,6 @@ export class TripDialog implements BotDialog, OnModuleInit {
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     private readonly speech: TextToSpeechService,
     @Optional() private readonly usage?: UsageService,
-    @Optional() private readonly suggestions?: DriverSuggestionService,
   ) {}
 
   onModuleInit(): void {
@@ -234,12 +234,13 @@ export class TripDialog implements BotDialog, OnModuleInit {
     if (id.startsWith(Action.BrokerDriver)) {
       const [listingId, index] = arg(Action.BrokerDriver).split(':');
       const driver = (await this.trips.recentBrokerDrivers(ctx.userId))[Number(index)];
-      return driver ? this.submitRequest(ctx, listingId, driver) : this.brokerPick(ctx, listingId);
+      return driver ? this.brokerFormStart(ctx, listingId, driver) : this.brokerPick(ctx, listingId);
+    }
+    if (id.startsWith(Action.Border)) {
+      const [listingId, index] = arg(Action.Border).split(':');
+      return this.borderPicked(ctx, listingId, Number(index));
     }
     if (id.startsWith(Action.BrokerNewDriver)) return this.brokerFormStart(ctx, arg(Action.BrokerNewDriver));
-    if (id.startsWith(Action.BrokerSuggest)) return this.suggestDrivers(ctx, arg(Action.BrokerSuggest));
-    if (id.startsWith(Action.SuggestionYes)) return this.answerSuggestion(ctx, arg(Action.SuggestionYes), true);
-    if (id.startsWith(Action.SuggestionNo)) return this.answerSuggestion(ctx, arg(Action.SuggestionNo), false);
     if (id === Action.BrokerSkip) {
       const form = (await this.getSession(ctx))?.brokerForm;
       return form ? this.brokerFormText(ctx, form, '-') : { text: this.t('failed'), actions: [this.back()] };
@@ -294,19 +295,48 @@ export class TripDialog implements BotDialog, OnModuleInit {
 
   //#region ----------- Driver: request / my requests ---------------------------
 
-  /** A driver's request goes at once; a broker's first names the driver it is for. */
+  /**
+   * A driver's request goes at once, after the border for an export or import load; a broker's first names the
+   * driver it is for, then the border.
+   */
   private async request(ctx: BotContext, listingId: string): Promise<BotReply> {
     if (await this.trips.isBroker(ctx.userId)) return this.brokerPick(ctx, listingId);
-    return this.submitRequest(ctx, listingId);
+    await this.clearSession(ctx);
+    return this.askBorderOrSubmit(ctx, listingId);
   }
 
-  private async submitRequest(ctx: BotContext, listingId: string, forDriver?: BrokerDriver): Promise<BotReply> {
+  /** The border buttons of an export or import load; a domestic one's request is sent at once. */
+  private async askBorderOrSubmit(ctx: BotContext, listingId: string, forDriver?: BrokerDriver): Promise<BotReply> {
+    const choice = await this.trips.borderChoices(listingId).catch(() => null);
+    if (!choice?.needed) return this.submitRequest(ctx, listingId, forDriver);
+    if (forDriver) await this.saveSession(ctx, { brokerReady: { listingId, driver: forDriver } });
+    const rows = new Rows()
+      .grid(choice.options.map((name, index) => ({ id: `${Action.Border}${listingId}:${index}`, label: `🛂 ${name}` })))
+      .add(this.back());
+    return { text: this.t('border.ask', { label: choice.label }), actions: rows.actions };
+  }
+
+  private async borderPicked(ctx: BotContext, listingId: string, index: number): Promise<BotReply> {
+    const choice = await this.trips.borderChoices(listingId).catch(() => null);
+    const border = choice?.options[index];
+    if (!border) return { text: this.t('failed'), actions: [this.back()] };
+    const ready = (await this.getSession(ctx))?.brokerReady;
+    await this.clearSession(ctx);
+    // a broker whose driver was given: the request goes for it; a lost one asks for the driver again
+    if (await this.trips.isBroker(ctx.userId)) {
+      return ready?.listingId === listingId ? this.submitRequest(ctx, listingId, ready.driver, border) : this.brokerPick(ctx, listingId);
+    }
+    return this.submitRequest(ctx, listingId, undefined, border);
+  }
+
+  private async submitRequest(ctx: BotContext, listingId: string, forDriver?: BrokerDriver, border?: string): Promise<BotReply> {
     let notice: string;
     let noCredit = false;
     try {
-      const request = await this.trips.request(ctx.userId, listingId, messengerOf(ctx), forDriver);
+      const request = await this.trips.request(ctx.userId, listingId, messengerOf(ctx), forDriver, border);
       notice = this.t('request.sent', { cargo: this.trips.cargoTitle(request) });
       if (forDriver) notice += `\n\n${brokerDriverLine(forDriver)}`;
+      if (request.exitBorder) notice += `\n🛂 ${request.exitBorder}`;
     } catch (error) {
       // a button of an older message, from before the packages ran out
       noCredit = error instanceof ConflictException && error.message === 'noCredit';
@@ -331,50 +361,13 @@ export class TripDialog implements BotDialog, OnModuleInit {
     const rows = new Rows();
     for (const [index, driver] of recent.entries()) rows.add({ id: `${Action.BrokerDriver}${listingId}:${index}`, label: `🚚 ${driver.name} · ${driver.plate}` });
     rows.add({ id: `${Action.BrokerNewDriver}${listingId}`, label: this.t('brokerDriver.new') });
-    const suggest = await this.suggestions?.brokerState(ctx.userId);
-    if (suggest?.enabled) rows.add({ id: `${Action.BrokerSuggest}${listingId}`, label: this.t('brokerDriver.suggest', { left: fa(suggest.left) }) });
     rows.add(this.back());
     return { text: this.t(recent.length ? 'brokerDriver.pick' : 'brokerDriver.first'), actions: rows.actions };
   }
 
-  /** «معرفی راننده»: drivers of this route are told of it; the first who wants it becomes the request's driver. */
-  private async suggestDrivers(ctx: BotContext, listingId: string): Promise<BotReply> {
-    let text: string;
-    let noCredit = false;
-    try {
-      const { asked } = await this.suggestions!.suggest(ctx.userId, listingId);
-      text = asked ? this.t('brokerDriver.suggested', { count: fa(asked) }) : this.t('brokerDriver.noneFound');
-    } catch (error) {
-      noCredit = error instanceof ConflictException && error.message === 'noSuggestions';
-      text = noCredit ? this.t('brokerDriver.noSuggestions') : error instanceof BadRequestException ? error.message : this.conflictText(error, 'suggest');
-    }
-    return {
-      text,
-      actions: new Rows()
-        .add(...(noCredit ? [{ id: BROKER_ACCESS_ACTION, label: this.t('actions.buySuggestions') }] : []))
-        .add({ id: `${Action.DriverRequests}1`, label: this.t('actions.myRequests') }, { id: FIND_CARGO, label: this.t('actions.findCargo') })
-        .add(this.back()).actions,
-    };
-  }
-
-  /** A driver's answer to a broker's offer. */
-  private async answerSuggestion(ctx: BotContext, offerId: string, accept: boolean): Promise<BotReply> {
-    let result: string;
-    try {
-      result = await this.suggestions!.answer(ctx.userId, offerId, accept);
-    } catch {
-      result = 'closed';
-    }
-    return {
-      text: this.t(`suggestion.${result}`),
-      actions: new Rows()
-        .add({ id: `${Action.DriverRequests}1`, label: this.t('actions.myRequests') }, { id: FIND_CARGO, label: this.t('actions.findCargo') })
-        .add(this.back()).actions,
-    };
-  }
-
-  private async brokerFormStart(ctx: BotContext, listingId: string): Promise<BotReply> {
-    const form = { listingId, step: 0, driver: {} };
+  /** The form from its first field, or, for a recent driver (who it is known), from the request's details. */
+  private async brokerFormStart(ctx: BotContext, listingId: string, known?: BrokerDriver): Promise<BotReply> {
+    const form = known ? { listingId, step: BROKER_DRIVER_IDENTITY_FIELDS.length, driver: known } : { listingId, step: 0, driver: {} };
     await this.saveSession(ctx, { brokerForm: form });
     return this.brokerAsk(form);
   }
@@ -406,7 +399,7 @@ export class TripDialog implements BotDialog, OnModuleInit {
       return this.brokerAsk(next);
     }
     await this.clearSession(ctx);
-    return this.submitRequest(ctx, form.listingId, next.driver as BrokerDriver);
+    return this.askBorderOrSubmit(ctx, form.listingId, next.driver as BrokerDriver);
   }
 
   private async cancel(ctx: BotContext, requestId: string): Promise<BotReply> {

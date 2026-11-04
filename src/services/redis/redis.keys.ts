@@ -40,10 +40,15 @@ export const KEY_PREFIXES = {
   whatsappLive: 'whatsapp:live-location:v1',
   // v3: مکان خارجی به هم‌نام داخل ایران نمی‌رسد و کل اسم یکجا کش می‌شود (نتیجه‌های قبلی دور ریخته می‌شوند)
   routingGeocode: 'routing:geocode:v4',
+  // a place known to be abroad, by the worldwide search alone (RoutingService.pointAbroad)
+  routingAbroad: 'routing:abroad:v1',
   routingPlace: 'routing:place:v1',
   // داخل ایران بودن مبدأ و مقصد یک مسیر بار (نوع سفر بار)؛ v3: v1 جواب‌های غلط مدل محلی و v2 جواب‌های
   // نشان (هم‌نام ایرانی برای اسم خارجی) را هم نگه داشته بودند
-  tripTypeRoute: 'cargo:trip-type-route:v3',
+  // v4: answers that leaned on the map (an Iranian namesake of a foreign place) were cached as domestic
+  tripTypeRoute: 'cargo:trip-type-route:v4',
+  // a place abroad's Latin name, as a map search finds it («آنتب» → «Gaziantep, Turkey»)
+  placeLatinName: 'cargo:place-latin-name:v1',
   // v3: مسیر مبدأ/مقصد خارجی با OSRM جهانی (نشان تا مرز حساب می‌کرد)
   routingRoutes: 'routing:routes:v3',
   routingDistance: 'routing:distance:v2',
@@ -114,8 +119,10 @@ export type RedisKeyParts = {
   whatsappMenuMessages: [userId: string];
   whatsappLive: [userId: string];
   routingGeocode: [place: string];
+  routingAbroad: [place: string];
   routingPlace: [point: string];
   tripTypeRoute: [route: string];
+  placeLatinName: [route: string];
   routingRoutes: [points: string];
   routingDistance: [points: string];
   routingTraffic: [points: string];
@@ -218,7 +225,7 @@ export interface AccountVerificationEvent {
   name: string;
   /** a decision; absent for a new request */
   approved?: boolean;
-  kind?: 'COMPANY' | 'FACTORY' | 'BROKER';
+  kind?: 'COMPANY' | 'FACTORY' | 'BROKER' | 'DRIVER';
   reason?: string;
   /** requests left after a rejection */
   remaining?: number;

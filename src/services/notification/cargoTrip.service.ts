@@ -2,10 +2,10 @@ import { BadRequestException, ConflictException, Inject, Injectable, Logger, Not
 import { I18nService } from 'nestjs-i18n';
 
 import { cargoLine, fa } from 'src/application/services/agent/tools/toolKit';
-import { BrokerDriver, BrokerDriverField, brokerDriverLine, readBrokerDriver } from 'src/domain/helper/brokerDriver';
+import { BrokerDriver, BrokerDriverField, brokerDriverIdentity, brokerDriverLine, readBrokerDriver } from 'src/domain/helper/brokerDriver';
 import { CargoRequest } from '../../domain/entities/notification/CargoRequest';
 import { DriverLocation } from '../../domain/entities/notification/DriverLocation';
-import { CargoListingStatus, CargoRequestStatus } from '../../domain/enums/notification';
+import { CargoListingStatus, CargoRequestStatus, CargoTripType } from '../../domain/enums/notification';
 import { IBotLinkRepository } from '../../domain/repositories/messengerBot/IBotLinkRepository';
 import { BOT_LINK_REPOSITORY } from '../../domain/repositories/repository.tokens';
 import {
@@ -26,6 +26,8 @@ import { WhatsappDialogBridge } from './whatsappDialogBridge';
 import { DriverProfileService } from '../driver/driverProfile.service';
 import { BrokerAccessService, BrokerBlock } from '../company/brokerAccess.service';
 import { sendThroughOne } from './messengerOrder';
+import { LoadBorderService } from './loadBorder.service';
+import { driverRequestFieldsOn } from 'src/domain/helper/driverVerification';
 import { NotificationsGateway } from './notifications.gateway';
 import { UsageChannel } from 'src/domain/entities/analytics/usageChannel';
 import { WebPushService } from './webPush.service';
@@ -87,6 +89,7 @@ export class CargoTripService {
     private readonly gateway: NotificationsGateway,
     @Optional() private readonly push?: WebPushService,
     @Optional() private readonly brokerAccess?: BrokerAccessService,
+    @Optional() private readonly borders?: LoadBorderService,
   ) {}
 
   /** Companies whose loads this user sees: null for all (a driver, or nothing sold to brokers); a broker gets what it bought. */
@@ -141,15 +144,16 @@ export class CargoTripService {
   /** source: where the request was made (the app, a browser, a messenger, the assistant), for the admin's figures. */
   /**
    * forDriver: a broker's request is for a driver it names (BrokerDriver), required from a broker and kept with the
-   * request; a driver's own request ignores it. charge: false for the request a «معرفی راننده» made (the suggestion
-   * was paid already), so it takes nothing off the broker's request packages.
+   * request with this request's details (company, fare, exit border, referrer); a driver's own request ignores it and
+   * needs those of its profile instead (DriverProfileService.missingForRequest). exitBorder: the border picked for an
+   * export or import load (LoadBorderService), required of both.
    */
   async request(
     driverUserId: string,
     listingId: string,
     source: UsageChannel | null = null,
     forDriver?: Partial<Record<BrokerDriverField, unknown>> | null,
-    { charge = true }: { charge?: boolean } = {},
+    exitBorder?: string | null,
   ): Promise<CargoRequest> {
     const broker = await this.isBroker(driverUserId);
     let driverFor: BrokerDriver | null = null;
@@ -157,6 +161,10 @@ export class CargoTripService {
       const read = readBrokerDriver(forDriver);
       if ('error' in read) throw new BadRequestException(read.error);
       driverFor = read.driver;
+    } else {
+      // a driver's own request: its company and fare come from its profile and must be filled first
+      const missing = driverRequestFieldsOn() ? await this.profiles.missingForRequest(driverUserId) : [];
+      if (missing.length) throw new BadRequestException(`برای درخواست بار اول در پروفایل راننده این‌ها را پر کنید: ${missing.join('، ')}.`);
     }
     const listing = await this.listings.findById(listingId);
     if (!listing) throw new NotFoundException('Cargo listing not found.');
@@ -164,6 +172,7 @@ export class CargoTripService {
     if (listing.publisherUserId === driverUserId) throw new ConflictException('own');
     // a broker requests only the loads of the companies it bought
     if (this.brokerAccess && !(await this.brokerAccess.canSee(driverUserId, listing.publisherUserId))) throw new ConflictException('notPurchased');
+    const border = await this.pickedBorder(listing, exitBorder);
 
     let request = await this.requests.findByListingAndDriver(listingId, driverUserId);
     if (request && [CargoRequestStatus.Pending, CargoRequestStatus.Offered, CargoRequestStatus.Accepted].includes(request.status)) {
@@ -177,8 +186,9 @@ export class CargoTripService {
     request.decidedAt = null;
     request.source = source;
     request.forDriver = driverFor;
+    request.exitBorder = border;
     // a broker's packages count its requests (noCredit); one not saved is given back
-    const charged = this.brokerAccess && charge ? await this.brokerAccess.useRequest(driverUserId) : false;
+    const charged = this.brokerAccess ? await this.brokerAccess.useRequest(driverUserId) : false;
     let saved: CargoRequest;
     try {
       saved = await this.requests.save(request);
@@ -193,6 +203,7 @@ export class CargoTripService {
       driver: this.describe(driver),
       cargo: this.cargoTitle(full),
       forDriver: driverFor ? brokerDriverLine(driverFor) : '',
+      border: border ? `\n🛂 ${border}` : '',
     });
     this.changed(full, { type: 'newRequest', text });
     await this.notify(
@@ -205,6 +216,23 @@ export class CargoTripService {
       ],
     );
     return full;
+  }
+
+  /** The border options of a load for the request form (none for a domestic one). */
+  async borderChoices(listingId: string) {
+    const listing = await this.listings.findById(listingId);
+    if (!listing) throw new NotFoundException('Cargo listing not found.');
+    return this.borders ? this.borders.choices(listing) : { needed: false, label: '', options: [] };
+  }
+
+  /** The border given for an export or import load, as one of the borders; refused with the options when missing. */
+  private async pickedBorder(listing: { tripType: CargoTripType; origin: string; destination: string }, given?: string | null): Promise<string | null> {
+    if (!this.borders) return null;
+    const choice = await this.borders.choices(listing);
+    if (!choice.needed) return null;
+    const name = LoadBorderService.named(given);
+    if (!name) throw new BadRequestException(`${choice.label} را انتخاب کنید: ${choice.options.join('، ')}.`);
+    return name;
   }
 
   async cancel(driverUserId: string, requestId: string): Promise<CargoRequest> {
@@ -241,7 +269,8 @@ export class CargoTripService {
 
   /** A broker's drivers from its earlier requests, to pick one again instead of typing it. */
   recentBrokerDrivers(brokerUserId: string, limit = 8): Promise<BrokerDriver[]> {
-    return this.requests.recentBrokerDrivers(brokerUserId, limit);
+    // who the driver is; the details are the request's own and asked again
+    return this.requests.recentBrokerDrivers(brokerUserId, limit).then((drivers) => drivers.map(brokerDriverIdentity));
   }
 
   driverRequests(driverUserId: string, page: number, pageSize: number, status?: CargoRequestStatus) {
@@ -298,6 +327,7 @@ export class CargoTripService {
           : null,
         driver: cardOf.get(item.driverUserId) ?? null,
         forDriver: forDriver(item),
+        exitBorder: item.exitBorder ?? item.forDriver?.exitBorder ?? null,
       })),
     };
   }
@@ -368,6 +398,7 @@ export class CargoTripService {
             : null,
           driver: cardOf.get(item.driverUserId) ?? null,
           forDriver: forDriver(item),
+          exitBorder: item.exitBorder ?? item.forDriver?.exitBorder ?? null,
           location: location
             ? { latitude: location.latitude, longitude: location.longitude, receivedAt: location.receivedAt, liveUntil: location.liveUntil ?? null }
             : null,

@@ -14,3 +14,11 @@ export function isCompanyNationalId(value: string | null | undefined): boolean {
   const check = sum % 11 === 10 ? 0 : sum % 11;
   return check === digits[10];
 }
+
+/** A person's national code (کد ملی) is real: 10 digits, the last one the check digit of the others. */
+export function isNationalCode(value: string | null | undefined): boolean {
+  if (!value || !/^[0-9]{10}$/.test(value) || /^(\d)\1{9}$/.test(value)) return false;
+  const digits = [...value].map(Number);
+  const sum = digits.slice(0, 9).reduce((total, digit, i) => total + digit * (10 - i), 0) % 11;
+  return sum < 2 ? digits[9] === sum : digits[9] === 11 - sum;
+}

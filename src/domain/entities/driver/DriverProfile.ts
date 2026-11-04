@@ -75,6 +75,17 @@ export class DriverProfile {
   @Column({ type: 'varchar', length: 20, nullable: true })
   fleetCardNumber?: string | null;
 
+  // بیمه‌نامه، لازم برای راننده‌ی داخلی (DRIVER_KIND_REQUIRED): شماره، و تاریخ پایان اعتبار به شمسی مثل birthDate («1404/6/15»)
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  insuranceNumber?: string | null;
+
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  insuranceExpiry?: string | null;
+
+  // the company an international driver goes under: required of one (DRIVER_KIND_REQUIRED) before it requests a load
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  companyName?: string | null;
+
   // نام فایل در DRIVER_PHOTO_DIR (خارج از /uploads عمومی)
   @Column({ type: 'varchar', length: 60, nullable: true })
   vehiclePhoto?: string | null;

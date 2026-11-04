@@ -27,11 +27,14 @@ const FIELD_LABELS: Record<string, string> = {
   smartCardNumber: 'شماره کارت هوشمند',
   licenseNumber: 'شماره گواهینامه',
   fleetCardNumber: 'شماره کارت ناوگان',
+  insuranceNumber: 'شماره بیمه‌نامه',
+  insuranceExpiry: 'تاریخ اعتبار بیمه‌نامه (شمسی)',
   homeCity: 'شهر محل سکونت',
   vehicleType: 'نوع خودرو',
   vehicleModel: 'مدل خودرو',
   plate: 'پلاک',
   capacityTons: 'ظرفیت (تن)',
+  companyName: 'نام شرکت',
   tripType: 'نوع راننده',
   mobile: 'موبایل',
 };
@@ -82,6 +85,8 @@ export class DriverProfileTools implements OnModuleInit {
           if (value === undefined) continue;
           // ظرفیت عدد است (DTO رقم فارسی و «تن» را نمی‌فهمد): «۲۴ تن» → «24»
           if (key === 'capacityTons') changes[key] = toLatinDigits(value).match(/\d+(\.\d+)?/)?.[0] ?? value;
+          // a Shamsi date for the DTO: «۱۴۰۴/۶/۱۵» → «1404/6/15»
+          else if (key === 'insuranceExpiry' || key === 'birthDate') changes[key] = toLatinDigits(value).replace(/\s+/g, '').replace(/[-.]/g, '/');
           // «بین‌المللی»/«صادراتی» → international, «داخلی» → domestic; the profile keeps all the load types of
           // that kind. An unknown value stays for the DTO validation to reject.
           else if (key === 'tripType') {

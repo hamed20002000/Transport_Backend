@@ -1,4 +1,8 @@
 import { normalizePhoneNumber } from 'src/dto/auth/phone-number';
+import { groupDigits } from './digitGroups';
+import { isNationalCode } from './nationalId';
+
+export { isNationalCode };
 
 /**
  * The driver a broker requests a load for (BROKER_DRIVER_FIELDS): kept with the request only, no account is made for
@@ -12,12 +16,23 @@ export interface BrokerDriver {
   plate: string;
   /** the transit plate of international work, e.g. «81AA217/218»; null when it has none */
   transitPlate: string | null;
+  // what the broker tells the company of this request (required of a broker; absent from older requests)
+  /** the company the driver goes under */
+  companyName?: string;
+  /** the fare agreed, as written: digits only when it is a bare number («45000000»), else with its unit */
+  fare?: string;
+  /** the border crossing it leaves Iran by: older requests only; now CargoRequest.exitBorder, picked from a list */
+  exitBorder?: string;
+  /** who introduced the driver */
+  referrer?: string;
 }
 
 export type BrokerDriverField = keyof BrokerDriver;
 
-/** In the order a broker gives them (the bots ask one by one); optional ones may be skipped. */
-export const BROKER_DRIVER_FIELDS: Array<{ key: BrokerDriverField; title: string; optional?: boolean }> = [
+type FieldSpec = { key: BrokerDriverField; title: string; optional?: boolean };
+
+/** Who the driver is: kept for the broker's next requests (its recent drivers). */
+export const BROKER_DRIVER_IDENTITY_FIELDS: FieldSpec[] = [
   { key: 'name', title: 'نام و نام خانوادگی راننده' },
   { key: 'nationalCode', title: 'کد ملی راننده' },
   { key: 'mobile', title: 'موبایل راننده' },
@@ -25,16 +40,24 @@ export const BROKER_DRIVER_FIELDS: Array<{ key: BrokerDriverField; title: string
   { key: 'transitPlate', title: 'پلاک ترانزیت', optional: true },
 ];
 
+/** This request's own details: asked again on every request, a recent driver too. */
+export const BROKER_REQUEST_DETAIL_FIELDS: FieldSpec[] = [
+  { key: 'companyName', title: 'نام شرکت' },
+  { key: 'fare', title: 'مبلغ کرایه' },
+  { key: 'referrer', title: 'معرف' },
+];
+
+/** In the order a broker gives them (the bots ask one by one); optional ones may be skipped. */
+export const BROKER_DRIVER_FIELDS: FieldSpec[] = [...BROKER_DRIVER_IDENTITY_FIELDS, ...BROKER_REQUEST_DETAIL_FIELDS];
+
+/** A recent driver without the details of the request it came from. */
+export function brokerDriverIdentity(driver: BrokerDriver): BrokerDriver {
+  const { name, nationalCode, mobile, plate, transitPlate } = driver;
+  return { name, nationalCode, mobile, plate, transitPlate: transitPlate ?? null };
+}
+
 const latinDigits = (text: string) =>
   text.replace(/[۰-۹]/g, (digit) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit))).replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)));
-
-/** An Iranian personal national code (کد ملی) is real: 10 digits, the last one the check digit of the others. */
-export function isNationalCode(value: string): boolean {
-  if (!/^[0-9]{10}$/.test(value) || /^(\d)\1{9}$/.test(value)) return false;
-  const digits = [...value].map(Number);
-  const sum = digits.slice(0, 9).reduce((total, digit, i) => total + digit * (10 - i), 0) % 11;
-  return sum < 2 ? digits[9] === sum : digits[9] === 11 - sum;
-}
 
 /** One field as given (any digits, spaces): its stored form, or the reason it is refused. */
 export function readBrokerDriverField(key: BrokerDriverField, input: unknown): { value: string | null } | { error: string } {
@@ -57,10 +80,24 @@ export function readBrokerDriverField(key: BrokerDriverField, input: unknown): {
     case 'transitPlate':
       if (!text || text === '-') return { value: null };
       return text.length <= 30 ? { value: text.toUpperCase() } : { error: 'پلاک ترانزیت بیش از حد بلند است.' };
+    case 'companyName':
+      if (text.length < 2 || text.length > 100) return { error: 'نام شرکت را کامل بنویسید.' };
+      return { value: text };
+    case 'fare': {
+      if (!/[0-9]/.test(text) || text.length > 50) return { error: 'مبلغ کرایه را با عدد بنویسید؛ مثلاً ۴۵٬۰۰۰٬۰۰۰ تومان.' };
+      // a bare number keeps only its digits; with a unit («1500 دلار») it stays as written
+      return { value: /^[0-9][0-9\s,٬.]*$/.test(text) ? text.replace(/[^0-9]/g, '') : text };
+    }
+    case 'exitBorder':
+      if (text.length < 2 || text.length > 60) return { error: 'مرز خروج را بنویسید؛ مثلاً بازرگان.' };
+      return { value: text };
+    case 'referrer':
+      if (text.length < 2 || text.length > 100) return { error: 'معرف را بنویسید (نام یا شماره‌اش).' };
+      return { value: text };
   }
 }
 
-/** All the fields at once (web, the assistant): the driver, or the first reason one is refused. */
+/** All the fields at once (web): the driver, or the first reason one is refused. */
 export function readBrokerDriver(input: Partial<Record<BrokerDriverField, unknown>> | null | undefined): { driver: BrokerDriver } | { error: string } {
   const driver: Partial<BrokerDriver> = {};
   for (const { key } of BROKER_DRIVER_FIELDS) {
@@ -79,5 +116,9 @@ export function brokerDriverLine(driver: BrokerDriver): string {
     `موبایل ${driver.mobile}`,
     `پلاک ${driver.plate}`,
     driver.transitPlate ? `ترانزیت ${driver.transitPlate}` : '',
+    driver.companyName ? `شرکت ${driver.companyName}` : '',
+    driver.fare ? `کرایه ${groupDigits(driver.fare)}` : '',
+    driver.exitBorder ? `مرز خروج ${driver.exitBorder}` : '',
+    driver.referrer ? `معرف ${driver.referrer}` : '',
   ].filter(Boolean).join(' · ');
 }

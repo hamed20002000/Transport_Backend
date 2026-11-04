@@ -9,6 +9,7 @@ import { AppSetting } from 'src/domain/entities/setting/AppSetting';
 import { RecordStatus } from 'src/domain/enums/RecordStatus';
 import { SubscriptionOrderStatus } from 'src/domain/enums/subscription';
 import { BROKER_ROLE, isBrokerOnly } from '../notification/loadRequesters';
+import { brokersOpen } from 'src/domain/helper/brokersOpen';
 import { RedisService } from '../redis/redis.service';
 import { BrokerAccessOrderEvent, REDIS_CHANNELS } from '../redis/redis.keys';
 import { CompanyFeatureService } from './companyFeature.service';
@@ -30,16 +31,7 @@ export interface BrokerAccessPolicy {
   packageSize: number;
   packagePrice: string;
   currency: string;
-  /** «معرفی راننده» (DriverSuggestionService): bought in packages of suggestionPackageSize at suggestionPackagePrice */
-  suggestionsEnabled: boolean;
-  suggestionPackageSize: number;
-  suggestionPackagePrice: string;
-  /** how many drivers one suggestion asks */
-  suggestionDrivers: number;
 }
-
-/** What a package buys: load requests, or «معرفی راننده». */
-export type BrokerPack = 'REQUEST' | 'SUGGESTION';
 
 const DEFAULT_POLICY: BrokerAccessPolicy = {
   maxCompanies: null,
@@ -47,13 +39,12 @@ const DEFAULT_POLICY: BrokerAccessPolicy = {
   packageSize: 50,
   packagePrice: '0',
   currency: 'IRR',
-  suggestionsEnabled: false,
-  suggestionPackageSize: 10,
-  suggestionPackagePrice: '0',
-  suggestionDrivers: 5,
 };
 
-/** «بسته‌ی ۱۰۰ درخواست بار», «خرید بار ۳ شرکت» (older orders): what an order bought, for notices and payments */
+/**
+ * «بسته‌ی ۱۰۰ درخواست بار», «خرید بار ۳ شرکت» (older orders): what an order bought, for notices and payments. SUGGESTION:
+ * a package of the «معرفی راننده» since removed, still in the payment history.
+ */
 export function brokerOrderTitle(order: { kind: BrokerOrderKind; requests?: number | null; companies: number }): string {
   if (order.kind === 'SUGGESTION') return `بسته‌ی ${Number(order.requests ?? 0).toLocaleString('fa-IR')} معرفی راننده`;
   if (order.kind === 'PACKAGE') return `بسته‌ی ${Number(order.requests ?? 0).toLocaleString('fa-IR')} درخواست بار`;
@@ -100,10 +91,6 @@ export class BrokerAccessService {
       packageSize: stored.packageSize ?? DEFAULT_POLICY.packageSize,
       packagePrice: stored.packagePrice ?? DEFAULT_POLICY.packagePrice,
       currency: stored.currency ?? DEFAULT_POLICY.currency,
-      suggestionsEnabled: stored.suggestionsEnabled ?? DEFAULT_POLICY.suggestionsEnabled,
-      suggestionPackageSize: stored.suggestionPackageSize ?? DEFAULT_POLICY.suggestionPackageSize,
-      suggestionPackagePrice: stored.suggestionPackagePrice ?? DEFAULT_POLICY.suggestionPackagePrice,
-      suggestionDrivers: stored.suggestionDrivers ?? DEFAULT_POLICY.suggestionDrivers,
     };
     this.cached = { policy, expiresAt: Date.now() + LOCAL_TTL_MS };
     return policy;
@@ -111,11 +98,10 @@ export class BrokerAccessService {
 
   async setPolicy(policy: BrokerAccessPolicy, adminUserId: string): Promise<BrokerAccessPolicy> {
     if (policy.packagesEnabled && BigInt(policy.packagePrice) <= 0n) throw new BadRequestException('قیمت بسته را وارد کنید.');
-    if (policy.suggestionsEnabled && BigInt(policy.suggestionPackagePrice) <= 0n) throw new BadRequestException('قیمت بسته‌ی معرفی راننده را وارد کنید.');
-    const { maxCompanies, packagesEnabled, packageSize, packagePrice, currency, suggestionsEnabled, suggestionPackageSize, suggestionPackagePrice, suggestionDrivers } = policy;
+    const { maxCompanies, packagesEnabled, packageSize, packagePrice, currency } = policy;
     await this.settings.save({
       key: SETTING_KEY,
-      value: { maxCompanies, packagesEnabled, packageSize, packagePrice, currency, suggestionsEnabled, suggestionPackageSize, suggestionPackagePrice, suggestionDrivers },
+      value: { maxCompanies, packagesEnabled, packageSize, packagePrice, currency },
       updatedByUserId: adminUserId,
     });
     this.cached = undefined;
@@ -131,7 +117,7 @@ export class BrokerAccessService {
    * نگذاشته). واسطی که هنوز شرکتی انتخاب نکرده فهرست خالی می‌گیرد.
    */
   async visiblePublishers(userId: string, now = new Date()): Promise<string[] | null> {
-    if (!(await this.isBroker(userId)) || (await this.getPolicy()).maxCompanies === null) return null;
+    if (brokersOpen() || !(await this.isBroker(userId)) || (await this.getPolicy()).maxCompanies === null) return null;
     return (await this.currentSelection(userId, now))?.companyUserIds ?? [];
   }
 
@@ -172,7 +158,7 @@ export class BrokerAccessService {
 
   /** A broker whose packages are used up while requests are sold: its request buttons are shown off. */
   async outOfRequests(userId: string): Promise<boolean> {
-    if (!(await this.getPolicy()).packagesEnabled || !(await this.isBroker(userId))) return false;
+    if (brokersOpen() || !(await this.getPolicy()).packagesEnabled || !(await this.isBroker(userId))) return false;
     return (await this.remaining(userId)) <= 0;
   }
 
@@ -181,46 +167,24 @@ export class BrokerAccessService {
     return (await this.credits.findOne({ where: { userId } }))?.remaining ?? 0;
   }
 
-  /** The broker's «معرفی راننده» left. */
-  async suggestionsLeft(userId: string): Promise<number> {
-    return (await this.credits.findOne({ where: { userId } }))?.suggestions ?? 0;
-  }
-
-  /**
-   * One «معرفی راننده» off the broker's credit, in one guarded statement (two at once cannot both take the last).
-   * Throws ConflictException('noSuggestions') with none left, BadRequest while the admin has it off.
-   */
-  async useSuggestion(userId: string): Promise<void> {
-    if (!(await this.getPolicy()).suggestionsEnabled) throw new BadRequestException('معرفی راننده الان فعال نیست.');
-    const [updated]: [Array<{ userId: string }>, number] = await this.dataSource.query(
-      `UPDATE "BrokerRequestCredit" SET suggestions = suggestions - 1, "updatedAt" = now() WHERE "userId" = $1 AND suggestions > 0 RETURNING "userId"`,
-      [userId],
-    );
-    if (!updated.length) throw new ConflictException('noSuggestions');
-  }
-
-  /** A suggestion that found no driver to ask is given back. */
-  async refundSuggestion(userId: string): Promise<void> {
-    await this.addCredit(this.dataSource.manager, userId, 1, 'SUGGESTION');
-  }
-
   /** وضعیت برای صفحه‌ی خرید: قواعد، شرکت‌های انتخاب‌شده و قابل انتخاب، درخواست‌های مانده و آخرین خریدها. */
   async status(userId: string, now = new Date()) {
-    const [policy, companies, names, selection, remaining, suggestions, latestOrders] = await Promise.all([
+    const [policy, companies, names, selection, remaining, latestOrders] = await Promise.all([
       this.getPolicy(),
       this.companyList(),
       this.companyNames(),
       this.currentSelection(userId, now),
       this.remaining(userId),
-      this.suggestionsLeft(userId),
       this.orders.find({ where: { userId }, order: { createdAt: 'DESC' }, take: 20 }),
     ]);
+    const open = brokersOpen();
     return {
       policy,
+      // everything is open to brokers for now (brokersOpen): no companies to pick, nothing to buy
+      open,
       selected: (selection?.companyUserIds ?? []).map((id) => ({ userId: id, name: names.get(id) ?? '—' })),
       remaining,
-      suggestions,
-      blocked: policy.maxCompanies !== null && !selection?.companyUserIds.length ? ('noCompanies' as const) : null,
+      blocked: !open && policy.maxCompanies !== null && !selection?.companyUserIds.length ? ('noCompanies' as const) : null,
       companies,
       orders: latestOrders.map((order) => this.orderView(order, names)),
     };
@@ -228,11 +192,11 @@ export class BrokerAccessService {
 
   /** واسط‌های فعال برای صفحه‌ی ادمین، با شمار شرکت‌های انتخاب‌شده و درخواست‌های مانده. */
   async listBrokers(now = new Date()) {
-    const rows: Array<{ userId: string; name: string | null; mobile: string | null; accountCode: string | null; companies: number | null; remaining: number | null; suggestions: number | null }> =
+    const rows: Array<{ userId: string; name: string | null; mobile: string | null; accountCode: string | null; companies: number | null; remaining: number | null }> =
       await this.dataSource.query(
         `SELECT u.id AS "userId",
            COALESCE(NULLIF(u."companyName", ''), NULLIF(concat_ws(' ', u."firstName", u."lastName"), ''), u.username) AS name,
-           u.mobile, u."accountCode", cardinality(p."companyUserIds") AS companies, c.remaining, c.suggestions
+           u.mobile, u."accountCode", cardinality(p."companyUserIds") AS companies, c.remaining
          FROM "User" u
          LEFT JOIN LATERAL (
            SELECT "companyUserIds" FROM "BrokerAccessPeriod"
@@ -246,7 +210,7 @@ export class BrokerAccessService {
          ORDER BY name`,
         [RecordStatus.Active, BROKER_ROLE, now],
       );
-    return rows.map((row) => ({ ...row, companies: row.companies ?? 0, remaining: row.remaining ?? 0, suggestions: row.suggestions ?? 0 }));
+    return rows.map((row) => ({ ...row, companies: row.companies ?? 0, remaining: row.remaining ?? 0 }));
   }
 
   /**
@@ -340,7 +304,7 @@ export class BrokerAccessService {
    * Throws ConflictException('noCredit') with none left.
    */
   async useRequest(userId: string): Promise<boolean> {
-    if (!(await this.isBroker(userId)) || !(await this.getPolicy()).packagesEnabled) return false;
+    if (brokersOpen() || !(await this.isBroker(userId)) || !(await this.getPolicy()).packagesEnabled) return false;
     // one statement, so two requests at once cannot both take the last one; Postgres gives [rows, count] for an UPDATE
     const [updated]: [Array<{ userId: string }>, number] = await this.dataSource.query(
       `UPDATE "BrokerRequestCredit" SET remaining = remaining - 1, "updatedAt" = now() WHERE "userId" = $1 AND remaining > 0 RETURNING "userId"`,
@@ -354,33 +318,30 @@ export class BrokerAccessService {
     await this.addCredit(this.dataSource.manager, userId, 1);
   }
 
-  private async addCredit(manager: EntityManager, userId: string, count: number, pack: BrokerPack = 'REQUEST'): Promise<void> {
-    const column = pack === 'SUGGESTION' ? 'suggestions' : 'remaining';
+  private async addCredit(manager: EntityManager, userId: string, count: number): Promise<void> {
     await manager.query(
-      `INSERT INTO "BrokerRequestCredit" ("userId", ${column}) VALUES ($1, $2)
-       ON CONFLICT ("userId") DO UPDATE SET ${column} = "BrokerRequestCredit".${column} + EXCLUDED.${column}, "updatedAt" = now()`,
+      `INSERT INTO "BrokerRequestCredit" ("userId", remaining) VALUES ($1, $2)
+       ON CONFLICT ("userId") DO UPDATE SET remaining = "BrokerRequestCredit".remaining + EXCLUDED.remaining, "updatedAt" = now()`,
       [userId, count],
     );
   }
 
-  /** Requests (or suggestions) given by the admin without a purchase (a gift, or to make up for something). */
-  async grantRequests(userId: string, requests: number, pack: BrokerPack = 'REQUEST') {
+  /** Requests given by the admin without a purchase (a gift, or to make up for something). */
+  async grantRequests(userId: string, requests: number) {
     if (!(await this.isBroker(userId))) throw new NotFoundException('واسطی با این شناسه پیدا نشد.');
-    await this.addCredit(this.dataSource.manager, userId, requests, pack);
-    return { remaining: await this.remaining(userId), suggestions: await this.suggestionsLeft(userId) };
+    await this.addCredit(this.dataSource.manager, userId, requests);
+    return { remaining: await this.remaining(userId) };
   }
 
-  /** A broker buys some packages (of load requests, or of «معرفی راننده») with the receipt photo; the admin reviews it. */
-  async submitPackageOrder(userId: string, packages: number, receiptPath: string, pack: BrokerPack = 'REQUEST') {
+  /** A broker buys some packages of load requests with the receipt photo; the admin reviews it. */
+  async submitPackageOrder(userId: string, packages: number, receiptPath: string) {
     if (!(await this.isBroker(userId))) throw new BadRequestException('بسته‌ی درخواست فقط برای حساب واسط است.');
     const policy = await this.getPolicy();
-    const suggestion = pack === 'SUGGESTION';
-    if (suggestion && !policy.suggestionsEnabled) throw new BadRequestException('معرفی راننده الان فعال نیست.');
-    if (!suggestion && !policy.packagesEnabled) throw new BadRequestException('درخواست بار الان رایگان است و خرید لازم ندارد.');
+    if (!policy.packagesEnabled) throw new BadRequestException('درخواست بار الان رایگان است و خرید لازم ندارد.');
     if (!Number.isInteger(packages) || packages < 1 || packages > MAX_PACKAGES) throw new BadRequestException('تعداد بسته معتبر نیست.');
-    const kind = suggestion ? 'SUGGESTION' : 'PACKAGE';
-    const size = suggestion ? policy.suggestionPackageSize : policy.packageSize;
-    const price = suggestion ? policy.suggestionPackagePrice : policy.packagePrice;
+    const kind = 'PACKAGE';
+    const size = policy.packageSize;
+    const price = policy.packagePrice;
     const open = await this.orders.findOne({ where: { userId, kind, status: SubscriptionOrderStatus.ReceiptSubmitted } });
     if (open) throw new ConflictException(`رسید قبلی شما برای ${this.titleOf(open)} در حال بررسی است.`);
     const order = await this.orders.save(
@@ -430,12 +391,12 @@ export class BrokerAccessService {
       if (!order) throw new NotFoundException('سفارش پیدا نشد.');
       if (order.status !== SubscriptionOrderStatus.ReceiptSubmitted) throw new ConflictException('این سفارش قبلاً بررسی شده است.');
       if (order.kind === 'PACKAGE') await this.addCredit(manager, order.userId, order.requests ?? 0);
-      else if (order.kind === 'SUGGESTION') await this.addCredit(manager, order.userId, order.requests ?? 0, 'SUGGESTION');
-      else await this.addCompanies(manager, order.userId, order.companyUserIds, now, order.id);
+      // SUGGESTION: a «معرفی راننده» package from before it was removed, nothing left to add
+      else if (order.kind !== 'SUGGESTION') await this.addCompanies(manager, order.userId, order.companyUserIds, now, order.id);
       await manager.update(BrokerAccessOrder, { id: order.id }, { status: SubscriptionOrderStatus.Approved, reviewedBy: adminUserId, reviewedAt: now });
       return order;
     });
-    const remaining = order.kind === 'SUGGESTION' ? await this.suggestionsLeft(order.userId) : await this.remaining(order.userId);
+    const remaining = await this.remaining(order.userId);
     await this.announce(REDIS_CHANNELS.brokerAccessDecided, order, { approved: true, remaining });
     return { orderId: order.id, userId: order.userId, remaining };
   }

@@ -36,6 +36,7 @@ const APPROVED_NEXT: Record<VerifiedKind, string> = {
   COMPANY: 'برای استفاده از هر بخش پنل، آن را از «💎 خرید امکانات» بخرید.',
   FACTORY: 'حالا می‌توانید بارتان را ثبت کنید.',
   BROKER: 'حالا می‌توانید بارها را ببینید و روی آن‌ها درخواست بدهید.',
+  DRIVER: 'حالا می‌توانید بارها را ببینید، اعلام بار بگیرید و درخواست بدهید.',
 };
 const currencyNames: Record<string, string> = { IRR: 'ریال', IRT: 'تومان' };
 const fa = (value: number | string) => Number(value).toLocaleString('fa-IR');

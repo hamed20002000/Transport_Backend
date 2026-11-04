@@ -62,6 +62,21 @@ export class UpdateDriverProfileDto {
   @Transform(digitsToNull) @IsOptional() @Matches(/^[0-9]{5,20}$/, { message: 'fleetCardNumber must be digits' })
   fleetCardNumber?: string | null;
 
+  // بیمه‌نامه؛ لازم برای راننده‌ی داخلی (DRIVER_KIND_REQUIRED)
+  @ApiPropertyOptional({ maxLength: 30, nullable: true, description: 'شماره بیمه‌نامه' })
+  @Transform(trimToNull) @IsOptional() @IsString() @MaxLength(30)
+  insuranceNumber?: string | null;
+
+  // شمسی، مثل birthDate
+  @ApiPropertyOptional({ example: '1404/6/15', nullable: true, description: 'تاریخ پایان اعتبار بیمه‌نامه' })
+  @Transform(trimToNull) @IsOptional() @Matches(/^1[34][0-9]{2}\/[0-9]{1,2}\/[0-9]{1,2}$/, { message: 'insuranceExpiry must be like 1404/6/15' })
+  insuranceExpiry?: string | null;
+
+  // an international driver's company, required of one (DRIVER_KIND_REQUIRED); checked like a broker's
+  @ApiPropertyOptional({ maxLength: 100, nullable: true, description: 'نام شرکت' })
+  @Transform(trimToNull) @IsOptional() @IsString() @MaxLength(100)
+  companyName?: string | null;
+
   // خواندن صوتی بارهای اعلام‌شده در پیام‌رسان‌ها
   @ApiPropertyOptional({ example: true })
   @IsOptional() @IsBoolean()

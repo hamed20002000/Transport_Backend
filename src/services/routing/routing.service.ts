@@ -169,6 +169,46 @@ export class RoutingService {
   }
 
   /**
+   * نقطه‌ی جایی که می‌دانیم خارج از ایران است (نوع بار گفته)، با جستجوی جهانی و بی‌آستانه‌ی اهمیت: اسم شهرهای
+   * ترکیه با املای فارسی («آنتب»، «موراتبی») نتیجه‌ی کم‌اهمیتی دارند که geocode کنار می‌گذارد و به هم‌نامی در
+   * ایران می‌رسد. null: چیزی بیرون ایران پیدا نشد.
+   */
+  // latinName: the place's usual Latin name («Gaziantep, Turkey»), tried first: the Persian spelling may find a shop
+  // of the same name. Each name is tried as a city or town first, then as anything.
+  async pointAbroad(place: string, latinName?: string | null): Promise<GeoPoint | null> {
+    const key = RedisService.key('routingAbroad', `${normalizePersianText(place)}|${latinName ?? ''}`);
+    const cached = await this.cacheGet<{ point: GeoPoint | null }>(key);
+    if (cached) return cached.point;
+    let point: GeoPoint | null = null;
+    const names = [...(latinName ? [latinName] : []), ...placeCandidates(place)];
+    search: for (const candidate of names) {
+      for (const settlement of [true, false]) {
+        const found = await this.searchNominatim(candidate, false, settlement);
+        if (found && !isInIran(found.point)) {
+          point = found.point;
+          break search;
+        }
+      }
+    }
+    await this.cacheSet(key, { point }, point ? GEOCODE_TTL : GEOCODE_MISS_TTL);
+    return point;
+  }
+
+  /**
+   * نقطه‌ی جایی داخل ایران با اسم لاتینش («Bam, Iran») بین شهرها و روستاهای ایران؛ اسم فارسی کوتاه («بم») در
+   * جستجوی ایران گاهی به جای دیگری می‌رسد. null: پیدا نشد (آن وقت geocode با اسم فارسی).
+   */
+  async pointInIran(latinName: string): Promise<GeoPoint | null> {
+    const key = RedisService.key('routingAbroad', `ir|${latinName}`);
+    const cached = await this.cacheGet<{ point: GeoPoint | null }>(key);
+    if (cached) return cached.point;
+    const found = await this.searchNominatim(latinName, true, true);
+    const point = found && isInIran(found.point) ? found.point : null;
+    await this.cacheSet(key, { point }, point ? GEOCODE_TTL : GEOCODE_MISS_TTL);
+    return point;
+  }
+
+  /**
    * داخل ایران بودن یک اسم فقط با جستجوی جهانی: true ایران، false خارج، null نامعلوم. geocode برای
    * نوع سفر بار مناسب نیست چون آخرش جستجوی ایران (نشان) است و برای هر اسم خارجی خیابان یا روستای
    * هم‌نامی در ایران پیدا می‌کند («ادانا» نزدیک مشهد، «اربیل» در تهران).
@@ -196,10 +236,11 @@ export class RoutingService {
     return !home || abroad.importance >= home.importance + FOREIGN_IMPORTANCE_MARGIN ? abroad.point : null;
   }
 
-  private async searchNominatim(place: string, iranOnly: boolean): Promise<{ point: GeoPoint; importance: number } | null> {
+  // settlement: cities, towns and villages only (not a shop or street of the same name)
+  private async searchNominatim(place: string, iranOnly: boolean, settlement = false): Promise<{ point: GeoPoint; importance: number } | null> {
     try {
       const results = await this.nominatim<{ lat: string; lon: string; importance?: number }[]>(
-        `/search?q=${encodeURIComponent(place)}${iranOnly ? '&countrycodes=ir' : ''}&format=jsonv2&limit=1&accept-language=fa`,
+        `/search?q=${encodeURIComponent(place)}${iranOnly ? '&countrycodes=ir' : ''}${settlement ? '&featureType=settlement' : ''}&format=jsonv2&limit=1&accept-language=fa`,
       );
       const first = results[0];
       return first ? { point: { lat: Number(first.lat), lng: Number(first.lon) }, importance: Number(first.importance ?? 0) } : null;

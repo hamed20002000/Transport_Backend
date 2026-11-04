@@ -96,8 +96,7 @@ export class CargoListing {
   @Column({ type: 'timestamp', nullable: true })
   takenAt?: Date | null;
 
-  // where the origin and destination are (geocoded once, CargoPointsWorker): «معرفی راننده» finds drivers of routes
-  // near this one; null until found (or when not found: pointsCheckedAt says it was tried)
+  // where the origin and destination are: filled for the «معرفی راننده» since removed, no longer kept up to date
   @Column({ type: 'double precision', nullable: true })
   originLat?: number | null;
 

@@ -59,9 +59,6 @@ import { FactoryService } from '../../services/company/factory.service';
 import { FactoryDialog } from '../../services/company/factoryDialog';
 import { DriverInvite } from '../../domain/entities/company/DriverInvite';
 import { BrokerInvite } from '../../domain/entities/company/BrokerInvite';
-import { BrokerDriverOffer } from '../../domain/entities/company/BrokerDriverOffer';
-import { CargoPointsService } from '../../services/notification/cargoPoints.service';
-import { DriverSuggestionService } from '../../services/notification/driverSuggestion.service';
 import { BrokerInviteService } from '../../services/company/brokerInvite.service';
 import { BrokerInviteInfoController, CompanyBrokerInviteController } from '../../presentation/controllers/company/broker-invite.controller';
 import { DriverInviteService } from '../../services/company/driverInvite.service';
@@ -89,6 +86,7 @@ import { CompanyAnnounceService } from '../../services/notification/companyAnnou
 import { CargoAutoAnnounceWorker } from '../../services/notification/cargoAutoAnnounceWorker.service';
 import { WhatsappDialogBridge } from '../../services/notification/whatsappDialogBridge';
 import { CargoInsightService } from '../../services/notification/cargoInsight.service';
+import { LoadBorderService } from '../../services/notification/loadBorder.service';
 import { RoutingModule } from './RoutingModule';
 import { BorderModule } from './BorderModule';
 import { CompanyCargoTools } from '../../services/notification/companyCargoTools';
@@ -108,7 +106,7 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
 @Module({
   imports: [
     BorderModule,
-    TypeOrmModule.forFeature([CargoNotification, CargoAlertFilter, CargoListing, CargoRequest, DriverLocation, DriverLocationLog, DriverProfile, CompanyAnnounceSetting, WebPushSubscription, FactoryInvite, FactoryCompany, FactoryCargo, DriverInvite, BrokerInvite, BrokerDriverOffer]),
+    TypeOrmModule.forFeature([CargoNotification, CargoAlertFilter, CargoListing, CargoRequest, DriverLocation, DriverLocationLog, DriverProfile, CompanyAnnounceSetting, WebPushSubscription, FactoryInvite, FactoryCompany, FactoryCargo, DriverInvite, BrokerInvite]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -134,8 +132,6 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
     FactoryDialog,
     DriverInviteService,
     BrokerInviteService,
-    CargoPointsService,
-    DriverSuggestionService,
     InviteExpiryWorker,
     CompanyPlanExpiryWorker,
     CargoImageService,
@@ -157,6 +153,7 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
     ApiIrClient,
     DriverVerificationService,
     CargoInsightService,
+    LoadBorderService,
     CargoNotificationService,
     CargoListingService,
     NotificationsGateway,

@@ -2,11 +2,11 @@ import { BadRequestException, Body, Controller, ForbiddenException, Get, Post, P
 import { ConfigService } from '@nestjs/config';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsInt, IsUUID, Max, Min } from 'class-validator';
 
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { AccountVerificationService } from 'src/services/company/accountVerification.service';
-import { BrokerAccessService, BrokerPack, MAX_PACKAGES } from 'src/services/company/brokerAccess.service';
+import { BrokerAccessService, MAX_PACKAGES } from 'src/services/company/brokerAccess.service';
 import { BROKER_ROLE } from 'src/services/notification/loadRequesters';
 import { receiptUploadOptions } from './company-feature.controller';
 
@@ -21,10 +21,6 @@ export class CreatePackageOrderDto {
   // multipart: a string on the wire
   @Type(() => Number) @IsInt() @Min(1) @Max(MAX_PACKAGES)
   packages!: number;
-
-  /** REQUEST (default): load requests; SUGGESTION: «معرفی راننده» */
-  @IsOptional() @IsIn(['REQUEST', 'SUGGESTION'])
-  pack: BrokerPack = 'REQUEST';
 }
 
 function brokerUserId(request: AuthRequest): string {
@@ -75,7 +71,7 @@ export class BrokerAccessController {
   async packageOrder(@Req() request: AuthRequest, @Body() dto: CreatePackageOrderDto, @UploadedFile() file: Express.Multer.File | undefined) {
     const userId = brokerUserId(request);
     if (!file) throw new BadRequestException('عکس رسید پرداخت را انتخاب کنید.');
-    await this.access.submitPackageOrder(userId, dto.packages, file.path, dto.pack);
+    await this.access.submitPackageOrder(userId, dto.packages, file.path);
     return this.status(request);
   }
 }

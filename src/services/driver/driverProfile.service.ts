@@ -10,6 +10,7 @@ import { diskStorage } from 'multer';
 import { DataSource, Repository } from 'typeorm';
 
 import { DriverProfile } from 'src/domain/entities/driver/DriverProfile';
+import { readBrokerDriverField } from 'src/domain/helper/brokerDriver';
 import { RecordStatus } from 'src/domain/enums/RecordStatus';
 import { CargoTripType } from 'src/domain/enums/notification';
 import { UpdateDriverProfileDto } from 'src/dto/notification/DriverProfileDto';
@@ -19,7 +20,7 @@ import { User } from 'src/domain/entities/auth/User';
 import { DRIVERS_CHANGED_SOCKET_EVENT, NotificationsGateway } from '../notification/notifications.gateway';
 import { evaluateVerification } from './driverVerification.service';
 import { isBrokerOnly } from '../notification/loadRequesters';
-import { DRIVER_KIND_TRIP_TYPES, driverKindForLoad, driverKindOf, driverKindsOf, driverTripTypes } from '../notification/cargoTripType';
+import { DRIVER_KIND_TRIP_TYPES, DriverKind, driverKindForLoad, driverKindOf, driverKindsOf, driverTripTypes } from '../notification/cargoTripType';
 
 // خارج از پوشه‌ی uploads که به‌صورت عمومی سرو می‌شود؛ فقط از راه API با توکن.
 export const DRIVER_PHOTO_DIR = join(process.cwd(), 'private-uploads', 'driver-photos');
@@ -69,7 +70,22 @@ const DRIVER_FIELDS = [
   'plate',
   'capacityTons',
   'fleetCardNumber',
+  'insuranceNumber',
+  'insuranceExpiry',
+  'companyName',
 ] as const;
+
+/**
+ * What a driver of each kind must fill in its profile (and have before it requests a load): an international one
+ * the company it goes under, a domestic one its insurance policy. A driver of both kinds needs all of them.
+ */
+export const DRIVER_KIND_REQUIRED: Record<DriverKind, ReadonlyArray<{ key: 'companyName' | 'insuranceNumber' | 'insuranceExpiry'; title: string }>> = {
+  INTERNATIONAL: [{ key: 'companyName', title: 'نام شرکت' }],
+  DOMESTIC: [
+    { key: 'insuranceNumber', title: 'شماره بیمه‌نامه' },
+    { key: 'insuranceExpiry', title: 'تاریخ اعتبار بیمه‌نامه' },
+  ],
+};
 
 /** نام فایل همیشه UUID + پسوند از روی mimetype است، نه نام فایل کاربر. */
 export const driverPhotoUploadOptions: MulterOptions = {
@@ -135,6 +151,12 @@ export class DriverProfileService {
       ? await this.users.updateProfile(userId, { ...userChanges, profileType: 0 })
       : await this.users.getProfile(userId);
 
+    // the same rule as a broker's form
+    if (dto.companyName) {
+      const read = readBrokerDriverField('companyName', dto.companyName);
+      if ('error' in read) throw new BadRequestException(read.error);
+      dto.companyName = read.value;
+    }
     const driver = (await this.profiles.findOne({ where: { userId } })) ?? this.profiles.create({ userId });
     for (const field of DRIVER_FIELDS) {
       if (dto[field] !== undefined) Object.assign(driver, { [field]: dto[field] });
@@ -392,6 +414,13 @@ export class DriverProfileService {
   }
 
   /** راننده‌ای با این شناسه و نقش فعال DRIVER هست؟ (قبل از سپردن بار) */
+  /** The profile fields a driver still has to fill before it requests a load (their titles); empty when none. */
+  async missingForRequest(userId: string): Promise<string[]> {
+    const driver = await this.profiles.findOne({ where: { userId } });
+    const kinds = driverKindsOf(driver?.tripTypes?.length ? driver.tripTypes : [driver?.tripType]);
+    return kinds.flatMap((kind) => DRIVER_KIND_REQUIRED[kind]).filter(({ key }) => !driver?.[key]?.trim()).map(({ title }) => title);
+  }
+
   async isDriver(userId: string): Promise<boolean> {
     const rows: unknown[] = await this.dataSource.query(
       `SELECT 1 FROM "UserRole" ur JOIN "Role" r ON r.id = ur."roleId"

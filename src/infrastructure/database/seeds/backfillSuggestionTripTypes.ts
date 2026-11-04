@@ -1,5 +1,5 @@
 /**
- * نوع سفر (داخلی/صادراتی/وارداتی) پیشنهادهای بار از نو، با همان CargoTripTypeService زمان اجرا:
+ * نوع سفر (داخلی/صادراتی/وارداتی) پیشنهادهای بار و خود بارها از نو، با همان CargoTripTypeService زمان اجرا:
  *
  *   npm run backfill:trip-types
  *
@@ -54,6 +54,25 @@ async function main(): Promise<void> {
       console.log(`${done}/${pairs.length} ${label.padEnd(8)} ${pair.origin ?? '-'} → ${pair.destination ?? '-'} (${pair.count})`);
     }
     console.log('suggestions by trip type:', counts);
+
+    // the loads themselves: one saved domestic by an older answer (an Iranian namesake on the map, «چوبان بی» or
+    // «پلون») goes abroad, so it reaches the international drivers and asks a border; an unknown answer keeps the type
+    const routes: { origin: string; destination: string; tripType: string; count: string }[] = await dataSource.query(
+      `SELECT origin, destination, "tripType", COUNT(*) AS count FROM "CargoListing" GROUP BY 1, 2, 3 ORDER BY COUNT(*) DESC`,
+    );
+    console.log(`${routes.length} load route(s) to check`);
+    let changed = 0;
+    for (const route of routes) {
+      const tripType = await tripTypes.classify(route.origin, route.destination);
+      if (!tripType || tripType === route.tripType) continue;
+      const result: [unknown[], number] = await dataSource.query(
+        `UPDATE "CargoListing" SET "tripType" = $3 WHERE origin = $1 AND destination = $2 AND "tripType" = $4`,
+        [route.origin, route.destination, tripType, route.tripType],
+      );
+      changed += result[1];
+      console.log(`${route.tripType} → ${tripType}  ${route.origin} → ${route.destination} (${result[1]})`);
+    }
+    console.log(`${changed} load(s) changed type`);
   } finally {
     await redis.onModuleDestroy();
     await dataSource.destroy();
