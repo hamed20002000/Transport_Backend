@@ -12,6 +12,7 @@ import {
 } from '../../../domain/constants/bot/BotCallback';
 
 import { AccountType } from 'src/domain/enums/subscription';
+import { driverSubscriptionMenuOn } from 'src/domain/helper/driverVerification';
 import { AccountVerificationService } from '../../company/accountVerification.service';
 
 @Injectable()
@@ -391,17 +392,8 @@ export class BotMenuService {
 
             [{ text: this.messages.get('menu.driver.cargoDisplay'), callback_data: BotCallback.CargoDisplay }],
 
-            [
-              {
-                text:
-                  this.messages.get(
-                    'menu.driver.subscription',
-                  ),
-
-                callback_data:
-                  BotCallback.MySubscription,
-              },
-            ],
+            // buying a subscription from the driver's menu: off for now (driverSubscriptionMenuOn)
+            ...(driverSubscriptionMenuOn() ? [[{ text: this.messages.get('menu.driver.subscription'), callback_data: BotCallback.MySubscription }]] : []),
 
             [
               {

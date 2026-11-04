@@ -10,3 +10,9 @@ export const driverVerificationOn = (): boolean => process.env.DRIVER_VERIFICATI
  * an international one's company, a domestic one's insurance). DRIVER_REQUEST_FIELDS=off lets the request go without.
  */
 export const driverRequestFieldsOn = (): boolean => process.env.DRIVER_REQUEST_FIELDS !== 'off';
+
+/**
+ * Buying a subscription from the driver's menu (the bots' «💳 اشتراک من», the web panel's «اشتراک»): off for now;
+ * DRIVER_SUBSCRIPTION_MENU=on brings the bots' item back (the web panel's is DRIVER_SUBSCRIPTION_MENU in DriverShell).
+ */
+export const driverSubscriptionMenuOn = (): boolean => process.env.DRIVER_SUBSCRIPTION_MENU === 'on';
