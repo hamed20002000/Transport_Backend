@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Inject, Injectable, Logger, Not
 import { I18nService } from 'nestjs-i18n';
 
 import { cargoLine, fa } from 'src/application/services/agent/tools/toolKit';
-import { BrokerDriver, BrokerDriverField, brokerDriverIdentity, brokerDriverLine, readBrokerDriver } from 'src/domain/helper/brokerDriver';
+import { BrokerDriver, BrokerDriverField, brokerCommission, brokerDriverIdentity, brokerDriverLine, readBrokerDriver } from 'src/domain/helper/brokerDriver';
 import { CargoRequest } from '../../domain/entities/notification/CargoRequest';
 import { DriverLocation } from '../../domain/entities/notification/DriverLocation';
 import { CargoListingStatus, CargoRequestStatus, CargoTripType } from '../../domain/enums/notification';
@@ -685,6 +685,13 @@ export class CargoTripService {
     const reported = !!request.deliveryReportedAt;
     request.status = CargoRequestStatus.Delivered;
     request.deliveredAt = new Date();
+    // a broker's trip: its commission is fixed now, at the admin's percent of today (a later change leaves it)
+    if (request.forDriver && this.brokerAccess) {
+      const { commissionPercent } = await this.brokerAccess.getPolicy();
+      const commission = brokerCommission(request.forDriver.fare, commissionPercent);
+      request.brokerCommission = commission === null ? null : String(commission);
+      request.brokerCommissionPercent = String(commissionPercent);
+    }
     await this.requests.save(request);
     const text = this.t(reported ? 'notify.deliveryConfirmed' : 'notify.deliveredByCompany', { cargo, by: this.describe(by) });
     // the finished trip is among «درخواست‌های من» (a broker's in its own panel)

@@ -29,7 +29,7 @@ export interface BrokerDriverRow {
 /**
  * The drivers brokers request loads for (CargoRequest.forDriver: no account is made for them), gathered by mobile for
  * the parent company: every broker's, with every detail given, for any company's loads. From here the parent company
- * can register one as its own driver (DriverInviteService.register).
+ * can register one as its own driver (DriverInviteService.register); one of its drivers is no longer listed here.
  */
 @Injectable()
 export class BrokerDriversService {
@@ -54,10 +54,20 @@ export class BrokerDriversService {
         JOIN "CargoListing" l ON l.id = r."listingId"
         LEFT JOIN "User" c ON c.id = l."publisherUserId"
        WHERE r."forDriver" IS NOT NULL
+         -- a driver that became one of the parent company's drivers leaves this list for good, even when a broker
+         -- names it again later: it is in «رانندگان» now
+         AND NOT EXISTS (
+               SELECT 1 FROM "User" du
+                 JOIN "UserRole" dur ON dur."userId" = du.id
+                 JOIN "Role" dr ON dr.id = dur."roleId" AND dr.name = 'DRIVER'
+                 LEFT JOIN "DriverProfile" dp ON dp."userId" = du.id
+                WHERE du.mobile = r."forDriver"->>'mobile'
+                  AND ($2::uuid = ANY(COALESCE(dp."companyUserIds", '{}'))
+                       OR EXISTS (SELECT 1 FROM "DriverInvite" di WHERE di."driverUserId" = du.id AND di."companyUserId" = $2::uuid AND di."revokedAt" IS NULL)))
          AND ($1::text IS NULL
               OR replace(concat_ws('', r."forDriver"->>'name', r."forDriver"->>'mobile', r."forDriver"->>'nationalCode',
                          r."forDriver"->>'plate', r."forDriver"->>'transitPlate', b."companyName", b."firstName", b."lastName"), ' ', '') ILIKE $1)`;
-    const [{ total }] = await this.dataSource.query(`SELECT COUNT(DISTINCT mobile)::int AS total FROM (${named}) n`, [term]);
+    const [{ total }] = await this.dataSource.query(`SELECT COUNT(DISTINCT mobile)::int AS total FROM (${named}) n`, [term, parentUserId]);
     const rows: Array<Record<string, any>> = await this.dataSource.query(
       `WITH n AS (${named})
        SELECT n.mobile,
@@ -72,8 +82,8 @@ export class BrokerDriversService {
          FROM n
         GROUP BY n.mobile
         ORDER BY MAX(n."createdAt") DESC
-        LIMIT $2 OFFSET $3`,
-      [term, pageSize, (page - 1) * pageSize],
+        LIMIT $3 OFFSET $4`,
+      [term, parentUserId, pageSize, (page - 1) * pageSize],
     );
     const accounts = await this.accounts(rows.map((row) => String(row.mobile)), parentUserId);
     const items = rows.map((row) => ({

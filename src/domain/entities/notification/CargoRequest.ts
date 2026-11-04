@@ -85,6 +85,16 @@ export class CargoRequest {
   @Column({ type: 'varchar', length: 60, nullable: true })
   exitBorder?: string | null;
 
+  /**
+   * A broker's delivered trip: its commission, the admin's percent (BrokerAccessPolicy.commissionPercent) of the fare
+   * the broker gave, fixed when the delivery was recorded; null when the fare was not a bare number («1500 دلار»).
+   */
+  @Column({ type: 'bigint', nullable: true })
+  brokerCommission?: string | null;
+
+  @Column({ type: 'numeric', precision: 5, scale: 2, nullable: true })
+  brokerCommissionPercent?: string | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 

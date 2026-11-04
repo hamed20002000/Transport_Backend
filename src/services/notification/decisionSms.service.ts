@@ -10,10 +10,14 @@ import { fitTemplateValue } from '../company/inviteSms.service';
 /**
  * The answer to what a user waited for (a payment receipt: subscription, tier or menu, a broker's companies; the check
  * of its account) also by SMS: the user may be where there is no internet when the answer comes, and the push, the
- * messengers and the open page all need it. Only the result goes; the reason of a rejection is read in the app.
+ * messengers and the open page all need it. Only that it was decided goes, not how: the result and the reason of a
+ * rejection are read in the panel.
  *
- * sms.ir «ارسال سریع» template SMSIR_NOTICE_TEMPLATE_ID with #TITLE# (what was decided, 25 characters at most) and
- * #RESULT# («تأیید شد» / «تأیید نشد»), so it reaches numbers on the advertising blacklist too; without it, a plain SMS.
+ * sms.ir «ارسال سریع» template SMSIR_NOTICE_TEMPLATE_ID with #TITLE# alone (what was decided, 25 characters at most):
+ *   ترابوت
+ *   نتیجه‌ی «#TITLE#» مشخص شده است و می‌توانید آن را از طریق پنل کاربری مشاهده و بررسی نمایید.
+ *   https://tarabots.com
+ * so it reaches numbers on the advertising blacklist too; without it, the same as a plain SMS.
  * And a company's bought menus closing in a few days (CompanyPlanExpiryWorker): template SMSIR_PLAN_REMINDER_TEMPLATE_ID
  * with #TITLE# («طرح طلایی») and #DAYS#.
  * Off like every SMS while SMS_OTP_ENABLED is not true (development): only logged.
@@ -28,10 +32,9 @@ export class DecisionSmsService {
     private readonly config: ConfigService,
   ) {}
 
-  async send(userId: string, title: string, approved: boolean): Promise<void> {
-    const result = approved ? 'تأیید شد' : 'تأیید نشد';
-    await this.deliver(userId, 'SMSIR_NOTICE_TEMPLATE_ID', { TITLE: title, RESULT: result }, (panel) =>
-      ['ترابوت', `${title}: ${result}`, approved ? '' : 'دلیل را در برنامه ببینید.', panel]);
+  async send(userId: string, title: string): Promise<void> {
+    await this.deliver(userId, 'SMSIR_NOTICE_TEMPLATE_ID', { TITLE: title }, (panel) =>
+      ['ترابوت', `نتیجه‌ی «${title}» مشخص شده است و می‌توانید آن را از طریق پنل کاربری مشاهده و بررسی نمایید.`, panel]);
   }
 
   /** title: «طرح طلایی» (or «بخش‌های خریده‌شده»); days left until it closes. */

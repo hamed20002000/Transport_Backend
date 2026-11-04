@@ -1,7 +1,7 @@
 import { resolve } from 'path';
 import { Body, Controller, Get, Headers, HttpCode, Logger, NotFoundException, Param, ParseUUIDPipe, Post, Put, Query, Req, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
-import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
 
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { SubscriptionOrderStatus } from 'src/domain/enums/subscription';
@@ -32,6 +32,10 @@ export class UpdateBrokerAccessPolicyDto {
 
   @IsIn(['IRR', 'GBP', 'EUR', 'SAR', 'CNY'])
   currency: string = 'IRR';
+
+  /** کمیسیون واسط: این درصد از کرایه‌ی هر سفر تحویل‌شده‌اش (۰ تا ۱۰۰، تا دو رقم اعشار) */
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) @Max(100)
+  commissionPercent: number = 0;
 }
 
 /** Load requests given to a broker without a purchase. */

@@ -31,6 +31,8 @@ export interface BrokerAccessPolicy {
   packageSize: number;
   packagePrice: string;
   currency: string;
+  /** a broker's commission: this percent of the fare of each of its delivered trips (BrokerLedgerService) */
+  commissionPercent: number;
 }
 
 const DEFAULT_POLICY: BrokerAccessPolicy = {
@@ -39,6 +41,7 @@ const DEFAULT_POLICY: BrokerAccessPolicy = {
   packageSize: 50,
   packagePrice: '0',
   currency: 'IRR',
+  commissionPercent: 0,
 };
 
 /**
@@ -91,6 +94,7 @@ export class BrokerAccessService {
       packageSize: stored.packageSize ?? DEFAULT_POLICY.packageSize,
       packagePrice: stored.packagePrice ?? DEFAULT_POLICY.packagePrice,
       currency: stored.currency ?? DEFAULT_POLICY.currency,
+      commissionPercent: stored.commissionPercent ?? DEFAULT_POLICY.commissionPercent,
     };
     this.cached = { policy, expiresAt: Date.now() + LOCAL_TTL_MS };
     return policy;
@@ -98,10 +102,10 @@ export class BrokerAccessService {
 
   async setPolicy(policy: BrokerAccessPolicy, adminUserId: string): Promise<BrokerAccessPolicy> {
     if (policy.packagesEnabled && BigInt(policy.packagePrice) <= 0n) throw new BadRequestException('قیمت بسته را وارد کنید.');
-    const { maxCompanies, packagesEnabled, packageSize, packagePrice, currency } = policy;
+    const { maxCompanies, packagesEnabled, packageSize, packagePrice, currency, commissionPercent } = policy;
     await this.settings.save({
       key: SETTING_KEY,
-      value: { maxCompanies, packagesEnabled, packageSize, packagePrice, currency },
+      value: { maxCompanies, packagesEnabled, packageSize, packagePrice, currency, commissionPercent },
       updatedByUserId: adminUserId,
     });
     this.cached = undefined;

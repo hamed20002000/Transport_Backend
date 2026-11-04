@@ -46,6 +46,31 @@ export const EXIT_BORDERS: ExitBorder[] = [
 const NEAR_KM = 40;
 const MAX_CHOICES = 6;
 
+/**
+ * The country across Iran's land border a place is in, by its Latin name's country («Ankara, Turkey» → «ترکیه»), as
+ * EXIT_BORDERS names it; Nakhchivan apart from the rest of Azerbaijan (its borders are not the way to Baku). null: a
+ * country with no land border with Iran (Georgia, Russia, Bulgaria…) or no country given.
+ */
+export function neighbourOf(latinName: string | null | undefined): string | null {
+  const name = latinName?.toLowerCase() ?? '';
+  if (!name.includes(',')) return null;
+  if (/nakh(i)?chevan|nakhchivan|naxçıvan|naxcivan/.test(name)) return 'نخجوان';
+  const country = name.split(',').pop()!.trim();
+  const NEIGHBOURS: Array<[RegExp, string]> = [
+    [/^(turkey|t[uü]rkiye)\b/, 'ترکیه'],
+    [/^iraq\b|kurdistan/, 'عراق'],
+    [/^armenia\b/, 'ارمنستان'],
+    [/^azerbaijan\b/, 'آذربایجان'],
+    [/^turkmenistan\b/, 'ترکمنستان'],
+    [/^afghanistan\b/, 'افغانستان'],
+    [/^pakistan\b/, 'پاکستان'],
+  ];
+  return NEIGHBOURS.find(([pattern]) => pattern.test(country))?.[1] ?? null;
+}
+
+/** The borders to a neighbouring country (neighbourOf), in the list's order. */
+export const bordersOf = (country: string): ExitBorder[] => EXIT_BORDERS.filter((border) => border.country === country);
+
 /** The border of a borderpark id (a crossing found on a route, bordersOnRoute). */
 export const exitBorderById = (id: string): ExitBorder | undefined => EXIT_BORDERS.find((border) => border.id === id);
 

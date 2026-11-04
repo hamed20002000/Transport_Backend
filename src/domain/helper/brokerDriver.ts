@@ -122,3 +122,16 @@ export function brokerDriverLine(driver: BrokerDriver): string {
     driver.referrer ? `معرف ${driver.referrer}` : '',
   ].filter(Boolean).join(' · ');
 }
+
+/** A fare given as a bare number («45000000»), as a number; null for one with its unit («1500 دلار») or none. */
+export function fareAmount(fare: string | null | undefined): number | null {
+  if (!fare || !/^[0-9]+$/.test(fare)) return null;
+  const amount = Number(fare);
+  return Number.isSafeInteger(amount) ? amount : null;
+}
+
+/** A broker's commission on a fare at this percent, whole (rounded); null when the fare is not a bare number. */
+export function brokerCommission(fare: string | null | undefined, percent: number): number | null {
+  const amount = fareAmount(fare);
+  return amount === null ? null : Math.round((amount * percent) / 100);
+}

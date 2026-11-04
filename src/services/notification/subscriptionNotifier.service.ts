@@ -172,7 +172,7 @@ export class SubscriptionNotifier implements OnModuleInit {
         url: event.accountType === 'DRIVER' ? '/account/driver/subscription' : '/',
       }).catch((error: Error) => this.logger.warn(`Decision push to ${event.userId} failed: ${error.message}`)),
       this.decisionMessenger(event.userId, `${title}\n${body}`, gift),
-      this.decisionSms(event.userId, plan, event.approved),
+      this.decisionSms(event.userId, plan),
     ]);
   }
 
@@ -201,7 +201,7 @@ export class SubscriptionNotifier implements OnModuleInit {
       this.push.sendToUser(event.userId, { title: `ترابوت · ${event.approved ? 'بخش تازه فعال شد' : 'رسید تأیید نشد'}`, body: text, url: '/account/company/features' })
         .catch((error: Error) => this.logger.warn(`Feature decision push to ${event.userId} failed: ${error.message}`)),
       this.messengers(event.userId, text),
-      this.decisionSms(event.userId, event.title, !!event.approved),
+      this.decisionSms(event.userId, event.title),
     ]);
   }
 
@@ -231,7 +231,7 @@ export class SubscriptionNotifier implements OnModuleInit {
       this.push.sendToUser(event.userId, { title: `ترابوت · ${!event.approved ? 'رسید تأیید نشد' : event.kind === 'PACKAGE' ? 'بسته‌ی درخواست فعال شد' : 'شرکت‌ها باز شد'}`, body: text, url: '/account/broker?tab=access' })
         .catch((error: Error) => this.logger.warn(`Broker decision push to ${event.userId} failed: ${error.message}`)),
       this.messengers(event.userId, text),
-      this.decisionSms(event.userId, what, !!event.approved),
+      this.decisionSms(event.userId, what),
     ]);
   }
 
@@ -299,7 +299,7 @@ export class SubscriptionNotifier implements OnModuleInit {
         body: text,
         url: event.approved && kind === 'COMPANY' ? '/account/company/features' : VERIFICATION_PROFILE_PATH[kind],
       }).catch((error: Error) => this.logger.warn(`Verification decision push to ${event.userId} failed: ${error.message}`)),
-      this.decisionSms(event.userId, 'بررسی حساب ترابوت', !!event.approved),
+      this.decisionSms(event.userId, 'بررسی حساب ترابوت'),
       // «منو» is a messenger word: only the bots and WhatsApp are told to send it
       this.messengers(event.userId, event.approved ? `${text}\nبرای دیدن منو، «منو» را بفرستید.` : text),
     ]);
@@ -322,8 +322,8 @@ export class SubscriptionNotifier implements OnModuleInit {
   }
 
   /** The answer by SMS as well (DecisionSmsService): it reaches a user with no internet; a failure is only logged. */
-  private decisionSms(userId: string, title: string, approved: boolean): Promise<void> {
-    return this.sms.send(userId, title, approved).catch((error: Error) => this.logger.warn(`Decision SMS to ${userId} failed: ${error.message}`));
+  private decisionSms(userId: string, title: string): Promise<void> {
+    return this.sms.send(userId, title).catch((error: Error) => this.logger.warn(`Decision SMS to ${userId} failed: ${error.message}`));
   }
 
   /**
