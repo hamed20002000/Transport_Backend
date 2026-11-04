@@ -73,6 +73,9 @@ import { BrokerDriversService } from '../../services/company/brokerDrivers.servi
 import { CompanyBrokerLedgerController } from '../../presentation/controllers/company/broker-ledger.controller';
 import { BrokerLedgerService } from '../../services/company/brokerLedger.service';
 import { BrokerSettlement } from '../../domain/entities/company/BrokerSettlement';
+import { Circular } from '../../domain/entities/notification/Circular';
+import { CircularService } from '../../services/circular/circular.service';
+import { AdminCircularController, DriverCircularController } from '../../presentation/controllers/notification/circular.controller';
 import { CompanyFeatureDialog } from '../../services/company/companyFeatureDialog';
 import { BrokerAccessDialog } from '../../services/company/brokerAccessDialog';
 import { CompanyFactoryController, FactoryController, FactoryInviteController } from '../../presentation/controllers/company/factory.controller';
@@ -111,7 +114,7 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
 @Module({
   imports: [
     BorderModule,
-    TypeOrmModule.forFeature([CargoNotification, CargoAlertFilter, CargoListing, CargoRequest, DriverLocation, DriverLocationLog, DriverProfile, CompanyAnnounceSetting, WebPushSubscription, FactoryInvite, FactoryCompany, FactoryCargo, DriverInvite, BrokerInvite, BrokerSettlement]),
+    TypeOrmModule.forFeature([CargoNotification, CargoAlertFilter, CargoListing, CargoRequest, DriverLocation, DriverLocationLog, DriverProfile, CompanyAnnounceSetting, WebPushSubscription, FactoryInvite, FactoryCompany, FactoryCargo, DriverInvite, BrokerInvite, BrokerSettlement, Circular]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -131,13 +134,14 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
     // مسیر، مسافت، سوخت و جایگاه‌های سوخت برای جزئیات بار راننده
     RoutingModule,
   ],
-  controllers: [UsageController, CargoNotificationController, CargoListingController, CargoAlertFilterController, DriverController, PushController, CompanyFactoryController, FactoryController, FactoryInviteController, CompanyDriverInviteController, DriverInviteInfoController, CompanyBrokerDriversController, CompanyBrokerLedgerController, CompanyBrokerInviteController, BrokerInviteInfoController, CargoImageController],
+  controllers: [UsageController, CargoNotificationController, CargoListingController, CargoAlertFilterController, DriverController, PushController, CompanyFactoryController, FactoryController, FactoryInviteController, CompanyDriverInviteController, DriverInviteInfoController, CompanyBrokerDriversController, CompanyBrokerLedgerController, AdminCircularController, DriverCircularController, CompanyBrokerInviteController, BrokerInviteInfoController, CargoImageController],
   providers: [
     FactoryService,
     FactoryDialog,
     DriverInviteService,
     BrokerDriversService,
     BrokerLedgerService,
+    CircularService,
     BrokerInviteService,
     InviteExpiryWorker,
     CompanyPlanExpiryWorker,
