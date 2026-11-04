@@ -2,7 +2,7 @@ import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Post, Query } fro
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CompleteRegistrationDto, RequestOtpDto } from 'src/dto/auth/register-dto';
 import { RegistrationService } from 'src/services/auth/registration.service';
-import { VerifyRegistrationDto, RefreshTokenDto } from 'src/dto/auth/verify-registration-dto';
+import { AdminSignInDto, VerifyRegistrationDto, RefreshTokenDto } from 'src/dto/auth/verify-registration-dto';
 import { ImageService } from 'src/application/services/helper/image.service';
 
 @Controller('api/auth')
@@ -22,7 +22,7 @@ export class AuthController {
 
     return { message: 'Image saved successfully', path: savedPath };
   }
-  // ثبت‌نام و ورود فقط با موبایل و OTP (یک مسیر برای هر دو؛ مدیرها هم). رمز عبوری در سامانه نیست.
+  // ثبت‌نام و ورود با موبایل و OTP (یک مسیر برای هر دو). مدیر جدا هم با نام کاربری و رمز (admin/login).
   @Post('otp/request')
   @HttpCode(HttpStatus.OK)
   @ApiTags('Auth')
@@ -45,6 +45,15 @@ export class AuthController {
   @ApiOperation({ summary: 'Choose driver or company after verifying a new phone number; creates the account' })
   async completeRegistration(@Body() dto: CompleteRegistrationDto) {
     return this.registration.completeRegistration(dto.registrationToken, dto.accountType);
+  }
+
+  // پنل مدیریت در آدرس خودش (/auth/admin): نام کاربری و رمز، فقط برای حساب ADMIN
+  @Post('admin/login')
+  @HttpCode(HttpStatus.OK)
+  @ApiTags('Auth')
+  @ApiOperation({ summary: 'Administrator sign-in by username and password (the admin panel)' })
+  async adminSignIn(@Body() dto: AdminSignInDto) {
+    return this.registration.adminSignIn(dto.username, dto.password);
   }
 
   @Post('refresh')

@@ -6,6 +6,8 @@ export const KEY_PREFIXES = {
   registrationCooldown: 'auth:registration-cooldown',
   registrationSends: 'auth:registration-sends',
   refreshToken: 'auth:refresh',
+  // failed admin sign-ins by username (RegistrationService.adminSignIn): a few, then a pause
+  adminSignInFailures: 'auth:admin-signin-failures:v1',
   telegramIdentity: 'telegram:identity:v1',
   telegramIdentityRoles: 'telegram:identity-roles:v1',
   telegramAccessLock: 'telegram:onboarding-lock:v1',
@@ -91,6 +93,7 @@ export type RedisKeyParts = {
   registrationCooldown: [phone: string];
   registrationSends: [phone: string];
   refreshToken: [token: string];
+  adminSignInFailures: [username: string];
   telegramIdentity: [namespace: string, userId: string];
   telegramIdentityRoles: [namespace: string, userId: string];
   telegramAccessLock: [namespace: string, userId: string];

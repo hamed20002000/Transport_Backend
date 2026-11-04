@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   HttpException,
+  HttpStatus,
   Inject,
   Injectable,
   UnauthorizedException,
@@ -10,6 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import * as argon2 from 'argon2';
 import { normalizePhoneNumber } from 'src/dto/auth/phone-number';
 import { IUserRepository } from 'src/domain/repositories/IUserRepopsitory';
 import { USER_REPOSITORY } from 'src/domain/repositories/repository.tokens';
@@ -56,6 +58,10 @@ const REFRESH_TTL_SECONDS = 30 * 24 * 3600;
  * ورود بعدی خودکار با Refresh Token است (refresh). حساب بعد از تأیید کد ساخته می‌شود، پس
  * تا پیش از آن معلوم نمی‌شود چه شماره‌ای عضو است.
  */
+// the admin sign-in: this many wrong tries in a row, then a pause of this long for the username
+const ADMIN_SIGN_IN_TRIES = 5;
+const ADMIN_SIGN_IN_PAUSE_SECONDS = 15 * 60;
+
 @Injectable()
 export class RegistrationService {
   constructor(
@@ -234,6 +240,32 @@ export class RegistrationService {
     } catch {
       // Redis down: the sign-in itself already succeeded
     }
+  }
+
+  /**
+   * The admin panel's own sign-in: username and password (argon2 hash, User.passwordHash), for an account with the
+   * ADMIN role only. A few wrong tries in a row pause the username for a while; the answer never tells which part
+   * was wrong.
+   */
+  async adminSignIn(username: string, password: string) {
+    const name = username.trim().toLowerCase();
+    const failures = RedisService.key('adminSignInFailures', name);
+    const tries = Number((await this.redis.get(failures)) ?? 0);
+    if (tries >= ADMIN_SIGN_IN_TRIES) throw new HttpException('تلاش‌های ناموفق زیاد بود؛ چند دقیقه‌ی دیگر دوباره امتحان کنید.', HttpStatus.TOO_MANY_REQUESTS);
+    const row = await this.dataSource
+      .getRepository(User)
+      .createQueryBuilder('user')
+      .addSelect('user.passwordHash')
+      .where('lower(user.username) = :name AND user.recordStatus = :active', { name, active: RecordStatus.Active })
+      .getOne();
+    const valid = !!row?.passwordHash && (await argon2.verify(row.passwordHash, password).catch(() => false));
+    const user = valid ? await this.users.findById(row!.id) : null;
+    if (!user || !new JwtPayload(user).roles.includes('ADMIN')) {
+      await this.redis.increment(failures, ADMIN_SIGN_IN_PAUSE_SECONDS);
+      throw new UnauthorizedException('نام کاربری یا رمز عبور درست نیست.');
+    }
+    await this.redis.delete(failures);
+    return this.issueTokens(user);
   }
 
   private async issueTokens(user: User) {

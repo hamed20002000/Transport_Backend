@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { normalizePhoneNumber } from './phone-number';
 
@@ -28,4 +28,19 @@ export class RefreshTokenDto {
   @IsString()
   @Matches(/^[a-f0-9]{96}$/)
   refreshToken!: string;
+}
+
+/** The admin panel's own sign-in (/auth/admin): username and password. */
+export class AdminSignInDto {
+  @ApiProperty({ example: 'admin' })
+  @IsString()
+  @MinLength(3)
+  @MaxLength(100)
+  username!: string;
+
+  @ApiProperty()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  password!: string;
 }

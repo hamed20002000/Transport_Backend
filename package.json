@@ -24,6 +24,7 @@
     "backfill:trip-types": "ts-node -r tsconfig-paths/register src/infrastructure/database/seeds/backfillSuggestionTripTypes.ts",
     "move:receipts": "ts-node -r tsconfig-paths/register src/infrastructure/database/seeds/movePaymentReceipts.ts",
     "receipt-password": "ts-node -r tsconfig-paths/register src/infrastructure/database/seeds/receiptPassword.ts",
+    "admin:password": "ts-node -r tsconfig-paths/register src/infrastructure/database/seeds/adminPassword.ts",
     "agent:eval-domains": "ts-node -r tsconfig-paths/register src/application/services/agent/eval/evaluateDomains.ts",
     "agent:seed": "ts-node -r tsconfig-paths/register src/application/services/agent/eval/seedAgent.ts",
     "agent:eval-tools": "ts-node -r tsconfig-paths/register src/application/services/agent/eval/evaluateTools.ts",

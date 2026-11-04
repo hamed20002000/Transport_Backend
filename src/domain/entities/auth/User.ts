@@ -94,6 +94,11 @@ export class User {
 
   // a transport company or factory that signed up on its own is checked by a parent company before it can work
   // (AccountVerificationService): NONE (profile to fill in), PENDING, APPROVED, REJECTED. Everyone else is APPROVED.
+  // an administrator's password (argon2 hash) for signing in by username at the admin panel's own address
+  // (RegistrationService.adminSignIn); never read with the account, set only by `npm run admin:password`
+  @Column({ type: 'varchar', length: 200, nullable: true, select: false })
+  passwordHash?: string | null;
+
   @Column({ type: 'varchar', length: 20, default: 'APPROVED' })
   verificationStatus!: 'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED';
 
