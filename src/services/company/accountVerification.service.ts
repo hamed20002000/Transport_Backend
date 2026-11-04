@@ -7,6 +7,9 @@ import { driverVerificationOn } from 'src/domain/helper/driverVerification';
 
 import { User } from 'src/domain/entities/auth/User';
 import { RecordStatus } from 'src/domain/enums/RecordStatus';
+import { CargoTripType } from 'src/domain/enums/notification';
+import { DRIVER_KIND_REQUIRED } from '../driver/driverProfile.service';
+import { driverKindsOf } from '../notification/cargoTripType';
 import { RedisService } from '../redis/redis.service';
 import { AccountVerificationEvent, REDIS_CHANNELS } from '../redis/redis.keys';
 import { COMPANY_ROLES, CompanyFeatureService } from './companyFeature.service';
@@ -46,6 +49,10 @@ export const VERIFICATION_PROFILE_PATH: Record<VerifiedKind, string> = {
 
 /** What a driver is checked with that its DriverProfile keeps (not the User row). */
 type DriverProfileKey = 'smartCardNumber' | 'licenseNumber';
+type DriverPapers = Partial<Record<DriverProfileKey | 'companyName' | 'insuranceNumber' | 'insuranceExpiry', string | null>> & {
+  tripType?: CargoTripType | null;
+  tripTypes?: CargoTripType[] | null;
+};
 
 /**
  * What the parent company checks an account with before approving it: a transport company by its trade name,
@@ -83,9 +90,11 @@ const REQUIRED_TEXT: Record<VerifiedKind, string> = {
   COMPANY: 'نام تجاری، شماره پروانه و شماره‌ی شرکت',
   FACTORY: 'نام و شماره‌ی کارخانه',
   BROKER: 'نام، کد ملی، شماره موبایل و شماره‌ی تماس',
-  DRIVER: 'نام و نام خانوادگی، شماره کارت هوشمند و شماره گواهینامه',
+  DRIVER: 'نام و نام خانوادگی، شماره کارت هوشمند و شماره گواهینامه؛ راننده‌ی داخلی شماره و تاریخ اعتبار بیمه‌نامه، راننده‌ی بین‌المللی نام شرکت',
 };
 const PROFILE_FIELDS = ['companyName', 'nationalCode', 'companyNationalId', 'economicCode', 'registrationNo', 'licenseNo', 'phone', 'contactMobiles', 'postalCode', 'address'] as const;
+
+const DRIVER_KIND_TEXT: Record<string, string> = { DOMESTIC: 'داخلی', INTERNATIONAL: 'بین‌المللی', 'DOMESTIC+INTERNATIONAL': 'داخلی و بین‌المللی' };
 
 export interface VerificationState {
   /** NONE: fill in the profile and ask; PENDING: waiting for the parent company; APPROVED; REJECTED */
@@ -133,8 +142,12 @@ export class AccountVerificationService {
     if (!checked(kind)) {
       return { status: 'APPROVED', canRequest: false, remaining, missing: [], note: null, requestedAt: user.verificationRequestedAt ?? null, decidedAt: user.verificationDecidedAt ?? null };
     }
-    const values = { ...user, ...(kind === 'DRIVER' ? await this.driverPapers(userId) : {}) } as Record<string, unknown>;
-    const missing = REQUIRED_FIELDS[kind].filter(({ key }) => !String(values[key] ?? '').trim()).map(({ title }) => title);
+    const papers = kind === 'DRIVER' ? await this.driverPapers(userId) : null;
+    const values = { ...user, ...(papers ?? {}) } as Record<string, unknown>;
+    // a driver also by what its kind needs (DRIVER_KIND_REQUIRED): a domestic one its insurance policy, an
+    // international one the company it goes under; one of both kinds all of them
+    const required = [...REQUIRED_FIELDS[kind], ...(papers ? driverKindsOf(papers.tripTypes?.length ? papers.tripTypes : [papers.tripType]).flatMap((driverKind) => DRIVER_KIND_REQUIRED[driverKind]) : [])];
+    const missing = required.filter(({ key }) => !String(values[key] ?? '').trim()).map(({ title }) => title);
     // not required, but checked when given: one saved before the check-digit rule may be wrong
     if (user.companyNationalId && !isCompanyNationalId(user.companyNationalId)) missing.push('شناسه ملی درست (یا خالی)');
     if (kind === 'BROKER' && user.nationalCode && !isNationalCode(user.nationalCode)) missing.push('کد ملی درست');
@@ -202,6 +215,7 @@ export class AccountVerificationService {
          u."verificationNote" AS note, u."verificationRequestedAt" AS "requestedAt", u."verificationDecidedAt" AS "decidedAt",
          u."createdAt", ${PROFILE_FIELDS.map((field) => `u."${field}"`).join(', ')},
          u."firstName", u."lastName", p."smartCardNumber", p."licenseNumber",
+         p."companyName" AS "driverCompanyName", p."insuranceNumber", p."insuranceExpiry", p."tripTypes" AS "driverTripTypes",
          CASE WHEN bool_or(r.name = '${FACTORY_ROLE}') THEN 'FACTORY' WHEN bool_or(r.name = '${BROKER_ROLE}') THEN 'BROKER'
               WHEN bool_or(r.name = '${DRIVER_ROLE}') THEN 'DRIVER' ELSE 'COMPANY' END AS kind
        FROM "User" u
@@ -213,7 +227,12 @@ export class AccountVerificationService {
        ORDER BY u."verificationRequestedAt" DESC NULLS LAST`,
       [statuses, RecordStatus.Active, [...COMPANY_ROLES, FACTORY_ROLE, BROKER_ROLE, DRIVER_ROLE]],
     );
-    return rows.map((row) => ({ ...row, remaining: Math.max(0, MAX_VERIFICATION_REQUESTS - Number(row.requests)) }));
+    return rows.map(({ driverTripTypes, ...row }) => ({
+      ...row,
+      remaining: Math.max(0, MAX_VERIFICATION_REQUESTS - Number(row.requests)),
+      // a driver: domestic, international, or both (what its kind-only fields depend on)
+      driverKind: row.kind === 'DRIVER' ? DRIVER_KIND_TEXT[driverKindsOf((driverTripTypes as CargoTripType[] | null) ?? []).join('+')] ?? 'داخلی' : null,
+    }));
   }
 
   /**
@@ -269,10 +288,14 @@ export class AccountVerificationService {
 
   //#endregion
 
-  /** A driver's smart card and licence numbers, from its DriverProfile (none yet: empty). */
-  private async driverPapers(userId: string): Promise<Partial<Record<DriverProfileKey, string | null>>> {
-    const rows: Array<Record<DriverProfileKey, string | null>> = await this.dataSource.query(
-      `SELECT "smartCardNumber", "licenseNumber" FROM "DriverProfile" WHERE "userId" = $1`,
+  /**
+   * What a driver's DriverProfile keeps of what it is checked with: its smart card and licence, its kinds, and the
+   * fields of its kind (insurance, company). None yet: a domestic driver with nothing filled in.
+   */
+  private async driverPapers(userId: string): Promise<DriverPapers> {
+    const rows: DriverPapers[] = await this.dataSource.query(
+      `SELECT "smartCardNumber", "licenseNumber", "companyName", "insuranceNumber", "insuranceExpiry", "tripType", "tripTypes"
+         FROM "DriverProfile" WHERE "userId" = $1`,
       [userId],
     );
     return rows[0] ?? {};

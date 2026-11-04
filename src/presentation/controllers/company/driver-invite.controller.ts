@@ -3,7 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ConfigService } from '@nestjs/config';
 import { Transform, Type } from 'class-transformer';
 import { memoryStorage } from 'multer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsOptional, IsString, MaxLength, MinLength, ValidateNested } from 'class-validator';
 
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { CompanyFeatureGuard, RequireCompanyFeature } from 'src/auth/guards/companyFeature.guard';
@@ -33,6 +33,24 @@ export class CreateDriverInvitesDto {
   @ValidateNested({ each: true })
   @Type(() => DriverInviteItemDto)
   drivers!: DriverInviteItemDto[];
+}
+
+export class RegisterDriverItemDto {
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString() @MaxLength(20)
+  mobile!: string;
+
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString() @MinLength(3, { message: 'نام و نام خانوادگی راننده را کامل بنویسید.' }) @MaxLength(200)
+  name!: string;
+}
+
+/** The parent company's drivers registered directly, by name and number (no link, no SMS). */
+export class RegisterDriversDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(MAX_DRIVER_INVITES)
+  @ValidateNested({ each: true })
+  @Type(() => RegisterDriverItemDto)
+  drivers!: RegisterDriverItemDto[];
 }
 
 const excelUploadOptions = {
@@ -75,6 +93,12 @@ export class CompanyDriverInviteController {
       outcomes: outcomes.map((outcome) => (outcome.status === 'refused' ? outcome : { ...outcome, messengers: this.messengers(outcome.token) })),
       sms,
     };
+  }
+
+  /** شرکت مادر: راننده با نام و شماره مستقیم ثبت می‌شود (بی‌لینک و پیامک) و همان لحظه جزو رانندگانش است. */
+  @Post('direct')
+  register(@Req() request: AuthRequest, @Body() dto: RegisterDriversDto) {
+    return this.invites.register(companyUserId(request), dto.drivers);
   }
 
   @Get('excel/template')

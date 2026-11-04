@@ -68,6 +68,8 @@ import { CargoImageService } from '../../services/notification/cargoImage.servic
 import { CargoDisplayDialog } from '../../services/notification/cargoDisplayDialog';
 import { CargoImageController } from '../../presentation/controllers/notification/cargo-image.controller';
 import { CompanyDriverInviteController, DriverInviteInfoController } from '../../presentation/controllers/company/driver-invite.controller';
+import { CompanyBrokerDriversController } from '../../presentation/controllers/company/broker-drivers.controller';
+import { BrokerDriversService } from '../../services/company/brokerDrivers.service';
 import { CompanyFeatureDialog } from '../../services/company/companyFeatureDialog';
 import { BrokerAccessDialog } from '../../services/company/brokerAccessDialog';
 import { CompanyFactoryController, FactoryController, FactoryInviteController } from '../../presentation/controllers/company/factory.controller';
@@ -126,11 +128,12 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
     // مسیر، مسافت، سوخت و جایگاه‌های سوخت برای جزئیات بار راننده
     RoutingModule,
   ],
-  controllers: [UsageController, CargoNotificationController, CargoListingController, CargoAlertFilterController, DriverController, PushController, CompanyFactoryController, FactoryController, FactoryInviteController, CompanyDriverInviteController, DriverInviteInfoController, CompanyBrokerInviteController, BrokerInviteInfoController, CargoImageController],
+  controllers: [UsageController, CargoNotificationController, CargoListingController, CargoAlertFilterController, DriverController, PushController, CompanyFactoryController, FactoryController, FactoryInviteController, CompanyDriverInviteController, DriverInviteInfoController, CompanyBrokerDriversController, CompanyBrokerInviteController, BrokerInviteInfoController, CargoImageController],
   providers: [
     FactoryService,
     FactoryDialog,
     DriverInviteService,
+    BrokerDriversService,
     BrokerInviteService,
     InviteExpiryWorker,
     CompanyPlanExpiryWorker,

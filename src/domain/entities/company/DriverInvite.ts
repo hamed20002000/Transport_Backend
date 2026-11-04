@@ -44,6 +44,13 @@ export class DriverInvite {
   @Column({ type: 'boolean', default: false })
   usedByLink!: boolean;
 
+  /**
+   * The parent company registered the driver itself, with its name and number: no link, no SMS, the row is used at
+   * once (the account is the company's doing, and stays) and it is not among the invites waiting.
+   */
+  @Column({ type: 'boolean', default: false })
+  direct!: boolean;
+
   @Column({ type: 'timestamp', nullable: true })
   revokedAt?: Date | null;
 

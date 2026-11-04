@@ -44,6 +44,8 @@ export interface DriverCard {
   photos: { face: boolean; vehicle: boolean };
   /** a broker (واسط) requested, not a driver: it has no vehicle; the company deals with it about the driver */
   broker: boolean;
+  /** the parent company has approved the account (AccountVerificationService); a new driver waits until then */
+  verified: boolean;
 }
 
 const toLatinDigits = (text: string) =>
@@ -222,7 +224,7 @@ export class DriverProfileService {
   async cards(userIds: string[]): Promise<DriverCard[]> {
     if (!userIds.length) return [];
     const rows: Array<Record<string, unknown>> = await this.dataSource.query(
-      `SELECT u.id, u."firstName", u."lastName", u.username, u.mobile, u."accountCode", u."companyName",
+      `SELECT u.id, u."firstName", u."lastName", u.username, u.mobile, u."accountCode", u."companyName", u."verificationStatus",
               EXISTS (SELECT 1 FROM "UserRole" ur JOIN "Role" r ON r.id = ur."roleId" WHERE ur."userId" = u.id AND r.name = 'BROKER')
                 AND p."userId" IS NULL AS broker,
               p."vehicleType", p."vehicleModel", p.plate, p."capacityTons", p."homeCity", p."facePhoto", p."vehiclePhoto", p."tripType"
@@ -243,6 +245,7 @@ export class DriverProfileService {
           userId: id,
           name,
           broker,
+          verified: row.verificationStatus === 'APPROVED',
           mobile: (row.mobile as string) ?? null,
           accountCode: (row.accountCode as string) ?? null,
           vehicleType: (row.vehicleType as string) ?? null,
@@ -388,17 +391,19 @@ export class DriverProfileService {
   }
 
   /**
-   * How each driver came: with this company's invite (yourInvite), another company's (invite), or by finding Trabot
+   * How each driver came: registered by this company itself (yourRegister, the parent company's direct entry), with
+   * this company's invite (yourInvite), another company's (invite), or by finding Trabot
    * themselves (self, the default). An invite counts once its driver came in by any way — the link, the code in a
    * messenger, or the number typed in the installed app: an invite makes the account, and a driver already in Trabot is
    * never invited, so whoever came in on an invited number came by that invite. removable: this company invited them,
    * so it can take them off its drivers.
    */
-  private async joinedBy(driverIds: string[], viewerUserId?: string): Promise<Map<string, { joinedBy: 'yourInvite' | 'invite' | 'self'; removable: boolean }>> {
+  private async joinedBy(driverIds: string[], viewerUserId?: string): Promise<Map<string, { joinedBy: 'yourRegister' | 'yourInvite' | 'invite' | 'self'; removable: boolean }>> {
     if (!driverIds.length) return new Map();
-    const rows: Array<{ driverUserId: string; mine: boolean; mineByLink: boolean; otherByLink: boolean }> = await this.dataSource.query(
+    const rows: Array<{ driverUserId: string; mine: boolean; mineDirect: boolean; mineByLink: boolean; otherByLink: boolean }> = await this.dataSource.query(
       `SELECT "driverUserId",
               bool_or("companyUserId"::text = $2) AS mine,
+              bool_or("companyUserId"::text = $2 AND direct) AS "mineDirect",
               bool_or("companyUserId"::text = $2 AND ("usedAt" IS NOT NULL OR "usedByLink")) AS "mineByLink",
               bool_or("companyUserId"::text <> $2 AND ("usedAt" IS NOT NULL OR "usedByLink")) AS "otherByLink"
          FROM "DriverInvite"
@@ -408,7 +413,7 @@ export class DriverProfileService {
     return new Map(
       rows.map((row) => [
         row.driverUserId,
-        { joinedBy: row.mineByLink ? 'yourInvite' : row.otherByLink ? 'invite' : 'self', removable: row.mine },
+        { joinedBy: row.mineDirect ? 'yourRegister' : row.mineByLink ? 'yourInvite' : row.otherByLink ? 'invite' : 'self', removable: row.mine },
       ]),
     );
   }
