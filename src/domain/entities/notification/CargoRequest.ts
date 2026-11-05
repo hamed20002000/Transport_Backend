@@ -11,6 +11,7 @@ import {
 
 import type { BrokerDriver } from '../../helper/brokerDriver';
 import { CargoRequestStatus } from '../../enums/notification';
+import { BrokerPayModel } from '../../enums/tripFare';
 import { User } from '../auth/User';
 import { CargoListing } from './CargoListing';
 
@@ -86,14 +87,29 @@ export class CargoRequest {
   exitBorder?: string | null;
 
   /**
-   * A broker's delivered trip: its commission, the admin's percent (BrokerAccessPolicy.commissionPercent) of the fare
-   * the broker gave, fixed when the delivery was recorded; null when the fare was not a bare number («1500 دلار»).
+   * A broker's request: how the broker is paid for it (BrokerPayModel), chosen by the company when it accepted it;
+   * null for a driver's own request, and for broker trips from before it was asked (counted as COMMISSION).
+   */
+  @Column({ type: 'varchar', length: 12, nullable: true })
+  brokerPayModel?: BrokerPayModel | null;
+
+  /**
+   * A broker's delivered trip on COMMISSION: what the company owes it, the admin's percent
+   * (BrokerAccessPolicy.commissionPercent) of the fare the company confirmed at delivery (TripFare DELIVERED), fixed
+   * then. Older trips: of the fare the broker gave. Null when it could not be worked out (a fare in dollars).
    */
   @Column({ type: 'bigint', nullable: true })
   brokerCommission?: string | null;
 
   @Column({ type: 'numeric', precision: 5, scale: 2, nullable: true })
   brokerCommissionPercent?: string | null;
+
+  /**
+   * A broker's delivered trip on MARGIN: the company's confirmed fare less the fare the broker gave the driver
+   * (forDriver.fare), fixed at delivery; for the figures, the company owes nothing for it. Null when either is missing.
+   */
+  @Column({ type: 'bigint', nullable: true })
+  brokerMargin?: string | null;
 
   @CreateDateColumn()
   createdAt!: Date;

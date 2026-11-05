@@ -1,3 +1,4 @@
+import { SessionService } from 'src/services/auth/session.service';
 import {
   ConnectedSocket,
   MessageBody,
@@ -38,6 +39,8 @@ export class AgentGateway {
     private readonly whatsappService: WhatsappService,
     @Inject(forwardRef(() => FunctionCallService))
     private readonly functionCallService: FunctionCallService,
+    // one web session per account: a replaced one does not reach the assistant
+    private readonly sessions: SessionService,
   ) { }
 
   // حذف شد: totalSegments/currentSegment -- شمارش دقیق مراحل (چه مشترک،
@@ -219,7 +222,8 @@ export class AgentGateway {
 
     try {
       const payload = await this.jwtService.verifyAsync<JwtPayload>(token);
-      return payload.isActive === false ? null : payload.userId ?? null;
+      if (payload.isActive === false || !payload.userId) return null;
+      return (await this.sessions.isCurrent(payload.userId, payload)) ? payload.userId : null;
     } catch (error) {
       this.logger.debug(`Agent socket rejected: ${(error as Error).message}`);
       return null;

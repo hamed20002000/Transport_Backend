@@ -34,6 +34,7 @@ import { LOAD_REQUESTER_ROLES } from './loadRequesters';
 import { messengerOf } from '../analytics/usageChannelOf';
 import { UsageService } from '../analytics/usage.service';
 import { BROKER_ACCESS_ACTION } from '../company/brokerAccessDialog';
+import { TripFareDialog } from './tripFareDialog';
 
 const PREFIX = 'tr:';
 const Action = {
@@ -152,6 +153,8 @@ export class TripDialog implements BotDialog, OnModuleInit {
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     private readonly speech: TextToSpeechService,
     @Optional() private readonly usage?: UsageService,
+    // the company's fare and weight when it accepts a request or confirms a delivery (TripFare)
+    @Optional() private readonly fareDialog?: TripFareDialog,
   ) {}
 
   onModuleInit(): void {
@@ -281,7 +284,9 @@ export class TripDialog implements BotDialog, OnModuleInit {
     // شرکت
     if (id.startsWith(Action.CompanyRequests)) return this.companyRequestsView(ctx, this.page(arg(Action.CompanyRequests)));
     if (id.startsWith(Action.CompanyTrips)) return this.companyTripsView(ctx, this.page(arg(Action.CompanyTrips)));
-    if (id.startsWith(Action.Accept)) return this.decide(ctx, arg(Action.Accept), true);
+    if (id.startsWith(Action.Accept)) {
+      return this.fareDialog ? this.fareDialog.startAccept(ctx, arg(Action.Accept)) : this.decide(ctx, arg(Action.Accept), true);
+    }
     if (id.startsWith(Action.Reject)) return this.decide(ctx, arg(Action.Reject), false);
     if (id.startsWith(Action.Location)) return this.showLocation(ctx, arg(Action.Location));
     if (id.startsWith(Action.LocationRequest)) return this.requestLocation(ctx, arg(Action.LocationRequest));
@@ -512,6 +517,8 @@ export class TripDialog implements BotDialog, OnModuleInit {
   }
 
   private async deliver(ctx: BotContext, requestId: string): Promise<BotReply> {
+    // the company confirms with the final fare and weight; the driver or broker only reports it
+    if (this.fareDialog && (await this.trips.forCompany(ctx.userId, requestId))) return this.fareDialog.startDeliver(ctx, requestId);
     let request: CargoRequest | null = null;
     let notice: string;
     try {

@@ -18,6 +18,8 @@ import { planExpiringText, type PlanExpiringNotice } from '../company/planExpiri
 import { sendThroughOne } from './messengerOrder';
 
 export const PAYMENT_RECEIPT_SOCKET_EVENT = 'payment-receipt';
+// the account signed in elsewhere: its pages of an older session sign out (SessionService)
+export const SESSION_REPLACED_SOCKET_EVENT = 'session-replaced';
 export const SUBSCRIPTION_CHANGED_SOCKET_EVENT = 'subscription-changed';
 // a company menu's receipt arrived (admins) / was decided (the company): the pages reload
 export const COMPANY_FEATURE_RECEIPT_SOCKET_EVENT = 'company-feature-receipt';
@@ -104,7 +106,10 @@ export class SubscriptionNotifier implements OnModuleInit {
         void this.handle('verification-decision', this.withNoticeId(message), (event: AccountVerificationEvent & { orderId: string }) => this.verificationDecided(event), (event) =>
           this.gateway.sendToUser(event.userId, VERIFICATION_CHANGED_SOCKET_EVENT, { approved: event.approved })));
       await this.redis.subscribe(REDIS_CHANNELS.accountSignedIn, (message) =>
-        void this.handle('signed-in', this.signInNotice(message), (event: AccountSignedInEvent & { orderId: string }) => this.signedIn(event)));
+        void this.handle('signed-in', this.signInNotice(message), (event: AccountSignedInEvent & { orderId: string }) => this.signedIn(event), (event) => {
+          // the account's pages of another session sign out (a parent company's are not told: they all stay)
+          if (event.sessionId) this.gateway.sendToUser(event.userId, SESSION_REPLACED_SOCKET_EVENT, { sessionId: event.sessionId });
+        }));
     } catch (error) {
       this.logger.warn(`Could not listen for payment events: ${(error as Error).message}`);
     }
@@ -272,6 +277,7 @@ export class SubscriptionNotifier implements OnModuleInit {
    * (the app's own notifications; many use no messenger), so the owner hears of a sign-in that was not theirs.
    */
   async signedIn(event: AccountSignedInEvent): Promise<void> {
+    if (event.quiet) return;
     const time = new Date(event.at).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tehran' });
     await this.push
       .sendToUser(

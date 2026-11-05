@@ -6,6 +6,7 @@ import { ToolRegisterModule } from './toolregister.module';
 import { AgentController } from 'src/presentation/controllers/agent/agent.controller';
 import { AgentChatController } from 'src/presentation/controllers/agent/agent-chat.controller';
 import { AgentGateway } from '../agent.gateway';
+import { SessionService } from 'src/services/auth/session.service';
 import { EmbeddingService } from '../services/embedding.service';
 import { CancellationService } from '../services/cancellation.service';
 import { FunctionCallService } from '../services/functioncall.service';
@@ -53,6 +54,8 @@ import { CompanyFeatureModule } from 'src/application/module/CompanyFeatureModul
     AgentSqlService,
     AgentToolsService,
     AgentGateway,
+    // the assistant socket refuses a session replaced by a sign-in elsewhere
+    SessionService,
     EmbeddingService,
     CancellationService,
     FunctionCallService,

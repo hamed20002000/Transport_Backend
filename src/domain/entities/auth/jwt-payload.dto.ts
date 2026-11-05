@@ -6,6 +6,10 @@ export class JwtPayload {
   username!: string;
   roles!: string[];
   isActive!: boolean;
+  /** the web session the token belongs to (SessionService); absent on older tokens */
+  sid?: string;
+  /** may be signed in on many devices at once (the parent company) */
+  multi?: boolean;
 
   constructor(user: User) {
     this.userId = user.id;

@@ -44,7 +44,7 @@ import { CargoAlertFilterService } from 'src/services/notification/cargoAlertFil
 import { CargoNotificationService } from 'src/services/notification/cargoNotification.service';
 import { CargoTripService } from 'src/services/notification/cargoTrip.service';
 import { DriverProfileService } from 'src/services/driver/driverProfile.service';
-import { OfferCargoDto } from 'src/dto/notification/DriverDto';
+import { DecideRequestDto, DeliverTripDto, FareFormQueryDto, OfferCargoDto } from 'src/dto/notification/TripFareDto';
 import { CargoExcelService, MAX_EXCEL_BYTES } from 'src/services/notification/cargoExcel.service';
 
 type AuthRequest = { user?: JwtPayload };
@@ -274,23 +274,30 @@ export class CargoListingController {
     return { count: await this.trips.countCompanyRequests(companyUserId(request)) };
   }
 
-  // قبول یا رد درخواست راننده (409 notPending / taken / reserved)
+  // فرم کرایه و وزن یک درخواست یا سفر: مقادیر پیش‌فرض مرحله‌ی «توافق» (قبول) یا «تحویل»، و مقادیر توافقی برای مقایسه
+  @Get('requests/:id/fare-form')
+  fareForm(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string, @Query() query: FareFormQueryDto) {
+    return this.trips.fareForm(companyUserId(request), id, query.stage);
+  }
+
+  // قبول (با کرایه و وزن توافقی) یا رد درخواست راننده (409 notPending / taken / reserved؛ 400 کرایه‌ی ناقص)
   @Patch('requests/:id/:decision')
   @RequireCompanyFeature(CompanyFeature.DriverRequests)
   async decideRequest(
     @Req() request: AuthRequest,
     @Param('id', ParseUUIDPipe) id: string,
     @Param('decision', new ParseEnumPipe(['accept', 'reject'])) decision: 'accept' | 'reject',
+    @Body() dto: DecideRequestDto,
   ) {
-    const decided = await this.trips.decide(companyUserId(request), id, decision === 'accept');
+    const decided = await this.trips.decide(companyUserId(request), id, decision === 'accept', dto);
     return { requestId: decided.id, status: decided.status };
   }
 
-  // شرکت تحویل بار را ثبت می‌کند؛ راننده خبردار می‌شود (409 notActive اگر سفر فعال نیست)
+  // شرکت تحویل بار را با کرایه و وزن نهایی ثبت می‌کند؛ راننده خبردار می‌شود (409 notActive اگر سفر فعال نیست)
   @Patch('trips/:id/deliver')
   @RequireCompanyFeature(CompanyFeature.Trips)
-  async deliverTrip(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string) {
-    const delivered = await this.trips.deliver(companyUserId(request), id);
+  async deliverTrip(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string, @Body() dto: DeliverTripDto) {
+    const delivered = await this.trips.deliver(companyUserId(request), id, dto.fare);
     return { requestId: delivered.id, status: delivered.status, deliveredAt: delivered.deliveredAt };
   }
 
@@ -306,7 +313,14 @@ export class CargoListingController {
   @Post(':id/offer')
   @RequireCompanyFeature(CompanyFeature.PublishedLoads)
   offer(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string, @Body() dto: OfferCargoDto) {
-    return this.trips.offer(currentUserId(request), id, dto.driverUserId);
+    return this.trips.offer(currentUserId(request), id, dto.driverUserId, dto.fare);
+  }
+
+  // فرم کرایه و وزن هنگام سپردن بار: پیش‌فرض از کرایه و وزن خود بار
+  @Get(':id/offer/fare-form')
+  @RequireCompanyFeature(CompanyFeature.PublishedLoads)
+  offerFareForm(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string) {
+    return this.trips.offerFareForm(currentUserId(request), id);
   }
 
   // عکس چهره یا ماشین راننده برای شرکت هنگام انتخاب راننده

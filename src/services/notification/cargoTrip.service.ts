@@ -2,7 +2,10 @@ import { BadRequestException, ConflictException, Inject, Injectable, Logger, Not
 import { I18nService } from 'nestjs-i18n';
 
 import { cargoLine, fa } from 'src/application/services/agent/tools/toolKit';
-import { BrokerDriver, BrokerDriverField, brokerCommission, brokerDriverIdentity, brokerDriverLine, readBrokerDriver } from 'src/domain/helper/brokerDriver';
+import { BrokerDriver, BrokerDriverField, brokerCommission, brokerDriverIdentity, brokerDriverLine, fareAmount, readBrokerDriver } from 'src/domain/helper/brokerDriver';
+import { BrokerPayModel, TripFareStage } from 'src/domain/enums/tripFare';
+import { brokerEarning, fareDefaultsFromListing, fareLine, type TripFareInput, type TripFareValues } from 'src/domain/helper/tripFare';
+import { TripFareForm, TripFareService } from './tripFare.service';
 import { CargoRequest } from '../../domain/entities/notification/CargoRequest';
 import { DriverLocation } from '../../domain/entities/notification/DriverLocation';
 import { CargoListingStatus, CargoRequestStatus, CargoTripType } from '../../domain/enums/notification';
@@ -90,6 +93,8 @@ export class CargoTripService {
     @Optional() private readonly push?: WebPushService,
     @Optional() private readonly brokerAccess?: BrokerAccessService,
     @Optional() private readonly borders?: LoadBorderService,
+    // the fare and weight the company records when it closes the deal and at delivery (TripFare)
+    @Optional() private readonly fares?: TripFareService,
   ) {}
 
   /** Companies whose loads this user sees: null for all (a driver, or nothing sold to brokers); a broker gets what it bought. */
@@ -372,6 +377,7 @@ export class CargoTripService {
     const cardOf = new Map(cards.map((card) => [card.userId, card]));
     const locationOf = new Map(locations);
     const forDriver = await this.forDriverViews(companyUserId, items);
+    const fares = await this.fares?.stagesOf(items.map((item) => item.id));
     return {
       total,
       page,
@@ -399,6 +405,9 @@ export class CargoTripService {
           driver: cardOf.get(item.driverUserId) ?? null,
           forDriver: forDriver(item),
           exitBorder: item.exitBorder ?? item.forDriver?.exitBorder ?? null,
+          brokerPayModel: item.forDriver ? (item.brokerPayModel ?? BrokerPayModel.Commission) : null,
+          // the agreed fare, shown on the card and prefilled in the delivery form
+          fare: fares?.get(item.id) ?? { agreed: null, delivered: null },
           location: location
             ? { latitude: location.latitude, longitude: location.longitude, receivedAt: location.receivedAt, liveUntil: location.liveUntil ?? null }
             : null,
@@ -447,13 +456,27 @@ export class CargoTripService {
   /**
    * قبول: سفر فعال راننده می‌شود، بار «برداشته شد» (پیام بقیه‌ی راننده‌ها
    * ویرایش می‌شود) و بقیه‌ی درخواست‌های همین بار رد می‌شوند.
+   * deal (accept only): the fare and weight agreed (TripFare AGREED), required; for a broker's request also how the
+   * broker is paid (BrokerPayModel; the company's last pick when left out).
    */
-  async decide(companyUserId: string, requestId: string, accept: boolean): Promise<CargoRequest> {
+  async decide(
+    companyUserId: string,
+    requestId: string,
+    accept: boolean,
+    deal?: { fare?: Partial<TripFareInput> | null; payModel?: BrokerPayModel | null },
+  ): Promise<CargoRequest> {
+    // the values are checked before anything changes
+    const fare = accept && this.fares ? TripFareService.read(deal?.fare) : null;
     const request = await this.owned(requestId, (r) => r.companyUserId === companyUserId);
     if (request.status !== CargoRequestStatus.Pending) throw new ConflictException('notPending');
 
     if (accept && request.listing.status !== CargoListingStatus.Open) throw new ConflictException('taken');
     if (accept && (await this.requests.findActiveOffer(request.listingId))) throw new ConflictException('reserved');
+    if (fare) await this.fares!.recordAgreed(request, fare, companyUserId);
+    if (accept && request.forDriver) {
+      const picked = deal?.payModel && Object.values(BrokerPayModel).includes(deal.payModel) ? deal.payModel : null;
+      request.brokerPayModel = picked ?? (this.fares ? await this.fares.lastPayModel(companyUserId) : BrokerPayModel.Commission);
+    }
     request.status = accept ? CargoRequestStatus.Accepted : CargoRequestStatus.Rejected;
     request.decidedAt = new Date();
     await this.requests.save(request);
@@ -463,7 +486,7 @@ export class CargoTripService {
     // a broker has no trip of its own to follow: it brings the driver to the company
     const broker = accept && (await this.isBroker(request.driverUserId));
     const text = accept
-      ? this.t(broker ? 'notify.acceptedBroker' : 'notify.accepted', { cargo, company: this.describe(company) })
+      ? this.withFare(this.t(broker ? 'notify.acceptedBroker' : 'notify.accepted', { cargo, company: this.describe(company) }), fare)
       : this.t('notify.rejected', { cargo });
     if (broker) {
       // the broker answers for the load: it reports the delivery, the company confirms it
@@ -486,16 +509,17 @@ export class CargoTripService {
     return request;
   }
 
-  /** بار «برداشته شد»، بقیه‌ی درخواست‌های همین بار رد و به راننده‌هایشان خبر داده می‌شود. */
+  /**
+   * بار «برداشته شد» و بقیه‌ی درخواست‌های همین بار رد می‌شود؛ راننده‌هایشان فقط اگر صفحه‌شان در وب باز باشد (سوکت)
+   * خبردار می‌شوند، نه در پیام‌رسان و نه با اعلان گوشی.
+   */
   private async completeAssignment(request: CargoRequest): Promise<void> {
     await this.listings.setStatus(request.companyUserId, request.listingId, CargoListingStatus.Taken);
     for (const other of await this.requests.findOtherPending(request.listingId, request.id)) {
       other.status = CargoRequestStatus.Rejected;
       other.decidedAt = new Date();
       await this.requests.save(other);
-      const text = this.t('notify.rejectedTaken', { cargo: this.cargoTitle(other) });
-      this.changed(other, undefined, text);
-      await this.notify(other.driverUserId, text);
+      this.changed(other, undefined, this.t('notify.rejectedTaken', { cargo: this.cargoTitle(other) }));
     }
   }
 
@@ -531,7 +555,9 @@ export class CargoTripService {
    * شرکت بار را به یک راننده می‌سپارد؛ بار تا تأیید راننده (حداکثر OFFER_TTL_MINUTES)
    * برای بقیه «رزرو شده» است و درخواست تازه نمی‌گیرد.
    */
-  async offer(companyUserId: string, listingId: string, driverUserId: string): Promise<CargoRequest> {
+  async offer(companyUserId: string, listingId: string, driverUserId: string, fareInput?: Partial<TripFareInput> | null): Promise<CargoRequest> {
+    // the fare agreed with the driver (TripFare AGREED); the assistant hands loads without one, the company gives it at delivery
+    const fare = fareInput && this.fares ? TripFareService.read(fareInput) : null;
     const listing = await this.ownOpenListing(companyUserId, listingId);
     if (driverUserId === companyUserId) throw new ConflictException('own');
     if (!(await this.profiles.isDriver(driverUserId))) throw new ConflictException('notDriver');
@@ -545,9 +571,10 @@ export class CargoTripService {
     request.offerExpiresAt = new Date(Date.now() + OFFER_TTL_MINUTES * 60_000);
     const saved = await this.requests.save(request);
     const full = (await this.requests.findById(saved.id))!;
+    if (fare) await this.fares!.recordAgreed(full, fare, companyUserId);
 
     const company = await this.contact(companyUserId);
-    const text = this.t('notify.offer', { company: this.describe(company), cargo: this.cargoTitle(full), minutes: OFFER_TTL_MINUTES });
+    const text = this.withFare(this.t('notify.offer', { company: this.describe(company), cargo: this.cargoTitle(full), minutes: OFFER_TTL_MINUTES }), fare);
     await this.notify(
       driverUserId,
       text,
@@ -654,7 +681,7 @@ export class CargoTripService {
    * تحویل در دو قدم: راننده اعلامش می‌کند (سفر تا تأیید شرکت فعال می‌ماند و شرکت با دکمه‌ی تأیید خبردار
    * می‌شود)؛ شرکت با تأیید یا ثبت مستقیم، بار را «تحویل‌شده» می‌کند و راننده خبردار می‌شود.
    */
-  async deliver(userId: string, requestId: string): Promise<CargoRequest> {
+  async deliver(userId: string, requestId: string, fareInput?: Partial<TripFareInput> | null): Promise<CargoRequest> {
     const request = await this.owned(requestId, (r) => r.driverUserId === userId || r.companyUserId === userId);
     if (request.status !== CargoRequestStatus.Accepted) throw new ConflictException('notActive');
     const by = await this.contact(userId);
@@ -681,19 +708,16 @@ export class CargoTripService {
       return request;
     }
 
-    // شرکت: تأیید اعلام راننده، یا ثبت مستقیم
+    // شرکت: تأیید اعلام راننده، یا ثبت مستقیم؛ با کرایه و وزن نهایی (TripFare DELIVERED)
+    const fare = this.fares ? TripFareService.read(fareInput) : null;
+    if (fare) await this.fares!.recordDelivered(request, fare, userId);
     const reported = !!request.deliveryReportedAt;
     request.status = CargoRequestStatus.Delivered;
     request.deliveredAt = new Date();
-    // a broker's trip: its commission is fixed now, at the admin's percent of today (a later change leaves it)
-    if (request.forDriver && this.brokerAccess) {
-      const { commissionPercent } = await this.brokerAccess.getPolicy();
-      const commission = brokerCommission(request.forDriver.fare, commissionPercent);
-      request.brokerCommission = commission === null ? null : String(commission);
-      request.brokerCommissionPercent = String(commissionPercent);
-    }
+    // a broker's trip: what it gets is fixed now, at the admin's percent of today (a later change leaves it)
+    if (request.forDriver && this.brokerAccess) await this.settleBroker(request, fare);
     await this.requests.save(request);
-    const text = this.t(reported ? 'notify.deliveryConfirmed' : 'notify.deliveredByCompany', { cargo, by: this.describe(by) });
+    const text = this.withFare(this.t(reported ? 'notify.deliveryConfirmed' : 'notify.deliveredByCompany', { cargo, by: this.describe(by) }), fare);
     // the finished trip is among «درخواست‌های من» (a broker's in its own panel)
     await this.notify(request.driverUserId, text, [], {
       title: reported ? 'ترابوت · تحویل تأیید شد' : 'ترابوت · تحویل ثبت شد',
@@ -727,6 +751,52 @@ export class CargoTripService {
   }
 
   //#endregion
+
+  /**
+   * A broker's share of a delivered trip (BrokerPayModel): COMMISSION, the admin's percent of the fare the company
+   * confirmed; MARGIN, that fare less the one the broker gave the driver. Without a confirmed fare (no TripFareService)
+   * the commission is on the broker's own fare, as before.
+   */
+  private async settleBroker(request: CargoRequest, fare: TripFareValues | null): Promise<void> {
+    const { commissionPercent } = await this.brokerAccess!.getPolicy();
+    const model = request.brokerPayModel ?? BrokerPayModel.Commission;
+    request.brokerPayModel = model;
+    request.brokerCommissionPercent = model === BrokerPayModel.Commission ? String(commissionPercent) : null;
+    if (!fare) {
+      const commission = model === BrokerPayModel.Commission ? brokerCommission(request.forDriver?.fare, commissionPercent) : null;
+      request.brokerCommission = commission === null ? null : String(commission);
+      request.brokerMargin = null;
+      return;
+    }
+    const earning = brokerEarning(model, fare.total, fare.currency, fareAmount(request.forDriver?.fare), commissionPercent);
+    request.brokerCommission = earning.commission === null ? null : String(earning.commission);
+    request.brokerMargin = earning.margin === null ? null : String(earning.margin);
+  }
+
+  /** The company's form for a trip's fare at this stage (web dialog, bot form): its prefilled values (TripFareForm). */
+  async fareForm(companyUserId: string, requestId: string, stage: TripFareStage): Promise<TripFareForm> {
+    const request = await this.owned(requestId, (r) => r.companyUserId === companyUserId);
+    if (!this.fares) throw new ConflictException('notActive');
+    return this.fares.form(request, stage);
+  }
+
+  /** The form of a load handed to a driver (no request yet): from the load's own price and weight. */
+  async offerFareForm(companyUserId: string, listingId: string): Promise<TripFareForm> {
+    const listing = await this.ownOpenListing(companyUserId, listingId);
+    return { stage: TripFareStage.Agreed, values: fareDefaultsFromListing(listing), agreed: null, broker: false, payModel: null };
+  }
+
+  /** A load's title as in the trip messages, for one of this company's open loads; null when it is not. */
+  async listingTitle(listingId: string): Promise<string | null> {
+    const listing = await this.listings.findById(listingId);
+    return listing ? `${cargoLine(listing)}${listing.code ? ` · کد ${listing.code}` : ''}` : null;
+  }
+
+  /** A notice with the fare under it, so the other party sees what was recorded. */
+  private withFare(text: string, fare: TripFareValues | null): string {
+    return fare ? `${text}
+💰 ${fareLine(fare)}` : text;
+  }
 
   //#region ----------- Location ----------------------------------------------
 

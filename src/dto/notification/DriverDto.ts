@@ -1,12 +1,6 @@
 import { Transform } from 'class-transformer';
 import { IsBoolean, IsLatitude, IsLongitude, IsNotEmpty, IsObject, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
-// شرکت بار را به این راننده می‌سپارد («برداشته شد»)
-export class OfferCargoDto {
-  @IsUUID()
-  driverUserId!: string;
-}
-
 // جواب راننده به بار سپرده‌شده
 export class RespondOfferDto {
   @IsBoolean()

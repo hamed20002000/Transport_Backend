@@ -6,6 +6,8 @@ export const KEY_PREFIXES = {
   registrationCooldown: 'auth:registration-cooldown',
   registrationSends: 'auth:registration-sends',
   refreshToken: 'auth:refresh',
+  // the one web session an account may have at a time (SessionService); none for the parent company
+  activeSession: 'auth:active-session:v1',
   // failed admin sign-ins by username (RegistrationService.adminSignIn): a few, then a pause
   adminSignInFailures: 'auth:admin-signin-failures:v1',
   telegramIdentity: 'telegram:identity:v1',
@@ -36,6 +38,7 @@ export const KEY_PREFIXES = {
   companyFeatureDialog: 'messenger:company-feature-flow:v1',
   brokerAccessDialog: 'messenger:broker-access-flow:v1',
   tripDialog: 'messenger:trip-flow:v1',
+  tripFareDialog: 'messenger:trip-fare-flow:v1',
   locationRequest: 'messenger:location-request:v1',
   whatsappMenu: 'whatsapp:menu:v1',
   whatsappMenuMessages: 'whatsapp:menu-messages:v1',
@@ -93,6 +96,7 @@ export type RedisKeyParts = {
   registrationCooldown: [phone: string];
   registrationSends: [phone: string];
   refreshToken: [token: string];
+  activeSession: [userId: string];
   adminSignInFailures: [username: string];
   telegramIdentity: [namespace: string, userId: string];
   telegramIdentityRoles: [namespace: string, userId: string];
@@ -117,6 +121,7 @@ export type RedisKeyParts = {
   companyFeatureDialog: [platform: string, externalUserId: string];
   brokerAccessDialog: [platform: string, externalUserId: string];
   tripDialog: [platform: string, externalUserId: string];
+  tripFareDialog: [platform: string, externalUserId: string];
   locationRequest: [driverUserId: string];
   whatsappMenu: [userId: string];
   whatsappMenuMessages: [userId: string];
@@ -197,6 +202,10 @@ export interface AccountSignedInEvent {
   at: string;
   /** the push endpoint of the device that signed in, if it already had one: it is not told about itself */
   endpoint?: string;
+  /** the session that signed in (SessionService): the account's other open pages, of an older session, are signed out */
+  sessionId?: string;
+  /** no phone notification (a new account, the admin): only the other open pages are signed out */
+  quiet?: boolean;
   noticeId: string;
 }
 

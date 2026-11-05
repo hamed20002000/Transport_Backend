@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { I18nService } from 'nestjs-i18n';
 
 import { PHONE_PATTERN, cargoLine, fa } from 'src/application/services/agent/tools/toolKit';
@@ -23,6 +23,7 @@ import { DriverCard, DriverProfileService } from '../driver/driverProfile.servic
 import { readFile } from 'node:fs/promises';
 import { CargoNotificationService } from './cargoNotification.service';
 import { TripAction } from 'src/domain/constants/bot/TripAction';
+import { TripFareDialog } from './tripFareDialog';
 import { buildCargoListingText, CargoListingFields } from './cargoNotificationText';
 import { card } from '../messengerBot/core/botCard';
 import { filterTemplateText, parseFilterTemplate } from './cargoFilterTemplate';
@@ -228,6 +229,8 @@ export class CargoDialog implements BotDialog, OnModuleInit {
     private readonly i18n: I18nService,
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     private readonly excel: CargoExcelService,
+    // handing a load to a driver asks the agreed fare and weight first
+    @Optional() private readonly fareDialog?: TripFareDialog,
   ) {}
 
   onModuleInit(): void {
@@ -780,6 +783,12 @@ export class CargoDialog implements BotDialog, OnModuleInit {
   private async assignConfirm(ctx: BotContext, session: AssignSession): Promise<BotReply> {
     const driver = session.picked === undefined ? undefined : session.drivers[session.picked];
     if (!driver) return this.assignList(ctx, session);
+    // the fare form takes it from here: the agreed fare and weight, then the offer itself
+    if (this.fareDialog) {
+      await this.clearSession(ctx);
+      const back = { id: `${Action.MyCargo}${session.mine}:${session.page}`, label: this.t('actions.back') };
+      return this.fareDialog.startOffer(ctx, session.listingId, { userId: driver.userId, name: driver.name }, back);
+    }
     try {
       await this.trips.offer(ctx.userId, session.listingId, driver.userId);
       await this.clearSession(ctx);

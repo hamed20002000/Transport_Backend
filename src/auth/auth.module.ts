@@ -3,6 +3,7 @@ import { jwtSigningOptions } from './jwtKeys';
 import { RedisModule } from 'src/application/module/RedisModule';
 import { RegistrationService } from 'src/services/auth/registration.service';
 import { SmsService } from 'src/services/auth/sms.service';
+import { SessionService } from 'src/services/auth/session.service';
 // src/auth/auth.module.ts
 import { forwardRef, Module } from '@nestjs/common';
 import { AuthService } from './auth.service';
@@ -40,7 +41,7 @@ import { UserModule } from 'src/application/module/UserModule';
 
     
   ],
-  providers: [RegistrationService, PhoneAccountService, SmsService, AuthService,ImageService, JwtStrategy,UserService,EmailService,AppleAuthService],  // No need to manually inject UserRepository anymore
+  providers: [RegistrationService, PhoneAccountService, SmsService, SessionService, AuthService,ImageService, JwtStrategy,UserService,EmailService,AppleAuthService],  // No need to manually inject UserRepository anymore
   controllers: [AuthController],
   exports: [AuthService,AppleAuthService, PhoneAccountService],
 })

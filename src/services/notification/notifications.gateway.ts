@@ -7,6 +7,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { JwtPayload } from '../../domain/entities/auth/jwt-payload.dto';
+import { SessionService } from '../auth/session.service';
 
 export const CARGO_NOTIFICATION_SOCKET_EVENT = 'cargo-notification';
 
@@ -48,7 +49,10 @@ export class NotificationsGateway implements OnGatewayConnection {
   @WebSocketServer()
   server!: Server;
 
-  constructor(private readonly jwtService: JwtService) {}
+  constructor(
+    private readonly jwtService: JwtService,
+    private readonly sessions: SessionService,
+  ) {}
 
   async handleConnection(client: Socket): Promise<void> {
     const payload = await this.authenticate(client);
@@ -92,7 +96,9 @@ export class NotificationsGateway implements OnGatewayConnection {
 
     try {
       const payload = await this.jwtService.verifyAsync<JwtPayload>(token);
-      return payload.isActive === false || !payload.userId ? null : payload;
+      if (payload.isActive === false || !payload.userId) return null;
+      // a session replaced by a sign-in elsewhere gets no live updates
+      return (await this.sessions.isCurrent(payload.userId, payload)) ? payload : null;
     } catch (error) {
       this.logger.debug(`Rejected notification socket: ${(error as Error).message}`);
       return null;

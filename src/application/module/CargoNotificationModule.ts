@@ -12,6 +12,10 @@ import { CargoAlertFilter } from '../../domain/entities/notification/CargoAlertF
 import { CargoListing } from '../../domain/entities/notification/CargoListing';
 import { CargoNotification } from '../../domain/entities/notification/CargoNotification';
 import { CargoRequest } from '../../domain/entities/notification/CargoRequest';
+import { TripFare } from '../../domain/entities/notification/TripFare';
+import { SessionService } from '../../services/auth/session.service';
+import { TripFareService } from '../../services/notification/tripFare.service';
+import { TripFareDialog } from '../../services/notification/tripFareDialog';
 import { WebPushSubscription } from '../../domain/entities/notification/WebPushSubscription';
 import { WebPushService } from '../../services/notification/webPush.service';
 import { PushController } from '../../presentation/controllers/notification/push.controller';
@@ -114,7 +118,7 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
 @Module({
   imports: [
     BorderModule,
-    TypeOrmModule.forFeature([CargoNotification, CargoAlertFilter, CargoListing, CargoRequest, DriverLocation, DriverLocationLog, DriverProfile, CompanyAnnounceSetting, WebPushSubscription, FactoryInvite, FactoryCompany, FactoryCargo, DriverInvite, BrokerInvite, BrokerSettlement, Circular]),
+    TypeOrmModule.forFeature([CargoNotification, CargoAlertFilter, CargoListing, CargoRequest, TripFare, DriverLocation, DriverLocationLog, DriverProfile, CompanyAnnounceSetting, WebPushSubscription, FactoryInvite, FactoryCompany, FactoryCargo, DriverInvite, BrokerInvite, BrokerSettlement, Circular]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -158,6 +162,11 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
     CargoAlertFilterService,
     // درخواست راننده، سفر فعال و موقعیت راننده
     CargoTripService,
+    // کرایه و وزن هر سفر در دو مرحله‌ی توافق و تحویل، و فرمش در ربات‌ها و واتساپ
+    TripFareService,
+    TripFareDialog,
+    // one web session per account: the notification socket refuses a replaced one
+    SessionService,
     // پروفایل، مدارک و عکس‌های راننده
     DriverProfileService,
     // تأیید مدارک راننده با شاهکار، ثبت احوال و گواهینامه (api.ir)

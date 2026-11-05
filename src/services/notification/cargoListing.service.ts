@@ -552,7 +552,8 @@ export class CargoListingService {
   }
 
   /** لیست بارهای باز همه‌ی راننده‌ها (نه فقط گیرنده‌های اعلان) بروز شود. */
-  private async announceChange(listing: CargoListing): Promise<void> {
+  /** messengers: false when only the open web pages are told (a load taken: the messengers hear nothing of it) */
+  private async announceChange(listing: CargoListing, messengers = true): Promise<void> {
     this.gateway.broadcast(CARGO_LISTING_CHANGED_SOCKET_EVENT, {
       listingId: listing.id,
       status: listing.status,
@@ -560,7 +561,7 @@ export class CargoListingService {
     });
     await this.agentGateway.broadcastDomainChange(listing.publisherUserId, 'company_my_cargo', {});
     // ارسال پیام‌رسان‌ها نباید اعلام تغییر به وب یا پاسخ ثبت بار را معطل کند.
-    void this.refreshPublisherMenus(listing.publisherUserId);
+    if (messengers) void this.refreshPublisherMenus(listing.publisherUserId);
   }
 
   private async refreshPublisherMenus(userId: string): Promise<void> {
@@ -580,9 +581,14 @@ export class CargoListingService {
     }
   }
 
+  /**
+   * A load taken or open again: the open web pages hear of it at once (sockets). A taken load is told nowhere else:
+   * the messages already sent to drivers in the messengers stay as they are (a request from one is refused, the load
+   * is not open), no menu is refreshed and nothing is pushed to phones. A load open again edits those messages back.
+   */
   private async propagateStatus(listing: CargoListing): Promise<void> {
     const taken = listing.status === CargoListingStatus.Taken;
-    await this.announceChange(listing);
+    await this.announceChange(listing, !taken);
     const rows = await this.notifications.findByListing(listing.id);
 
     for (const row of rows) {
@@ -593,8 +599,8 @@ export class CargoListingService {
         takenAt: listing.takenAt ?? null,
       });
     }
-    // the messages sent: edited through the delivery queue, at each messenger's pace
-    await this.queueJobs(editJobs(rows), `listing ${listing.id} (${taken ? 'taken' : 'open'})`);
+    // open again: the messages sent are edited back through the delivery queue, at each messenger's pace
+    if (!taken) await this.queueJobs(editJobs(rows), `listing ${listing.id} (open)`);
 
     this.logger.log(`Listing ${listing.id} is now ${listing.status}; updated ${rows.length} driver notification(s)`);
   }

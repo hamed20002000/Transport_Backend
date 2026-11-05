@@ -25,6 +25,8 @@ import { deviceName } from './deviceName';
 import { invitedAccountTypes, markInvitesUsed } from '../company/inviteUsage';
 import { PhoneAccountService, SELF_SERVICE_ACCOUNT_TYPES } from './phoneAccount.service';
 import { SmsService } from './sms.service';
+import { SessionService } from './session.service';
+import { ParentCompanyLogin } from 'src/domain/entities/auth/ParentCompanyLogin';
 
 interface PendingOtp {
   codeHash: string;
@@ -72,6 +74,7 @@ export class RegistrationService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly dataSource: DataSource,
+    private readonly sessions: SessionService,
   ) {}
 
   /**
@@ -168,13 +171,16 @@ export class RegistrationService {
         await this.redis.delete(key, RedisService.key('registrationSends', phone));
       }
 
+      // the parent company's people sign in to it, not to an account of their own
+      const parent = await this.parentCompanyFor(phone);
+      if (parent) return this.signIn(parent, device);
+
       const user = await this.accounts.findByPhone(phone);
       if (user && user.recordStatus !== RecordStatus.Active) throw new UnauthorizedException('This account is inactive.');
       const full = user ? await this.users.findById(user.id) : null;
       if (full && new JwtPayload(full).roles.length) {
-        const tokens = await this.issueTokens(full);
+        const tokens = await this.signIn(full, device);
         await markInvitesUsed(this.dataSource, full.mobile, this.redis);
-        await this.signedIn(full.id, device);
         return tokens;
       }
 
@@ -182,11 +188,7 @@ export class RegistrationService {
       // an invited number is what it was invited as: one kind of invite signs it in as that at once, several leave
       // only those to choose
       const invitedAs = await invitedAccountTypes(this.dataSource, phone);
-      if (invitedAs.length === 1) {
-        const account = await this.createAccount(signup, invitedAs[0]);
-        await this.signedIn(account.id, device);
-        return this.issueTokens(account);
-      }
+      if (invitedAs.length === 1) return this.signIn(await this.createAccount(signup, invitedAs[0]), device);
       if (invitedAs.length) signup.accountTypes = invitedAs;
       const registrationToken = randomBytes(32).toString('hex');
       await this.redis.setJson(RedisService.key('registrationToken', registrationToken), signup, SIGNUP_TTL_SECONDS);
@@ -211,7 +213,7 @@ export class RegistrationService {
     if (signup.accountTypes && !signup.accountTypes.includes(accountType)) {
       throw new BadRequestException('این شماره با لینک دعوت آمده است؛ همان نوع حسابی را انتخاب کنید که دعوت شده است.');
     }
-    return this.withLock(signup.phone, async () => this.issueTokens(await this.createAccount(signup, accountType)));
+    return this.withLock(signup.phone, async () => this.signIn(await this.createAccount(signup, accountType), {}, true));
   }
 
   /** The account of a verified number gets its type (or is made with it), and its invites count as used. */
@@ -226,13 +228,40 @@ export class RegistrationService {
     return user;
   }
 
+  /**
+   * The mobile of one of the parent company's people (ParentCompanyLogin): the parent company's account, to sign in
+   * to instead of the number's own. Null for any other number, or when there is no active parent company.
+   */
+  private async parentCompanyFor(phone: string): Promise<User | null> {
+    if (!(await this.dataSource.getRepository(ParentCompanyLogin).exists({ where: { mobile: phone } }))) return null;
+    const parent = await this.dataSource.getRepository(User).findOne({
+      where: { isParentCompany: true, recordStatus: RecordStatus.Active },
+      order: { createdAt: 'ASC' },
+      select: { id: true },
+    });
+    return parent ? this.users.findById(parent.id) : null;
+  }
+
+  /**
+   * A sign-in: a new session (SessionService: for any account but the parent company it is now the only one, and the
+   * other devices are signed out), its tokens, and the notice. quiet: no phone notification (a new account).
+   */
+  private async signIn(user: User, device: { userAgent?: string; pushEndpoint?: string } = {}, quiet = false) {
+    const sid = await this.sessions.start(user.id, !!user.isParentCompany);
+    const tokens = await this.issueTokens(user, sid);
+    await this.signedIn(user.id, device, sid, quiet);
+    return tokens;
+  }
+
   /** best effort: a sign-in never fails because the notice could not be published */
-  private async signedIn(userId: string, device: { userAgent?: string; pushEndpoint?: string }): Promise<void> {
+  private async signedIn(userId: string, device: { userAgent?: string; pushEndpoint?: string }, sessionId: string, quiet = false): Promise<void> {
     const event: AccountSignedInEvent = {
       userId,
       device: deviceName(device.userAgent),
       at: new Date().toISOString(),
       ...(device.pushEndpoint ? { endpoint: device.pushEndpoint } : {}),
+      sessionId,
+      ...(quiet ? { quiet: true } : {}),
       noticeId: randomUUID(),
     };
     try {
@@ -265,11 +294,12 @@ export class RegistrationService {
       throw new UnauthorizedException('نام کاربری یا رمز عبور درست نیست.');
     }
     await this.redis.delete(failures);
-    return this.issueTokens(user);
+    return this.signIn(user, {}, true);
   }
 
-  private async issueTokens(user: User) {
-    const payload = new JwtPayload(user);
+  /** The token pair of a session; the refresh token keeps the session with the account («userId:sid»). */
+  private async issueTokens(user: User, sid: string) {
+    const payload: JwtPayload = { ...new JwtPayload(user), sid, ...(user.isParentCompany ? { multi: true } : {}) };
     if (!payload.isActive || payload.roles.length === 0) throw new UnauthorizedException();
     if (user.mobile && user.verificationStatus !== 'APPROVED' && this.reviewCode(user.mobile)) {
       await this.dataSource.getRepository(User).update(
@@ -279,23 +309,37 @@ export class RegistrationService {
     }
     const accessToken = this.jwt.sign({ ...payload });
     const refreshToken = randomBytes(48).toString('hex');
-    await this.redis.set(RedisService.key('refreshToken', refreshToken), user.id, REFRESH_TTL_SECONDS);
+    await this.redis.set(RedisService.key('refreshToken', refreshToken), `${user.id}:${sid}`, REFRESH_TTL_SECONDS);
     return { accessToken, refreshToken, tokenType: 'Bearer' };
   }
 
-  /** خروج از همین دستگاه: refresh token دیگر کار نمی‌کند. */
-  async revoke(token: string): Promise<void> {
-    await this.redis.delete(RedisService.key('refreshToken', token));
+  /** «userId:sid»; a refresh token from before sessions holds the user id only. */
+  private static readRefresh(value: string): { userId: string; sid?: string } {
+    const [userId, sid] = value.split(':');
+    return { userId, sid: sid || undefined };
   }
 
-  /** ورود خودکار: refresh token یک‌بارمصرف است و هر بار جفت تازه داده می‌شود. */
+  /** خروج از همین دستگاه: refresh token دیگر کار نمی‌کند و نشستش (اگر هنوز همان باشد) تمام می‌شود. */
+  async revoke(token: string): Promise<void> {
+    const value = await this.redis.take(RedisService.key('refreshToken', token));
+    if (!value) return;
+    const { userId, sid } = RegistrationService.readRefresh(value);
+    await this.sessions.end(userId, sid);
+  }
+
+  /**
+   * ورود خودکار: refresh token یک‌بارمصرف است و هر بار جفت تازه داده می‌شود؛ همان نشست ادامه پیدا می‌کند، مگر
+   * جای دیگری وارد شده باشند (401 SESSION_REPLACED).
+   */
   async refresh(token: string) {
-    const userId = await this.redis.take(RedisService.key('refreshToken', token));
-    if (!userId) throw new UnauthorizedException('Invalid or expired refresh token.');
+    const value = await this.redis.take(RedisService.key('refreshToken', token));
+    if (!value) throw new UnauthorizedException('Invalid or expired refresh token.');
+    const { userId, sid } = RegistrationService.readRefresh(value);
     const user = await this.users.findById(userId);
     if (!user) throw new UnauthorizedException();
+    const session = await this.sessions.resume(user.id, !!user.isParentCompany, sid);
     // someone already signed in before invites were marked on every way in: their app's next refresh marks them
     await markInvitesUsed(this.dataSource, user.mobile, this.redis);
-    return this.issueTokens(user);
+    return this.issueTokens(user, session);
   }
 }
