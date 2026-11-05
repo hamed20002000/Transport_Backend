@@ -130,4 +130,4 @@ docker compose restart transport     # ری‌استارت یک سرویس
 ## روی سرور نیست
 
 - مدل‌های سنگین Ollama (خواندن رسید، جایگزین محلی OpenAI): رسیدها دستی بررسی می‌شوند و جواب‌ها فقط از OpenAI می‌آیند. بعداً vLLM روی سرور GPU جای این‌ها را می‌گیرد.
-- whisper.cpp و Piper: صدا به متن با OpenAI انجام می‌شود.
+- whisper.cpp: صدا به متن با OpenAI انجام می‌شود. (Piper برای متن به صدا داخل ایمیج transport است، در /opt/piper.)
