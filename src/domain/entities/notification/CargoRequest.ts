@@ -22,6 +22,8 @@ import { CargoListing } from './CargoListing';
  */
 @Entity('CargoRequest')
 @Index('UQ_CargoRequest_listing_driver', ['listingId', 'driverUserId'], { unique: true })
+// one trip per load: two «قبول» at once (bot and web) cannot both start one (migration CargoRequestOneTrip)
+@Index('UQ_CargoRequest_listing_trip', ['listingId'], { unique: true, where: `"status" IN ('ACCEPTED', 'DELIVERED')` })
 @Index('IDX_CargoRequest_driver_status', ['driverUserId', 'status'])
 @Index('IDX_CargoRequest_company_status', ['companyUserId', 'status'])
 export class CargoRequest {

@@ -26,6 +26,8 @@ export enum CargoRequestStatus {
   Expired = 'EXPIRED',
   Cancelled = 'CANCELLED',
   Delivered = 'DELIVERED',
+  // the company called off a trip it had started (the driver backed out): the load is open again
+  TripCancelled = 'TRIP_CANCELLED',
 }
 
 /**

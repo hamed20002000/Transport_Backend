@@ -244,6 +244,17 @@ export class CargoRequestRepository {
   }
 
   /** بقیه‌ی درخواست‌های در انتظار همین بار (وقتی یکی قبول شد). */
+  /**
+   * The requests of a load turned down only because another driver's trip started (CargoTripService
+   * completeAssignment does it when that trip starts, at `since` or later; a company's own «رد» comes before).
+   */
+  findTakenOver(listingId: string, exceptId: string, since: Date): Promise<CargoRequest[]> {
+    return this.repository.find({
+      where: { listingId, status: CargoRequestStatus.Rejected, id: Not(exceptId), decidedAt: MoreThanOrEqual(since) },
+      relations: WITH_PARTIES,
+    });
+  }
+
   findOtherPending(listingId: string, exceptId: string): Promise<CargoRequest[]> {
     return this.repository.find({
       where: { listingId, status: CargoRequestStatus.Pending, id: Not(exceptId) },

@@ -63,6 +63,9 @@ const Action = {
   // the border of an export or import load's request, picked from the borders toward where it goes abroad
   Border: `${PREFIX}eb:`, // + listingId:index
   Close: `${PREFIX}close`,
+  // the company calls a started trip off: asked once more, then done
+  CancelTrip: `${PREFIX}tc:`, // + requestId
+  CancelTripYes: `${PREFIX}ty:`, // + requestId
 } as const;
 
 /** دکمه‌های بخش‌های دیگر (CargoDialog) */
@@ -98,6 +101,7 @@ const STATUS_ICON: Record<CargoRequestStatus, string> = {
   [CargoRequestStatus.Expired]: '⌛',
   [CargoRequestStatus.Cancelled]: '⚪',
   [CargoRequestStatus.Delivered]: '✅',
+  [CargoRequestStatus.TripCancelled]: '⛔',
 };
 
 interface TripSession {
@@ -222,7 +226,10 @@ export class TripDialog implements BotDialog, OnModuleInit {
       return { text: '', actions: [], closed: 'exit' };
     }
 
-    const isCompanyAction = [Action.CompanyRequests, Action.CompanyTrips, Action.Accept, Action.Reject, Action.Location, Action.LocationRequest, Action.RejectDelivery]
+    const isCompanyAction = [
+      Action.CompanyRequests, Action.CompanyTrips, Action.Accept, Action.Reject, Action.Location, Action.LocationRequest, Action.RejectDelivery,
+      Action.CancelTrip, Action.CancelTripYes,
+    ]
       .some((prefix) => id.startsWith(prefix));
     // تحویل را هر دو طرف ثبت می‌کنند؛ بار واسط را خود واسط اعلام می‌کند
     const roles = id.startsWith(Action.Deliver)
@@ -300,6 +307,8 @@ export class TripDialog implements BotDialog, OnModuleInit {
 
     if (id.startsWith(Action.Deliver)) return this.deliver(ctx, arg(Action.Deliver));
     if (id.startsWith(Action.RejectDelivery)) return this.rejectDelivery(ctx, arg(Action.RejectDelivery));
+    if (id.startsWith(Action.CancelTripYes)) return this.cancelTrip(ctx, arg(Action.CancelTripYes));
+    if (id.startsWith(Action.CancelTrip)) return this.askCancelTrip(ctx, arg(Action.CancelTrip));
     return { text: this.t('failed'), actions: [this.back()] };
   }
 
@@ -539,6 +548,30 @@ export class TripDialog implements BotDialog, OnModuleInit {
     const byCompany = request ? request.companyUserId === ctx.userId : await this.hasRole(ctx, COMPANY_ROLES);
     if (byCompany) return this.companyTripsView(ctx, 1, notice);
     return (await this.hasRole(ctx, DRIVER_ROLES)) ? this.activeTripView(ctx, notice) : this.driverRequestsView(ctx, 1, notice);
+  }
+
+  /** «لغو سفر»: what it does, asked once more (the load opens again and the driver is told). */
+  private async askCancelTrip(ctx: BotContext, requestId: string): Promise<BotReply> {
+    const request = await this.trips.forCompany(ctx.userId, requestId);
+    if (!request || request.status !== CargoRequestStatus.Accepted) return this.companyTripsView(ctx, 1, this.t('errors.notActive'));
+    const driver = this.withDriver(this.trips.describe(await this.trips.contact(request.driverUserId)), request);
+    return {
+      text: this.t('cancelTrip.ask', { cargo: this.trips.cargoTitle(request), driver }),
+      actions: new Rows()
+        .add({ id: `${Action.CancelTripYes}${requestId}`, label: this.t('actions.cancelTripYes') })
+        .add({ id: `${Action.CompanyTrips}1`, label: this.t('actions.cancelTripNo') }).actions,
+    };
+  }
+
+  private async cancelTrip(ctx: BotContext, requestId: string): Promise<BotReply> {
+    let notice: string;
+    try {
+      const request = await this.trips.cancelTrip(ctx.userId, requestId);
+      notice = this.t('cancelTrip.done', { cargo: this.trips.cargoTitle(request) });
+    } catch (error) {
+      notice = this.conflictText(error, 'trip');
+    }
+    return this.companyTripsView(ctx, 1, notice);
   }
 
   private async rejectDelivery(ctx: BotContext, requestId: string): Promise<BotReply> {
@@ -1147,6 +1180,7 @@ export class TripDialog implements BotDialog, OnModuleInit {
           },
           // the driver reported it: the company can also turn the report down
           ...(trip.deliveryReportedAt ? [{ id: `${Action.RejectDelivery}${trip.id}`, label: this.t('actions.rejectDeliveryN', { index }) }] : []),
+          { id: `${Action.CancelTrip}${trip.id}`, label: this.t('actions.cancelTripN', { index }) },
         );
       }
       body = blocks.join('\n\n');

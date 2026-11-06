@@ -309,6 +309,14 @@ export class CargoListingController {
     return { requestId: trip.id, status: trip.status, deliveryReportedAt: trip.deliveryReportedAt ?? null };
   }
 
+  // «لغو سفر»: سفر شروع‌شده لغو و بار دوباره باز می‌شود؛ راننده خبردار می‌شود (409 notActive اگر سفر فعال نیست)
+  @Patch('trips/:id/cancel')
+  @RequireCompanyFeature(CompanyFeature.Trips)
+  async cancelTrip(@Req() request: AuthRequest, @Param('id', ParseUUIDPipe) id: string) {
+    const trip = await this.trips.cancelTrip(companyUserId(request), id);
+    return { requestId: trip.id, status: trip.status };
+  }
+
   // سپردن بار به راننده؛ بار بعد از تأیید راننده «برداشته شد» می‌شود
   @Post(':id/offer')
   @RequireCompanyFeature(CompanyFeature.PublishedLoads)

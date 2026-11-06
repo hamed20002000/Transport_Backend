@@ -89,20 +89,30 @@ export function readAmount(text: string | null | undefined): { amount: number; c
   return { amount: price.amount, currency: price.currency as FareCurrency };
 }
 
+/** The unit a weight is typed in: tons unless the company picks kilograms; stored in tons either way. */
+export type WeightUnit = 'TON' | 'KG';
+
+export const WEIGHT_UNIT_LABEL: Record<WeightUnit, string> = { TON: 'تن', KG: 'کیلوگرم' };
+
 /**
- * A weight in tons as typed or as a load's weight is written: «۲۵»، «۲۵٫۵ تن»، «25 ton»، «۲۴۰۰۰ کیلو». A bare number
- * above MAX_WEIGHT_TONS is kilograms. Null when there is none.
+ * A weight in tons as typed or as a load's weight is written: «۲۵»، «۲۵٫۵ تن»، «25 ton»، «۲۴۰۰۰ کیلو». A unit written
+ * with the number wins; a bare number is in `unit`: kilograms, or tons (where one above MAX_WEIGHT_TONS is still
+ * taken as kilograms). Null when there is none.
  */
-export function readTons(text: string | null | undefined): number | null {
+export function readWeight(text: string | null | undefined, unit: WeightUnit = 'TON'): number | null {
   if (!text) return null;
   const clean = latin(text).replace(/٫/g, '.').replace(/[,٬](?=\d{3})/g, '');
   const match = clean.match(/\d+(?:\.\d+)?/);
   if (!match) return null;
   let tons = Number(match[0]);
-  if (/کیلو|kg/i.test(clean) || (tons > MAX_WEIGHT_TONS && !/تن|ton/i.test(clean))) tons /= 1000;
+  const kilos = /کیلو|kg/i.test(clean) || (!/تن|ton/i.test(clean) && (unit === 'KG' || tons > MAX_WEIGHT_TONS));
+  if (kilos) tons /= 1000;
   tons = Math.round(tons * 100) / 100;
   return tons > 0 && tons <= MAX_WEIGHT_TONS ? tons : null;
 }
+
+/** readWeight in tons: a load's weight as written. */
+export const readTons = (text: string | null | undefined): number | null => readWeight(text, 'TON');
 
 /** The whole fare: the amount itself (TOTAL), or the per-ton fare times the weight (PER_TON), whole. */
 export function fareTotal(basis: FareBasis, rate: number, weightTons: number): number {
@@ -118,7 +128,7 @@ export function readTripFare(input: Partial<TripFareInput> | null | undefined): 
   if (!Number.isSafeInteger(rate) || rate <= 0) return { error: 'مبلغ کرایه را با عدد وارد کنید.' };
   const weightTons = Math.round(Number(input.weightTons) * 100) / 100;
   if (!Number.isFinite(weightTons) || weightTons <= 0 || weightTons > MAX_WEIGHT_TONS) {
-    return { error: `وزن بار را به تن وارد کنید (بیشتر از صفر و تا ${persian(MAX_WEIGHT_TONS)} تن).` };
+    return { error: `وزن بار را وارد کنید (بیشتر از صفر و تا ${persian(MAX_WEIGHT_TONS)} تن، یعنی ${faNumber(MAX_WEIGHT_TONS * 1000)} کیلوگرم).` };
   }
   const currency = input.currency ?? FareCurrency.Toman;
   if (!Object.values(FareCurrency).includes(currency)) return { error: 'واحد پول معتبر نیست.' };

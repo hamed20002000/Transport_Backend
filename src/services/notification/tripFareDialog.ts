@@ -13,10 +13,12 @@ import {
   moneyText,
   moneyWords,
   readAmount,
-  readTons,
   readTripFare,
+  readWeight,
+  WEIGHT_UNIT_LABEL,
   type TripFareInput,
   type TripFareValues,
+  type WeightUnit,
 } from 'src/domain/helper/tripFare';
 import { BotAction, BotContext, BotDialog, BotDialogRegistry, BotReply } from '../messengerBot/core/botDialog';
 import { BotRows as Rows } from '../messengerBot/core/botRows';
@@ -31,6 +33,7 @@ const Action = {
   Keep: `${PREFIX}k`,
   Reason: `${PREFIX}r:`, // + FareChangeReason
   Pay: `${PREFIX}p:`, // + BrokerPayModel
+  Unit: `${PREFIX}u:`, // + WeightUnit: the unit the weight is typed in
   // delivery: nothing changed, the agreed values are the final ones
   Same: `${PREFIX}same`,
   Change: `${PREFIX}chg`,
@@ -61,6 +64,8 @@ interface FareSession {
   agreed: TripFareValues | null;
   broker: boolean;
   payModel: BrokerPayModel | null;
+  /** the unit the company types the weight in; tons until it picks kilograms */
+  weightUnit?: WeightUnit;
 }
 
 /**
@@ -175,6 +180,11 @@ export class TripFareDialog implements BotDialog, OnModuleInit {
       if (session.step === 'rate') return this.afterRate(ctx, session, { amount: keep, currency: session.defaults.currency });
       if (session.step === 'weight') return this.afterWeight(ctx, session, keep);
     }
+    if (id.startsWith(Action.Unit) && session.step === 'weight') {
+      const unit = arg(Action.Unit) as WeightUnit;
+      if (!(unit in WEIGHT_UNIT_LABEL)) return this.ask(session);
+      return this.next(ctx, { ...session, weightUnit: unit });
+    }
     if (id.startsWith(Action.Reason) && session.step === 'reason') {
       const reason = arg(Action.Reason) as FareChangeReason;
       if (!Object.values(FareChangeReason).includes(reason)) return this.ask(session);
@@ -197,7 +207,7 @@ export class TripFareDialog implements BotDialog, OnModuleInit {
       return amount ? this.afterRate(ctx, session, amount) : this.ask(session, this.t('badRate'));
     }
     if (session.step === 'weight') {
-      const tons = readTons(text);
+      const tons = readWeight(text, session.weightUnit ?? 'TON');
       return tons ? this.afterWeight(ctx, session, tons) : this.ask(session, this.t('badWeight'));
     }
     // a step answered with buttons: show it again
@@ -242,9 +252,18 @@ export class TripFareDialog implements BotDialog, OnModuleInit {
       case 'rate':
         question = this.t(session.values.basis === FareBasis.PerTon ? 'askRatePerTon' : 'askRateTotal');
         break;
-      case 'weight':
-        question = this.t(purpose.kind === 'deliver' ? 'askWeightDeliver' : 'askWeight');
+      case 'weight': {
+        // tons by default; the other unit one tap away, the chosen one marked
+        const unit = session.weightUnit ?? 'TON';
+        question = this.t(`${purpose.kind === 'deliver' ? 'askWeightDeliver' : 'askWeight'}${unit === 'KG' ? 'Kg' : ''}`);
+        rows.add(
+          ...(Object.keys(WEIGHT_UNIT_LABEL) as WeightUnit[]).map((option) => ({
+            id: `${Action.Unit}${option}`,
+            label: `${option === unit ? '● ' : ''}${WEIGHT_UNIT_LABEL[option]}`,
+          })),
+        );
         break;
+      }
       case 'reason': {
         const final = readTripFare(session.values);
         question = this.t('askReason', { agreed: fareLine(session.agreed!), final: 'fare' in final ? fareLine(final.fare) : '' });

@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { QueryFailedError } from 'typeorm';
 import { I18nService } from 'nestjs-i18n';
 
 import { cargoLine, fa } from 'src/application/services/agent/tools/toolKit';
@@ -186,6 +187,8 @@ export class CargoTripService {
     // بار به راننده‌ی دیگری سپرده شده و منتظر تأیید اوست
     if (await this.requests.findActiveOffer(listingId)) throw new ConflictException('reserved');
     if (request?.status === CargoRequestStatus.Rejected) throw new ConflictException('rejected');
+    // the company called this driver's trip on the load off: it does not come back by itself
+    if (request?.status === CargoRequestStatus.TripCancelled) throw new ConflictException('tripCancelled');
     request ??= this.requests.create({ listingId, driverUserId, companyUserId: listing.publisherUserId });
     request.status = CargoRequestStatus.Pending;
     request.decidedAt = null;
@@ -479,7 +482,7 @@ export class CargoTripService {
     }
     request.status = accept ? CargoRequestStatus.Accepted : CargoRequestStatus.Rejected;
     request.decidedAt = new Date();
-    await this.requests.save(request);
+    await this.saveTrip(request);
 
     const company = await this.contact(companyUserId);
     const cargo = this.cargoTitle(request);
@@ -507,6 +510,19 @@ export class CargoTripService {
     // پنل‌های باز (درخواست‌های راننده، بارها و سفرهای شرکت) بی‌رفرش به‌روز شوند
     this.changed(request, undefined, text);
     return request;
+  }
+
+  /**
+   * A request saved as its trip starts: another trip of the same load started at the same moment (two «قبول» at once,
+   * bot and web) makes the unique index UQ_CargoRequest_listing_trip refuse it, answered as the load being taken.
+   */
+  private async saveTrip(request: CargoRequest): Promise<CargoRequest> {
+    try {
+      return await this.requests.save(request);
+    } catch (error) {
+      if (error instanceof QueryFailedError && (error as QueryFailedError & { code?: string }).code === '23505') throw new ConflictException('taken');
+      throw error;
+    }
   }
 
   /**
@@ -599,7 +615,7 @@ export class CargoTripService {
     request.status = accept ? CargoRequestStatus.Accepted : CargoRequestStatus.Declined;
     request.decidedAt = new Date();
     request.offerExpiresAt = null;
-    await this.requests.save(request);
+    await this.saveTrip(request);
 
     const driver = await this.contact(driverUserId);
     const cargo = this.cargoTitle(request);
@@ -729,6 +745,43 @@ export class CargoTripService {
   }
 
   /**
+   * «لغو سفر»: the company calls off a trip it started (the driver backed out, the load went another way). The load is
+   * open again: the messages the drivers got read «open» again (CargoListingService.setStatus), the drivers turned
+   * down only because this trip started wait for an answer again, and the driver (or broker) is told. Its agreed fare
+   * stays for the record; nothing is delivered, so nothing is owed.
+   */
+  async cancelTrip(companyUserId: string, requestId: string): Promise<CargoRequest> {
+    const request = await this.owned(requestId, (r) => r.companyUserId === companyUserId);
+    if (request.status !== CargoRequestStatus.Accepted) throw new ConflictException('notActive');
+    const startedAt = request.decidedAt ?? null;
+    request.status = CargoRequestStatus.TripCancelled;
+    request.deliveryReportedAt = null;
+    request.decidedAt = new Date();
+    await this.requests.save(request);
+
+    const cargo = this.cargoTitle(request);
+    if (startedAt) {
+      for (const other of await this.requests.findTakenOver(request.listingId, request.id, startedAt)) {
+        other.status = CargoRequestStatus.Pending;
+        other.decidedAt = null;
+        await this.requests.save(other);
+        this.changed(other, undefined, this.t('notify.requestWaitingAgain', { cargo: this.cargoTitle(other) }));
+      }
+    }
+    await this.listings.setStatus(companyUserId, request.listingId, CargoListingStatus.Open);
+
+    const company = await this.contact(companyUserId);
+    const text = this.t('notify.tripCancelled', { cargo, company: this.describe(company) });
+    const broker = await this.isBroker(request.driverUserId);
+    await this.notify(request.driverUserId, text, [{ id: `${TripAction.DriverRequests}1`, label: this.t('actions.myRequests') }], {
+      title: 'ترابوت · سفر لغو شد',
+      url: broker ? '/account/broker?tab=requests' : '/account/driver/requests',
+    });
+    this.changed(request, undefined, text);
+    return request;
+  }
+
+  /**
    * «تحویل نشده»: شرکت اعلام تحویل راننده را رد می‌کند؛ سفر فعال می‌ماند، راننده خبردار می‌شود و
    * می‌تواند بعداً دوباره اعلام کند.
    */
@@ -777,6 +830,9 @@ export class CargoTripService {
   async fareForm(companyUserId: string, requestId: string, stage: TripFareStage): Promise<TripFareForm> {
     const request = await this.owned(requestId, (r) => r.companyUserId === companyUserId);
     if (!this.fares) throw new ConflictException('notActive');
+    // an old «قبول» or «تأیید تحویل» (the driver cancelled, it was answered already): said before the form, not after it
+    if (stage === TripFareStage.Agreed && request.status !== CargoRequestStatus.Pending) throw new ConflictException('notPending');
+    if (stage === TripFareStage.Delivered && request.status !== CargoRequestStatus.Accepted) throw new ConflictException('notActive');
     return this.fares.form(request, stage);
   }
 
