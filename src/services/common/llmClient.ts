@@ -20,9 +20,12 @@ import { basename } from 'node:path';
  *   OPENAI_BASE_URL    پیش‌فرض https://api.openai.com/v1 (برای relay/پراکسی)
  *   OPENAI_TIMEOUT_MS  پیش‌فرض 15000؛ اگر درخواست timeoutMs کمتری دارد همان
  *   OPENAI_STT_MODEL   مدل ویس به متن (بدون آن ویس محلی با whisper.cpp)
+ *   OPENAI_VISION_MODEL مدل درخواست‌های تصویردار (رسید پرداخت)؛ پیش‌فرض همان OPENAI_MODEL
+ *   OPENAI_EMBEDDING_MODEL مدل embedding (پیش‌فرض text-embedding-3-large؛ small در ارزیابی domainها ۷۸٪ در برابر ۸۴٪) با EMBEDDING_DIMENSIONS بُعد
+ *     (پیش‌فرض 1024، اندازه‌ی ستون vector جدول‌های ToolDomain و EmbeddingTool)
  *   LLM_LOCAL_FALLBACK=off  مدل محلی جایگزین نمی‌شود؛ قطعی OpenAI یعنی LlmUnavailableError
- * embedding همیشه محلی است: بردارهای ذخیره‌شده در دیتابیس با bge-m3 ساخته شده‌اند.
- * درخواستی که model خودش را می‌دهد (vision) هم محلی می‌ماند.
+ * embedding هیچ‌وقت به مدل محلی نمی‌رود: بردارهای دو مدل با هم قابل مقایسه نیستند؛ با عوض شدن
+ * مدل embedding، بردارهای ذخیره‌شده با npm run agent:seed از نو ساخته می‌شوند.
  */
 
 const logger = new Logger('LlmClient');
@@ -40,14 +43,12 @@ export interface LlmChatRequest {
   format?: Record<string, unknown>;
   think?: boolean;
   options?: Record<string, unknown>;
-  /** فقط وقتی مدلی جز LLM_MODEL لازم است (مثلاً vision)؛ چنین درخواستی همیشه محلی است */
+  /** مدل محلی وقتی جز LLM_MODEL لازم است (مثلاً vision)؛ فقط برای جایگزینی محلی */
   model?: string;
   timeoutMs?: number;
   signal?: AbortSignal;
   /** light: کار ساده‌تر با مدل ارزان‌تر OpenAI (OPENAI_MODEL_LIGHT)؛ پیش‌فرض strong */
   tier?: 'light' | 'strong';
-  /** true: اگر OpenAI جواب نداد مدل محلی، حتی با LLM_LOCAL_FALLBACK=off (کار پس‌زمینه‌ای که نباید بماند) */
-  localFallback?: boolean;
 }
 
 /** هیچ مدلی برای جواب دادن در دسترس نیست؛ message برای نمایش به کاربر است. */
@@ -62,7 +63,7 @@ const localFallback = (): boolean => process.env.LLM_LOCAL_FALLBACK !== 'off';
 
 export const llmModel = (): string => process.env.LLM_MODEL || 'qwen3:8b';
 
-export const embeddingModel = (): string => process.env.EMBEDDING_MODEL || 'bge-m3:latest';
+export const embeddingModel = (): string => process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-large';
 
 // OLLAMA_URL قبلاً جایی آدرس پایه و جایی آدرس کامل /api/chat خوانده می‌شد؛ هر دو پذیرفته می‌شوند
 function ollamaBase(): string {
@@ -165,7 +166,7 @@ async function openAiChat(request: LlmChatRequest, config: OpenAiConfig): Promis
       `${config.baseUrl}/chat/completions`,
       {
         model: config.model,
-        messages: messages.map(({ role, content }) => ({ role, content })),
+        messages: messages.map(openAiMessage),
         ...(format && {
           // strict نه: schemaهای فعلی همه‌ی فیلدها را required ندارند (شرط حالت strict)
           response_format: { type: 'json_schema', json_schema: { name: 'output', schema: format, strict: false } },
@@ -194,8 +195,27 @@ async function openAiChat(request: LlmChatRequest, config: OpenAiConfig): Promis
   return response.data?.choices?.[0]?.message?.content ?? '';
 }
 
+// نوع تصویر از چند بایت اولش (base64)؛ OpenAI آدرس data با نوع درست می‌خواهد
+function imageMime(base64: string): string {
+  if (base64.startsWith('iVBOR')) return 'image/png';
+  if (base64.startsWith('UklGR')) return 'image/webp';
+  if (base64.startsWith('R0lGOD')) return 'image/gif';
+  return 'image/jpeg';
+}
+
+function openAiMessage({ role, content, images }: LlmMessage) {
+  if (!images?.length) return { role, content };
+  return {
+    role,
+    content: [
+      { type: 'text', text: content },
+      ...images.map((image) => ({ type: 'image_url', image_url: { url: `data:${imageMime(image)};base64,${image}` } })),
+    ],
+  };
+}
+
 async function ollamaChat(request: LlmChatRequest): Promise<string> {
-  const { model, timeoutMs, signal, tier: _tier, localFallback: _localFallback, ...body } = request;
+  const { model, timeoutMs, signal, tier: _tier, ...body } = request;
   const response = await axios.post(
     `${ollamaBase()}/api/chat`,
     { model: model ?? llmModel(), stream: false, ...body },
@@ -220,14 +240,14 @@ export interface LlmAnswer {
 /** مثل llmChat، به‌علاوه‌ی اینکه کدام مدل جواب داد (مثلاً فقط جواب OpenAI کش شود). */
 export async function llmAnswer(request: LlmChatRequest): Promise<LlmAnswer> {
   const local = async (): Promise<LlmAnswer> => ({ content: await ollamaChat(request), source: 'local' });
-  // vision (model صریح) مدل OpenAI ندارد و همیشه محلی است
-  if (request.model) return local();
-  const model = (request.tier === 'light' && process.env.OPENAI_MODEL_LIGHT) || process.env.OPENAI_MODEL;
+  const vision = request.messages.some((message) => message.images?.length);
+  const model = vision
+    ? process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL
+    : (request.tier === 'light' && process.env.OPENAI_MODEL_LIGHT) || process.env.OPENAI_MODEL;
   return openAiFirst(
     openAiConfig(model, Number(process.env.OPENAI_TIMEOUT_MS) || 15_000),
     async (config): Promise<LlmAnswer> => ({ content: await openAiChat(request, config), source: 'openai' }),
     local,
-    request.localFallback || localFallback(),
   );
 }
 
@@ -275,14 +295,31 @@ export async function llmJson<T>(request: LlmChatRequest): Promise<T> {
   return JSON.parse(await llmChat(request)) as T;
 }
 
+/** بردار متن‌ها با OpenAI، به همان ترتیب؛ قطعی یا تنظیم نبودن OpenAI یعنی LlmUnavailableError. */
 export async function embedMany(input: string[]): Promise<number[][]> {
-  const response = await axios.post(`${ollamaBase()}/api/embed`, { model: embeddingModel(), input });
-  return response.data.embeddings;
+  if (!input.length) return [];
+  return openAiFirst(
+    openAiConfig(embeddingModel(), Number(process.env.OPENAI_TIMEOUT_MS) || 15_000),
+    async (config) => {
+      const response = await withDeadline(config.timeoutMs, undefined, (signal) =>
+        axios.post(
+          `${config.baseUrl}/embeddings`,
+          { model: config.model, input, dimensions: Number(process.env.EMBEDDING_DIMENSIONS) || 1024 },
+          { headers: { Authorization: `Bearer ${config.key}` }, timeout: config.timeoutMs, signal, ...outboundAxios() },
+        ),
+      );
+      const rows = (response.data?.data ?? []) as Array<{ index: number; embedding: number[] }>;
+      return [...rows].sort((a, b) => a.index - b.index).map((row) => row.embedding);
+    },
+    async () => {
+      throw new LlmUnavailableError();
+    },
+    false,
+  );
 }
 
 export async function embed(text: string): Promise<number[]> {
-  const response = await axios.post(`${ollamaBase()}/api/embed`, { model: embeddingModel(), input: text });
-  return response.data.embeddings[0];
+  return (await embedMany([text]))[0];
 }
 
 /** فقط برای تست: وضعیت قطعی OpenAI را صفر می‌کند. */

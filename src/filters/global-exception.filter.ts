@@ -6,6 +6,8 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 
+import { LlmUnavailableError } from '../services/common/llmClient';
+
 import type {
   Request,
   Response,
@@ -72,6 +74,10 @@ export class GlobalExceptionFilter
           code = responseObject.code;
         }
       }
+    } else if (exception instanceof LlmUnavailableError) {
+      // OpenAI not answering (load type, borders, …): its message for the user, not a 500
+      statusCode = HttpStatus.SERVICE_UNAVAILABLE;
+      message = exception.message;
     } else if (exception instanceof Error) {
       message = exception.message;
     }

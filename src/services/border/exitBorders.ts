@@ -90,12 +90,18 @@ export function exitBordersOnRoute(route: GeoPoint[]): ExitBorder[] {
   return found;
 }
 
+// the borders most loads go by first, as the borders are shown everywhere (borderOrder): Turkey, Bashmaq,
+// Azerbaijan, Armenia, the rest
+const usualRank = (border: ExitBorder) =>
+  border.country === 'ترکیه' ? 0 : border.id === 'bashmaq' ? 1 : border.country === 'آذربایجان' ? 2 : border.country === 'ارمنستان' ? 3 : 4;
+
 /**
  * The borders to offer for a place abroad, nearest first: those to the country of the nearest one, and any other
- * about as near. A place not found, or found inside Iran, gets them all (by name).
+ * about as near. A place not found, or found inside Iran (its Persian name matched a namesake here, the model being
+ * unreachable), gets them all, the usual ones first: by name, a cut to a few would be Astara, Incheh Borun, Bajgiran…
  */
 export function bordersToward(place: GeoPoint | null): ExitBorder[] {
-  if (!place || isInIran(place)) return [...EXIT_BORDERS].sort((a, b) => a.name.localeCompare(b.name, 'fa'));
+  if (!place || isInIran(place)) return [...EXIT_BORDERS].sort((a, b) => usualRank(a) - usualRank(b));
   const byDistance = EXIT_BORDERS.map((border) => ({ border, km: haversineKm(place, border.point) })).sort((a, b) => a.km - b.km);
   const nearest = byDistance[0];
   return byDistance

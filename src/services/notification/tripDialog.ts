@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { BROKER_DRIVER_FIELDS, BROKER_DRIVER_IDENTITY_FIELDS, BrokerDriver, brokerDriverLine, readBrokerDriverField } from 'src/domain/helper/brokerDriver';
 import { I18nService } from 'nestjs-i18n';
+import { LlmUnavailableError } from 'src/services/common/llmClient';
 
 import { cargoLine, fa } from 'src/application/services/agent/tools/toolKit';
 import { BotCallback } from 'src/domain/constants/bot/BotCallback';
@@ -35,6 +36,12 @@ import { messengerOf } from '../analytics/usageChannelOf';
 import { UsageService } from '../analytics/usage.service';
 import { BROKER_ACCESS_ACTION } from '../company/brokerAccessDialog';
 import { TripFareDialog } from './tripFareDialog';
+
+// OpenAI not answering goes up to the messenger (unavailableReply), not on as a request without its border
+const passUnavailable = (error: unknown): null => {
+  if (error instanceof LlmUnavailableError) throw error;
+  return null;
+};
 
 const PREFIX = 'tr:';
 const Action = {
@@ -312,7 +319,7 @@ export class TripDialog implements BotDialog, OnModuleInit {
 
   /** The border buttons of an export or import load; a domestic one's request is sent at once. */
   private async askBorderOrSubmit(ctx: BotContext, listingId: string, forDriver?: BrokerDriver): Promise<BotReply> {
-    const choice = await this.trips.borderChoices(listingId).catch(() => null);
+    const choice = await this.trips.borderChoices(listingId).catch(passUnavailable);
     if (!choice?.needed) return this.submitRequest(ctx, listingId, forDriver);
     if (forDriver) await this.saveSession(ctx, { brokerReady: { listingId, driver: forDriver } });
     const rows = new Rows()
@@ -322,7 +329,7 @@ export class TripDialog implements BotDialog, OnModuleInit {
   }
 
   private async borderPicked(ctx: BotContext, listingId: string, index: number): Promise<BotReply> {
-    const choice = await this.trips.borderChoices(listingId).catch(() => null);
+    const choice = await this.trips.borderChoices(listingId).catch(passUnavailable);
     const border = choice?.options[index];
     if (!border) return { text: this.t('failed'), actions: [this.back()] };
     const ready = (await this.getSession(ctx))?.brokerReady;

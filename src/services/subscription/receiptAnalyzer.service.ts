@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { readFile } from 'node:fs/promises';
 
-import { llmJson } from '../common/llmClient';
+import { llmAnswer } from '../common/llmClient';
 
 import {
   IReceiptAnalyzer,
@@ -52,7 +52,7 @@ const RECEIPT_SCHEMA = {
   ],
 };
 
-/** Reads receipt fields with a vision model served by Ollama. */
+/** Reads receipt fields with a vision model: OpenAI's (OPENAI_VISION_MODEL), Ollama's only as a local fallback. */
 @Injectable()
 export class ReceiptAnalyzerService
   implements IReceiptAnalyzer
@@ -66,7 +66,7 @@ export class ReceiptAnalyzerService
   ): Promise<ReceiptAnalysisResult> {
     const model = this.config.get<string>('OLLAMA_VISION_MODEL', 'qwen2.5vl:3b');
     try {
-      const parsed = await llmJson<Record<string, unknown>>({
+      const answer = await llmAnswer({
         model,
         messages: [{
           role: 'user',
@@ -77,6 +77,9 @@ export class ReceiptAnalyzerService
         options: { temperature: 0 },
         timeoutMs: Number(this.config.get('OLLAMA_VISION_TIMEOUT_MS', 120000)),
       });
+      const parsed = JSON.parse(answer.content) as Record<string, unknown>;
+      const analyzer = answer.source === 'openai' ? 'OPENAI' : 'OLLAMA';
+      const usedModel = answer.source === 'openai' ? process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL : model;
 
       return {
         amount: this.digits(parsed.amount),
@@ -90,10 +93,10 @@ export class ReceiptAnalyzerService
           ? parsed.paymentStatus as 'SUCCESS' | 'FAILED'
           : 'UNKNOWN',
         confidence: Math.min(1, Math.max(0, Number(parsed.confidence) || 0)),
-        rawResult: { analyzer: 'OLLAMA', model, imageUrl, response: parsed },
+        rawResult: { analyzer, model: usedModel, imageUrl, response: parsed },
       };
     } catch (error: unknown) {
-      // Rethrown so the analysis queue retries it (Ollama down, bad JSON, ...).
+      // Rethrown so the analysis queue retries it (model unreachable, bad JSON, ...).
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`Receipt analysis failed: ${message}`);
       throw error;

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import { MessengerPlatform } from 'src/domain/enums/messenger';
+import { LlmUnavailableError } from 'src/services/common/llmClient';
 
 /** یک گزینه؛ ربات‌ها آن را دکمه (callback_data = id) و واتساپ آیتم شماره‌دار نشان می‌دهند. */
 export interface BotAction {
@@ -158,4 +159,13 @@ export class BotDialogRegistry {
     return this.dialogs;
   }
   //#endregion -----------------------------------------------------------------------
+}
+
+/**
+ * A dialog step that needed OpenAI when it did not answer (a load's type, its borders): its «فعلاً ممکن نیست» as the
+ * reply, the same on the bots and WhatsApp; any other error goes on as before.
+ */
+export function unavailableReply(error: unknown): BotReply {
+  if (error instanceof LlmUnavailableError) return { text: error.message, actions: [] };
+  throw error;
 }

@@ -6,6 +6,13 @@ import { bordersOf, bordersToward, EXIT_BORDERS, exitBordersOnRoute, neighbourOf
 import { decodePolyline, GeoPoint, haversineKm } from '../routing/geo';
 import { RoutingService } from '../routing/routing.service';
 import { CargoTripTypeService, latinSide } from './cargoTripType';
+import { LlmUnavailableError } from '../common/llmClient';
+
+// any other failure leaves a guess (no Latin name, a domestic load); OpenAI not answering is told to the one waiting
+const unlessUnavailable = (error: unknown) => {
+  if (error instanceof LlmUnavailableError) throw error;
+  return null;
+};
 
 const MAX_CHOICES = 6;
 
@@ -82,7 +89,7 @@ export class LoadBorderService {
     }
     // the Latin names find the city itself («آنتب» → Gaziantep, not a shop of that name in Istanbul; «بم» → Bam, not
     // a place near Zanjan)
-    const latin = await this.tripTypes.latinNames(listing.origin, listing.destination).catch(() => null);
+    const latin = await this.tripTypes.latinNames(listing.origin, listing.destination).catch(unlessUnavailable);
     const exportLoad = tripType === CargoTripType.Export;
     const [origin, destination] = await Promise.all([
       this.locate(listing.origin, latin?.origin, !exportLoad),
@@ -112,7 +119,7 @@ export class LoadBorderService {
    */
   async tripTypeOf(listing: Pick<CargoListing, 'tripType' | 'origin' | 'destination'>): Promise<CargoTripType> {
     if (listing.tripType && listing.tripType !== CargoTripType.Domestic) return listing.tripType;
-    return (await this.tripTypes.classify(listing.origin, listing.destination).catch(() => null)) ?? CargoTripType.Domestic;
+    return (await this.tripTypes.classify(listing.origin, listing.destination).catch(unlessUnavailable)) ?? CargoTripType.Domestic;
   }
 
   /** A border as given (spacing, Arabic letters aside), by its name; null when it is not one of the borders. */

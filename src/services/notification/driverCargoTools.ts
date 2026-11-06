@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, OnModuleInit } from '@nestjs/common';
 
+import { LlmUnavailableError } from 'src/services/common/llmClient';
 import { ContextManager } from 'src/application/services/agent/contextManager';
 import messages from 'src/application/services/agent/localFiles/messages.json';
 import { ToolRegister } from 'src/application/services/agent/toolRegister';
@@ -118,7 +119,11 @@ export class DriverCargoTools implements OnModuleInit {
         const cargo = cargoLine(listing);
         // an export or import load: the border, from the borders toward where it goes abroad (as on the other channels)
         let border: string | undefined;
-        const borders = await self.trips.borderChoices(listing.id).catch(() => null);
+        const borders = await self.trips.borderChoices(listing.id).catch((error: unknown) => {
+          // OpenAI not answering: the run ends with «فعلاً ممکن نیست», not a request without its border
+          if (error instanceof LlmUnavailableError) throw error;
+          return null;
+        });
         if (borders?.needed) {
           border = yield* pickOne(
             borders.options,

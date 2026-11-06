@@ -5,7 +5,7 @@
  *   npm run agent:eval-domains -- --docs path/to/docs.json --prompts path/to/prompts.json --min-accuracy 0.9
  *   npm run agent:eval-domains -- --role COMPANY     (فقط جمله‌های یک نقش)
  *
- * embedding با همان Ollama/bge-m3 و شکستن کلمه‌ها با همان Postgres زمان اجرا
+ * embedding با همان مدل OpenAI زمان اجرا (OPENAI_EMBEDDING_MODEL) و شکستن کلمه‌ها با همان Postgres زمان اجرا
  * انجام می‌شود؛ به دیتابیس چیزی نوشته نمی‌شود. اگر دقت انتخاب اول کمتر از
  * --min-accuracy (پیش‌فرض 1) باشد با کد 1 خارج می‌شود.
  */

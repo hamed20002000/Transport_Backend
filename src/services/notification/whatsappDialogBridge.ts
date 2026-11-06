@@ -7,7 +7,7 @@ import { TripAction } from 'src/domain/constants/bot/TripAction';
 import { MessengerPlatform } from 'src/domain/enums/messenger';
 import { IUserRepository } from 'src/domain/repositories/IUserRepopsitory';
 import { USER_REPOSITORY } from 'src/domain/repositories/repository.tokens';
-import { actionRows, BotAction, BotContext, BotDialogRegistry, BotDocument, BotReply } from '../messengerBot/core/botDialog';
+import { actionRows, BotAction, BotContext, BotDialogRegistry, BotDocument, BotReply, unavailableReply } from '../messengerBot/core/botDialog';
 import { hasCards, whatsappCards, whatsappOptionRows, whatsappOptions } from '../messengerBot/core/botCard';
 import { parseChoice } from 'src/application/services/agent/services/replyChoice';
 import { findMenuButton, MenuButton, namesSeveralButtons } from '../messengerBot/core/menuTextMatch';
@@ -136,7 +136,7 @@ export class WhatsappDialogBridge implements OnModuleInit {
     // مرحله‌ی فرمی که منتظر متن است (ثبت بار، فیلتر، شهر بار برگشتی)
     for (const dialog of this.registry.all()) {
       if (!(await dialog.hasSession(ctx))) continue;
-      const reply = await dialog.handleText(ctx, value);
+      const reply = await dialog.handleText(ctx, value).catch(unavailableReply);
       if (!reply) continue;
       await this.send(jid, ctx, reply);
       return true;
@@ -312,7 +312,7 @@ export class WhatsappDialogBridge implements OnModuleInit {
     }
     // «در حال محاسبه…» پیام جدا نمی‌شود: ⏳ روی پیام خود کاربر (تعداد پیام‌ها کم بماند)
     try {
-      const reply = await resolved.dialog.handleAction({ ...ctx, progress: () => this.whatsapp.showProgress(jid) }, resolved.action);
+      const reply = await resolved.dialog.handleAction({ ...ctx, progress: () => this.whatsapp.showProgress(jid) }, resolved.action).catch(unavailableReply);
       if (reply) await this.send(jid, ctx, reply);
     } finally {
       await this.whatsapp.clearProgress(jid);

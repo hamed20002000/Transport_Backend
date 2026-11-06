@@ -28,7 +28,7 @@ import { COMPANY_FEATURE_BY_MENU_ACTION, COMPANY_FEATURE_TITLES } from '../../..
 import { BotSessionState } from 'src/domain/enums/botSession';
 import { createWriteStream } from 'node:fs';
 import { findMenuButton, namesSeveralButtons } from './menuTextMatch';
-import { actionRows, BotAction, BotDialog, BotDialogRegistry, BotLocation, BotReply } from './botDialog';
+import { actionRows, BotAction, BotDialog, BotDialogRegistry, BotLocation, BotReply, unavailableReply } from './botDialog';
 import { SubscriptionStatusService } from '../../subscription/subscriptionStatus.service';
 import { pipeline } from 'node:stream/promises';
 import {
@@ -1093,10 +1093,9 @@ export class MessengerBotService implements OnModuleInit {
     }
     const progress = this.progressNotice(chatId);
     try {
-      const reply = await dialog.handleAction(
-        { platform: MessengerPlatform.Bot, externalUserId, userId, progress: progress.show },
-        action,
-      );
+      const reply = await dialog
+        .handleAction({ platform: MessengerPlatform.Bot, externalUserId, userId, progress: progress.show }, action)
+        .catch(unavailableReply);
       if (reply) await this.sendDialogReply(chatId, externalUserId, reply);
     } finally {
       await progress.clear();
@@ -1132,7 +1131,7 @@ export class MessengerBotService implements OnModuleInit {
       if (!(await dialog.hasSession(session))) continue;
       const userId = await this.botIdentityService.getUserId(externalUserId);
       if (!userId) return false;
-      const reply = await dialog.handleText({ ...session, userId }, text);
+      const reply = await dialog.handleText({ ...session, userId }, text).catch(unavailableReply);
       if (!reply) continue;
       await this.sendDialogReply(chatId, externalUserId, reply);
       return true;

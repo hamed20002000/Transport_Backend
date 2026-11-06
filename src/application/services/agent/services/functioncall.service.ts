@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { llmJson, LlmUnavailableError } from 'src/services/common/llmClient';
@@ -36,6 +36,8 @@ function withoutList(result: object | undefined): Record<string, string> {
 
 @Injectable()
 export class FunctionCallService {
+    private readonly logger = new Logger(FunctionCallService.name);
+
     constructor(
         private readonly toolRegister: ToolRegister,
         private readonly agentGateway: AgentGateway,
@@ -179,6 +181,8 @@ export class FunctionCallService {
             } else if (error instanceof LlmUnavailableError) {
                 this.sendLlmUnavailable(userId, prompt, error);
             } else {
+                // بدون این لاگ علت (مثلاً در دسترس نبودن Ollama برای embedding) هیچ‌جا دیده نمی‌شد
+                this.logger.error(`Agent run failed for «${prompt}»: ${error?.message ?? error}`, error?.stack);
                 this.agentGateway.sendToolResult(userId, {
                     result: "error",
                     message: "خطای غیرمنتظره رخ داد، لطفاً با پشتیبانی تماس بگیرید.",

@@ -3,7 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { CargoTripType } from '../../domain/enums/notification';
 import { IRAN_PROVINCES } from '../../domain/helper/iranProvinces';
 import { normalizePersianText } from '../../domain/helper/persianText';
-import { llmAnswer } from '../common/llmClient';
+import { llmAnswer, LlmUnavailableError } from '../common/llmClient';
 import { RedisService } from '../redis/redis.service';
 import { RoutingService } from '../routing/routing.service';
 
@@ -189,7 +189,6 @@ export class CargoTripTypeService {
         format: LATIN_SCHEMA,
         options: { temperature: 0 },
         tier: 'light',
-        localFallback: true,
       });
       const answer = JSON.parse(content) as { origin: unknown; destination: unknown };
       const name = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : null);
@@ -197,6 +196,8 @@ export class CargoTripTypeService {
       if (source !== 'local' && (names.origin || names.destination)) await this.redis.setJson(key, names, ROUTE_TTL_SECONDS).catch(() => undefined);
       return names;
     } catch (error) {
+      // OpenAI جواب نداد: کسی که منتظر است (ثبت بار، انتخاب مرز) پیام «فعلاً ممکن نیست» می‌گیرد، نه حدس
+      if (error instanceof LlmUnavailableError) throw error;
       this.logger.warn(`Could not ask the model for the Latin names of «${origin}» → «${destination}»: ${(error as Error).message}`);
       return { origin: null, destination: null };
     }
@@ -250,13 +251,13 @@ export class CargoTripTypeService {
         think: true,
         options: { temperature: 0 },
         tier,
-        localFallback: true,
       });
       const answer = JSON.parse(content) as { origin_in_iran: Side; destination_in_iran: Side; origin_country: string | null; destination_country: string | null };
       this.logger.debug(`«${origin}» → «${destination}» (${source}): ${answer.origin_country ?? '?'} → ${answer.destination_country ?? '?'}`);
       const side = (value: unknown): Side => (typeof value === 'boolean' ? value : null);
       return { sides: [side(answer.origin_in_iran), side(answer.destination_in_iran)], source };
     } catch (error) {
+      if (error instanceof LlmUnavailableError) throw error;
       this.logger.warn(`Could not ask the model about «${origin}» → «${destination}»: ${(error as Error).message}`);
       return null;
     }
