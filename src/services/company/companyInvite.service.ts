@@ -9,7 +9,7 @@ import { CompanyInvite } from 'src/domain/entities/company/CompanyInvite';
 import { CustomerType } from 'src/domain/enums/company.enum';
 import { RecordStatus } from 'src/domain/enums/RecordStatus';
 import { normalizePhoneNumber } from 'src/dto/auth/phone-number';
-import { CompanyFeatureService } from './companyFeature.service';
+import { COMPANY_ROLES, CompanyFeatureService } from './companyFeature.service';
 import { InviteSmsService } from './inviteSms.service';
 import { inviteToken } from './inviteLinks';
 import { assertInvitable, inviteExpiresAt, isInviteExpired, isInviteWaiting, renewedInvite } from './inviteRules';
@@ -101,6 +101,36 @@ export class CompanyInviteService {
     );
     // a company whose invite's day is over without it coming in is gone already, even before the sweep
     return rows.filter((row) => !isInviteExpired(row)).map((row) => ({ ...row, expiresAt: inviteExpiresAt(row) }));
+  }
+
+  /**
+   * Every transport company of the platform for the parent company, newest first: how it came (its invite, the
+   * parent's approval of its own sign-up, or on its own), whether it is this parent's, and how many menus it has open.
+   * Its invites list (list) shows only the ones invited by link; a company that signed up and was approved has no
+   * invite and was nowhere to see. One invited but not in yet stays in the invites list only.
+   */
+  async companies(parentUserId: string) {
+    await this.assertParent(parentUserId);
+    const rows: Array<{
+      userId: string; name: string; mobile: string | null; accountCode: string | null; createdAt: Date; isParent: boolean;
+      verificationStatus: string; source: 'invite' | 'approved' | 'self'; mine: boolean; openFeatures: number;
+    }> = await this.dataSource.query(
+      `SELECT u.id AS "userId", ${displayName('u')} AS name, u.mobile, u."accountCode", u."createdAt",
+         u."isParentCompany" AS "isParent", u."verificationStatus",
+         CASE WHEN i.id IS NOT NULL THEN 'invite' WHEN u."invitedByCompanyUserId" IS NOT NULL THEN 'approved' ELSE 'self' END AS source,
+         COALESCE(u."invitedByCompanyUserId" = $1, false) AS mine,
+         (SELECT COUNT(DISTINCT g.feature)::int FROM "CompanyFeatureGrant" g
+           WHERE g."userId" = u.id AND g."startAt" <= now() AND g."expireAt" > now()) AS "openFeatures"
+       FROM "User" u
+       LEFT JOIN "CompanyInvite" i ON i."companyUserId" = u.id AND i."revokedAt" IS NULL
+       WHERE u."recordStatus" = $2 AND u.id <> $1
+         AND EXISTS (SELECT 1 FROM "UserRole" ur JOIN "Role" r ON r.id = ur."roleId"
+                      WHERE ur."userId" = u.id AND r.name = ANY($3::text[]) AND r."recordStatus" = $2)
+         AND NOT (i.id IS NOT NULL AND i."usedAt" IS NULL)
+       ORDER BY u."createdAt" DESC`,
+      [parentUserId, RecordStatus.Active, COMPANY_ROLES],
+    );
+    return rows;
   }
 
   //#endregion

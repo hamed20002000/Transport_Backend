@@ -45,6 +45,12 @@ export class CompanyInviteController {
     return invites.map((invite) => ({ ...invite, messengers: this.messengers(invite.token) }));
   }
 
+  /** Every transport company of the platform (the parent company only), apart from the ones still invited. */
+  @Get('companies')
+  companies(@Req() request: AuthRequest) {
+    return this.invites.companies(companyUserId(request));
+  }
+
   @Post()
   async create(@Req() request: AuthRequest, @Body() dto: CreateCompanyInviteDto) {
     const invite = await this.invites.create(companyUserId(request), dto.mobile, dto.companyName);
