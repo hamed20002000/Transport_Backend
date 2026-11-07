@@ -108,3 +108,70 @@ export async function seedEmbeddingTools(
     return { written: names };
   });
 }
+
+export interface AgentSyncResult {
+  domains: string[];
+  removedDomains: string[];
+  tools: string[];
+  removedTools: string[];
+}
+
+const sameRoles = (a: string[], b: string[]) => a.length === b.length && [...a].sort().join() === [...b].sort().join();
+
+/**
+ * The files (domain_embedding_docs.json, tool_embedding_docs.json) brought to the database: only the domains and tools
+ * that are new or whose text, roles or domain changed are embedded again; those gone from the files are deleted. A
+ * deploy (or a dev server start) with new docs then routes to them without anyone running `npm run agent:seed`; the
+ * same texts embed to the same vectors, so nothing is paid for when nothing changed. An embedding-model change keeps
+ * the texts and still needs the full `npm run agent:seed`.
+ */
+export async function syncAgentEmbeddings(
+  dataSource: DataSource,
+  domains: EmbeddingDomainTool[],
+  tools: ToolSeedDoc[],
+  embed: (text: string) => Promise<number[]>,
+): Promise<AgentSyncResult> {
+  const savedDomains: Array<{ DomainName: string; DisplayText: string; Roles: string[]; hasVector: boolean }> = await dataSource.query(
+    `SELECT "DomainName", "DisplayText", "Roles", "Embedding" IS NOT NULL AS "hasVector" FROM "ToolDomain";`,
+  );
+  const domainByName = new Map(savedDomains.map((row) => [row.DomainName, row]));
+  const changedDomains = domains.filter((doc) => {
+    const saved = domainByName.get(doc.domain_name);
+    return !saved || !saved.hasVector || saved.DisplayText !== doc.embedding_text || !sameRoles(saved.Roles ?? [], doc.roles ?? []);
+  });
+  if (changedDomains.length) await seedToolDomains(dataSource, changedDomains, embed, { removeMissing: false });
+
+  const savedTools: Array<{ ToolName: string; Document: string; DomainName: string | null; hasVector: boolean }> = await dataSource.query(
+    `SELECT "ToolName", "Document", "DomainName", "Embedding" IS NOT NULL AS "hasVector" FROM "EmbeddingTool";`,
+  );
+  const toolRows = new Map<string, typeof savedTools>();
+  for (const row of savedTools) toolRows.set(row.ToolName, [...(toolRows.get(row.ToolName) ?? []), row]);
+  const changedTools = tools.filter((doc) => {
+    const rows = toolRows.get(doc.tool_name) ?? [];
+    // one row per tool: a duplicate is written again too
+    return rows.length !== 1 || !rows[0].hasVector || rows[0].Document !== doc.embedding_text || rows[0].DomainName !== doc.domain_name;
+  });
+  if (changedTools.length) await seedEmbeddingTools(dataSource, changedTools, embed, { replaceAll: false });
+
+  // gone from the files: the tools first (they point at their domain)
+  const toolNames = tools.map((doc) => doc.tool_name);
+  const domainNames = domains.map((doc) => doc.domain_name);
+  const removedTools = [...toolRows.keys()].filter((name) => !toolNames.includes(name));
+  const removedDomains = savedDomains.map((row) => row.DomainName).filter((name) => !domainNames.includes(name));
+  if (removedTools.length || removedDomains.length) {
+    await dataSource.transaction(async (manager) => {
+      await manager.query(
+        `DELETE FROM "EmbeddingTool" WHERE "ToolName" = ANY($1::text[]) OR "DomainName" = ANY($2::text[]);`,
+        [removedTools, removedDomains],
+      );
+      await manager.query(`DELETE FROM "ToolDomain" WHERE "DomainName" = ANY($1::text[]);`, [removedDomains]);
+    });
+  }
+
+  return {
+    domains: changedDomains.map((doc) => doc.domain_name),
+    removedDomains,
+    tools: changedTools.map((doc) => doc.tool_name),
+    removedTools,
+  };
+}

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DataSource } from "typeorm";
@@ -6,20 +6,60 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import tools from 'src/application/services/agent/localFiles/tools.json';
 import { ToolRegister } from '../toolRegister';
 import { EmbeddingDomainTool, EmbeddingToolType } from '../types';
-import { DomainSeedResult, seedEmbeddingTools, seedToolDomains } from '../domainSeeding';
+import { DomainSeedResult, seedEmbeddingTools, seedToolDomains, syncAgentEmbeddings, ToolSeedDoc } from '../domainSeeding';
 import { embed, llmChat } from 'src/services/common/llmClient';
 
 export const TOOL_DOCS_PATH = join(process.cwd(), 'src/application/services/agent/localFiles/tool_embedding_docs.json');
 export const DOMAIN_DOCS_PATH = join(process.cwd(), 'src/application/services/agent/localFiles/domain_embedding_docs.json');
 
 
+// one server instance brings the docs to the database at a time (pg_try_advisory_lock)
+const SYNC_LOCK_KEY = 74_021_107;
+
 @Injectable()
-export class EmbeddingService {
+export class EmbeddingService implements OnApplicationBootstrap {
+    private readonly logger = new Logger(EmbeddingService.name);
+
     constructor(
         private readonly toolRegister: ToolRegister,
         @InjectDataSource() private readonly dataSource: DataSource
     ) {
 
+    }
+
+    /**
+     * New or edited domain and tool docs reach the database as the server starts (syncAgentEmbeddings), so a deploy
+     * routes to them without a manual `npm run agent:seed`. In the background: the server does not wait for OpenAI.
+     * AGENT_EMBEDDING_SYNC=off turns it off.
+     */
+    onApplicationBootstrap(): void {
+        if (process.env.AGENT_EMBEDDING_SYNC === 'off' || process.env.NODE_ENV === 'test') return;
+        void this.syncDocs().catch((error: Error) => this.logger.warn(`Agent domain/tool sync failed: ${error.message}`));
+    }
+
+    async syncDocs(): Promise<void> {
+        const runner = this.dataSource.createQueryRunner();
+        await runner.connect();
+        try {
+            const [{ locked }] = await runner.query(`SELECT pg_try_advisory_lock($1) AS locked`, [SYNC_LOCK_KEY]);
+            if (!locked) return;
+            try {
+                const domains = JSON.parse(readFileSync(DOMAIN_DOCS_PATH, 'utf8')) as EmbeddingDomainTool[];
+                const tools = JSON.parse(readFileSync(TOOL_DOCS_PATH, 'utf8')) as ToolSeedDoc[];
+                const result = await syncAgentEmbeddings(this.dataSource, domains, tools, embed);
+                const changed = [
+                    result.domains.length ? `domains ${result.domains.join(', ')}` : '',
+                    result.removedDomains.length ? `removed domains ${result.removedDomains.join(', ')}` : '',
+                    result.tools.length ? `tools ${result.tools.join(', ')}` : '',
+                    result.removedTools.length ? `removed tools ${result.removedTools.join(', ')}` : '',
+                ].filter(Boolean);
+                if (changed.length) this.logger.log(`Agent docs brought to the database: ${changed.join('; ')}`);
+            } finally {
+                await runner.query(`SELECT pg_advisory_unlock($1)`, [SYNC_LOCK_KEY]);
+            }
+        } finally {
+            await runner.release();
+        }
     }
 
 
