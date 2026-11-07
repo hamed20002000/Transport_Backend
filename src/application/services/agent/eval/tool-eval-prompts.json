@@ -74,5 +74,7 @@
   {"role":"COMPANY","expect":"get_border_status","text":"مرز سرو چند تا کامیون تو صف داره"},
   {"role":"COMPANY","expect":"list_company_drivers","text":"لیست رانندگان رو بیار"},
   {"role":"COMPANY","expect":"list_company_drivers","text":"چه راننده‌هایی داریم؟"},
-  {"role":"COMPANY","expect":"list_company_drivers","text":"راننده‌های داخلی رو نشون بده"}
+  {"role":"COMPANY","expect":"list_company_drivers","text":"راننده‌های داخلی رو نشون بده"},
+  {"role":"COMPANY","expect":"list_company_drivers","text":"لیست راننده‌ها"},
+  {"role":"COMPANY","expect":"list_company_drivers","text":"یه لیست از راننده ها بده"}
 ]

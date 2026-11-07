@@ -89,5 +89,8 @@
   {"role": "COMPANY", "expect": "company_drivers", "text": "راننده‌ها رو نشونم بده"},
   {"role": "COMPANY", "expect": "company_drivers", "text": "رانندگان بین‌المللی کیا هستن؟"},
   {"role": "COMPANY", "expect": "company_drivers", "text": "راننده با پلاک ۱۲ع۳۴۵ کیه؟"},
-  {"role": "COMPANY", "expect": "company_drivers", "text": "شماره راننده رضایی رو بده"}
+  {"role": "COMPANY", "expect": "company_drivers", "text": "شماره راننده رضایی رو بده"},
+  {"role": "COMPANY", "expect": "company_drivers", "text": "لیست راننده‌ها"},
+  {"role": "COMPANY", "expect": "company_drivers", "text": "لیست راننده ها رو بیار"},
+  {"role": "COMPANY", "expect": "company_drivers", "text": "رانندگانم رو نشون بده"}
 ]
