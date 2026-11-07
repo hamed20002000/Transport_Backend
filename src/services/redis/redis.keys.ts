@@ -56,6 +56,8 @@ export const KEY_PREFIXES = {
   placeLatinName: 'cargo:place-latin-name:v1',
   // v3: مسیر مبدأ/مقصد خارجی با OSRM جهانی (نشان تا مرز حساب می‌کرد)
   routingRoutes: 'routing:routes:v3',
+  // the routes' shapes alone (no «از طریق …»): what the borders a load crosses need, without the place-name lookups
+  routingShapes: 'routing:shapes:v1',
   routingDistance: 'routing:distance:v2',
   routingTraffic: 'routing:traffic:v1',
   // v2: با بنزین؛ همه‌ی تکه‌ها یک بار دوباره دریافت می‌شوند. v1 تا منقضی شدنش برای coverage خوانده می‌شود.
@@ -132,6 +134,7 @@ export type RedisKeyParts = {
   tripTypeRoute: [route: string];
   placeLatinName: [route: string];
   routingRoutes: [points: string];
+  routingShapes: [points: string];
   routingDistance: [points: string];
   routingTraffic: [points: string];
   fuelStationChunk: [chunk: string];

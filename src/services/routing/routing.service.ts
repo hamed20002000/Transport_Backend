@@ -304,19 +304,8 @@ export class RoutingService {
     const cached = await this.cacheGet<RoutePlan[]>(key);
     if (cached) return cached;
 
-    const accepted: Candidate[] = [];
-    const domestic = isInIran(origin) && isInIran(destination);
-    if (this.neshanFor(origin, destination)) {
-      const neshan = await this.neshanRoutes(origin, destination).catch((error: Error) => {
-        this.logger.warn(`Neshan direction failed: ${error.message}`);
-        return [];
-      });
-      for (const candidate of neshan) this.accept(accepted, candidate, domestic);
-    }
-    if (accepted.length < MAX_ROUTES) await this.addOsrmRoutes(origin, destination, accepted, domestic);
-    if (!accepted.length) return [];
-
-    const plans = accepted.sort((a, b) => a.plan.durationMin - b.plan.durationMin).map((candidate) => candidate.plan);
+    const plans = (await this.routeShapes(origin, destination)).map((plan) => ({ ...plan }));
+    if (!plans.length) return [];
     // «از طریق …»: شهرستان میانه‌ی مسیر؛ اگر با مسیر قبلی یکی شد، جای دیگری از مسیر
     const used = new Set<string>();
     for (const plan of plans) {
@@ -331,6 +320,32 @@ export class RoutingService {
       }
       if (plan.via) used.add(plan.via);
     }
+    await this.cacheSet(key, plans, ROUTE_TTL);
+    return plans;
+  }
+
+  /**
+   * The routes() themselves without their «از طریق …» names: each of those is a Nominatim lookup a second apart (up to
+   * five a route), which a caller after the roads alone (the borders a load crosses) need not wait for.
+   */
+  async routeShapes(origin: GeoPoint, destination: GeoPoint): Promise<RoutePlan[]> {
+    const key = RedisService.key('routingShapes', `${fixed(origin)};${fixed(destination)}`);
+    const cached = await this.cacheGet<RoutePlan[]>(key);
+    if (cached) return cached;
+
+    const accepted: Candidate[] = [];
+    const domestic = isInIran(origin) && isInIran(destination);
+    if (this.neshanFor(origin, destination)) {
+      const neshan = await this.neshanRoutes(origin, destination).catch((error: Error) => {
+        this.logger.warn(`Neshan direction failed: ${error.message}`);
+        return [];
+      });
+      for (const candidate of neshan) this.accept(accepted, candidate, domestic);
+    }
+    if (accepted.length < MAX_ROUTES) await this.addOsrmRoutes(origin, destination, accepted, domestic);
+    if (!accepted.length) return [];
+
+    const plans = accepted.sort((a, b) => a.plan.durationMin - b.plan.durationMin).map((candidate) => candidate.plan);
     await this.cacheSet(key, plans, ROUTE_TTL);
     return plans;
   }

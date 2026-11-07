@@ -29,6 +29,7 @@ import { BOT_LINK_REPOSITORY } from '../../domain/repositories/repository.tokens
 import { IBotLinkRepository } from '../../domain/repositories/messengerBot/IBotLinkRepository';
 import { BOT_PLATFORMS } from '../messengerBot/core/botPlatform';
 import { UsageService } from '../analytics/usage.service';
+import { LoadBorderService } from './loadBorder.service';
 import {
   CARGO_LISTING_CHANGED_SOCKET_EVENT,
   CARGO_NOTIFICATION_SOCKET_EVENT,
@@ -139,6 +140,7 @@ export class CargoListingService {
     private readonly push: WebPushService,
     private readonly deliveryQueue: CargoDeliveryQueue,
     @Optional() private readonly usage?: UsageService,
+    @Optional() private readonly borders?: LoadBorderService,
   ) {}
 
   /** نمونه‌ی پیشنهادی برای انتشار؛ شرکت می‌تواند قبل از ارسال ویرایشش کند. */
@@ -333,6 +335,8 @@ export class CargoListingService {
         announcedAt: willAnnounce ? new Date() : null,
       }),
     );
+    // an export or import load: its borders worked out now, so the drivers' «درخواست بار» lists them at once
+    this.borders?.warm(listing);
     if (!willAnnounce) {
       // stays out of «بارهای من» and is listed under «بارهای من که اعلام نشده‌اند» (unannounced) until announced
       await this.announceChange(listing);

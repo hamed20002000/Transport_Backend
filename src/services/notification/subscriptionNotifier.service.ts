@@ -31,6 +31,9 @@ export const BROKER_ACCESS_CHANGED_SOCKET_EVENT = 'broker-access-changed';
 export const VERIFICATION_REQUESTED_SOCKET_EVENT = 'verification-requested';
 export const VERIFICATION_CHANGED_SOCKET_EVENT = 'verification-changed';
 
+/** A new verification request, as the parent companies hear of it (messengers and the open panel). */
+const verificationRequestText = (name: string) => `🔎 درخواست بررسی اعتبار تازه از «${name}».\nبرای بررسی و تأیید به «بررسی اعتبار» در پنل شرکت بروید.`;
+
 // one notice per event, however many server instances listen on the channel
 const NOTICE_ONCE_SECONDS = 60 * 60;
 // what an approved account does next
@@ -100,11 +103,16 @@ export class SubscriptionNotifier implements OnModuleInit {
       // a request or decision has no order: the user and the time make it one notice
       await this.redis.subscribe(REDIS_CHANNELS.accountVerificationRequested, (message) =>
         void this.handle('verification-request', this.withNoticeId(message), (event: AccountVerificationEvent & { orderId: string }) => this.verificationRequested(event), async (event) => {
-          for (const id of await this.parentIds()) this.gateway.sendToUser(id, VERIFICATION_REQUESTED_SOCKET_EVENT, { userId: event.userId });
+          // the open panels of the parent companies: a toast and the count on «بررسی اعتبار»
+          const text = verificationRequestText(event.name);
+          for (const id of await this.parentIds()) this.gateway.sendToUser(id, VERIFICATION_REQUESTED_SOCKET_EVENT, { userId: event.userId, type: 'requested', text });
         }));
       await this.redis.subscribe(REDIS_CHANNELS.accountVerificationDecided, (message) =>
-        void this.handle('verification-decision', this.withNoticeId(message), (event: AccountVerificationEvent & { orderId: string }) => this.verificationDecided(event), (event) =>
-          this.gateway.sendToUser(event.userId, VERIFICATION_CHANGED_SOCKET_EVENT, { approved: event.approved })));
+        void this.handle('verification-decision', this.withNoticeId(message), (event: AccountVerificationEvent & { orderId: string }) => this.verificationDecided(event), async (event) => {
+          this.gateway.sendToUser(event.userId, VERIFICATION_CHANGED_SOCKET_EVENT, { approved: event.approved });
+          // every parent company's count drops, also the one that did not decide it
+          for (const id of await this.parentIds()) this.gateway.sendToUser(id, VERIFICATION_REQUESTED_SOCKET_EVENT, { userId: event.userId, type: 'decided' });
+        }));
       await this.redis.subscribe(REDIS_CHANNELS.accountSignedIn, (message) =>
         void this.handle('signed-in', this.signInNotice(message), (event: AccountSignedInEvent & { orderId: string }) => this.signedIn(event), (event) => {
           // the account's pages of another session sign out (a parent company's are not told: they all stay)
@@ -256,7 +264,7 @@ export class SubscriptionNotifier implements OnModuleInit {
 
   /** A self-signed-up company or factory asked to be checked: every parent company hears of it. */
   async verificationRequested(event: AccountVerificationEvent): Promise<void> {
-    const text = `🔎 درخواست بررسی اعتبار تازه از «${event.name}».\nبرای بررسی و تأیید به «بررسی اعتبار» در پنل شرکت بروید.`;
+    const text = verificationRequestText(event.name);
     for (const id of await this.parentIds()) {
       await Promise.all([
         this.push.sendToUser(id, { title: 'ترابوت · درخواست بررسی اعتبار', body: event.name, url: '/account/company/verifications', tag: 'verifications', renotify: true })

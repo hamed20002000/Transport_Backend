@@ -235,6 +235,20 @@ export class AccountVerificationService {
     }));
   }
 
+  /** How many wait for the parent company (the count on «بررسی اعتبار»), counted as list() lists them. */
+  async pendingCount(parentUserId: string): Promise<number> {
+    await this.assertParent(parentUserId);
+    const rows: Array<{ count: string }> = await this.dataSource.query(
+      `SELECT count(DISTINCT u.id) AS count
+       FROM "User" u
+       JOIN "UserRole" ur ON ur."userId" = u.id
+       JOIN "Role" r ON r.id = ur."roleId" AND r."recordStatus" = $1 AND r.name = ANY($2::text[])
+       WHERE u."verificationStatus" = 'PENDING' AND u."recordStatus" = $1`,
+      [RecordStatus.Active, [...COMPANY_ROLES, FACTORY_ROLE, BROKER_ROLE, DRIVER_ROLE]],
+    );
+    return Number(rows[0]?.count ?? 0);
+  }
+
   /**
    * تأیید: حساب فعال می‌شود و به روال عادی برمی‌گردد. شرکت حمل‌ونقل دعوت‌شده‌ی همین شرکت مادر حساب می‌شود (همه‌ی
    * بخش‌ها تا خرید قفل)؛ کارخانه عضو همین شرکت مادر می‌شود و بارش را برای آن می‌فرستد؛ واسط فقط فعال می‌شود.

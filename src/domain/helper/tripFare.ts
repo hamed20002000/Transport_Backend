@@ -1,5 +1,5 @@
 import { BrokerPayModel, FareBasis, FareChangeReason, FareCurrency } from '../enums/tripFare';
-import { parseCargoPrice } from '../../services/notification/cargoPrice';
+import { parseCargoPrice, wordsValue } from '../../services/notification/cargoPrice';
 
 /**
  * The pure rules of a trip's fare (TripFare), shared by the web API, the bots and WhatsApp: reading what the company
@@ -95,17 +95,21 @@ export type WeightUnit = 'TON' | 'KG';
 export const WEIGHT_UNIT_LABEL: Record<WeightUnit, string> = { TON: 'تن', KG: 'کیلوگرم' };
 
 /**
- * A weight in tons as typed or as a load's weight is written: «۲۵»، «۲۵٫۵ تن»، «25 ton»، «۲۴۰۰۰ کیلو». A unit written
- * with the number wins; a bare number is in `unit`: kilograms, or tons (where one above MAX_WEIGHT_TONS is still
- * taken as kilograms). Null when there is none.
+ * A weight in tons as typed or as a load's weight is written: «۲۵»، «۲۵٫۵ تن»، «25 ton»، «۲۴۰۰۰ کیلو»، «شصت تن». A unit
+ * written with the number wins; a bare number is in `unit`: kilograms, or tons (where one above MAX_WEIGHT_TONS is still
+ * taken as kilograms). A figure in the thousands with «تن» is kilograms written as tons («۲۳۷۰۰تن»: ۲۳٫۷ تن). Null when
+ * there is none, or when it is more than one truck carries (a whole load of many trucks: «۶۰۰ تن»).
  */
 export function readWeight(text: string | null | undefined, unit: WeightUnit = 'TON'): number | null {
   if (!text) return null;
   const clean = latin(text).replace(/٫/g, '.').replace(/[,٬](?=\d{3})/g, '');
   const match = clean.match(/\d+(?:\.\d+)?/);
-  if (!match) return null;
-  let tons = Number(match[0]);
-  const kilos = /کیلو|kg/i.test(clean) || (!/تن|ton/i.test(clean) && (unit === 'KG' || tons > MAX_WEIGHT_TONS));
+  // words only with a unit beside them: «دو دستگاه» is not two tons
+  const value = match ? Number(match[0]) : /تن|ton|کیلو|kg/i.test(clean) ? wordsValue(clean) : null;
+  if (!value) return null;
+  let tons = value;
+  const kilos =
+    /کیلو|kg/i.test(clean) || (!/تن|ton/i.test(clean) && (unit === 'KG' || tons > MAX_WEIGHT_TONS)) || tons >= 1000;
   if (kilos) tons /= 1000;
   tons = Math.round(tons * 100) / 100;
   return tons > 0 && tons <= MAX_WEIGHT_TONS ? tons : null;

@@ -40,7 +40,7 @@ const CURRENCIES: [RegExp, CargoPriceCurrency][] = [
 ];
 
 /** «شصت و پنج» → 65: Persian number words joined with «و». */
-function wordsValue(text: string): number | null {
+export function wordsValue(text: string): number | null {
   const parts = text.split(/\s+و\s+|\s+/).filter((part) => part in WORDS);
   return parts.length ? parts.reduce((sum, part) => sum + WORDS[part], 0) : null;
 }

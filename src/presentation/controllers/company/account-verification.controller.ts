@@ -51,6 +51,12 @@ export class CompanyVerificationController {
     return this.verification.list(userId(request, ['COMPANY', 'COMPANY_ADMIN']), statuses.length ? statuses : ['PENDING']);
   }
 
+  /** در انتظار بررسی: شمارنده‌ی «بررسی اعتبار» در منو. */
+  @Get('count')
+  async count(@Req() request: AuthRequest) {
+    return { count: await this.verification.pendingCount(userId(request, ['COMPANY', 'COMPANY_ADMIN'])) };
+  }
+
   @Post(':userId/approve')
   @HttpCode(200)
   approve(@Req() request: AuthRequest, @Param('userId', ParseUUIDPipe) target: string) {

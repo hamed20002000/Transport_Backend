@@ -44,7 +44,7 @@ export class LoadBorderService {
     const tripType = await this.tripTypeOf(listing);
     if (tripType === CargoTripType.Domestic) return { needed: false, label: '', options: [] };
     const exportLoad = tripType === CargoTripType.Export;
-    const { origin, destination, latin } = await this.resolve(listing);
+    const { origin, destination, latin } = await this.resolve(listing, tripType);
     const crossed = origin && destination ? await this.crossed(origin, destination) : [];
     // a country across Iran's land border (Turkey, Iraq, Armenia…): its own borders only, the ones its routes cross
     // first; a route through a third country (Tehran → Ankara by Iraq) does not make Bashmaq a way to Turkey
@@ -64,9 +64,19 @@ export class LoadBorderService {
     return { needed: true, label: exportLoad ? 'مرز خروج' : 'مرز ورود', options };
   }
 
+  /**
+   * Works out a newly published load's borders in the background (its type, places, roads: all cached), so a driver
+   * requesting it gets the list at once instead of waiting for the model and the maps. Never fails.
+   */
+  warm(listing: Pick<CargoListing, 'tripType' | 'origin' | 'destination'>): void {
+    if (listing.tripType === CargoTripType.Domestic) return;
+    void this.choices(listing).catch(() => undefined);
+  }
+
   /** The borders the routes between two points cross, in the order of the routes (the best first). */
   private async crossed(origin: GeoPoint, destination: GeoPoint): Promise<string[]> {
-    const plans = await this.routing.routes(origin, destination).catch(() => []);
+    // the roads alone: the routes' «از طریق …» names are Nominatim lookups a second apart the borders do not need
+    const plans = await this.routing.routeShapes(origin, destination).catch(() => []);
     return plans.flatMap((plan) => exitBordersOnRoute(decodePolyline(plan.polyline)).map((border) => border.name));
   }
 
@@ -81,8 +91,8 @@ export class LoadBorderService {
   }
 
   /** The load's ends on the map, and their Latin names for one going abroad (null for a domestic load). */
-  private async resolve(listing: Pick<CargoListing, 'tripType' | 'origin' | 'destination'>) {
-    const tripType = await this.tripTypeOf(listing);
+  private async resolve(listing: Pick<CargoListing, 'tripType' | 'origin' | 'destination'>, known?: CargoTripType) {
+    const tripType = known ?? (await this.tripTypeOf(listing));
     if (tripType === CargoTripType.Domestic) {
       const [origin, destination] = await Promise.all([this.routing.geocode(listing.origin).catch(() => null), this.routing.geocode(listing.destination).catch(() => null)]);
       return { origin, destination, latin: null };
