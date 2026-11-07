@@ -104,6 +104,7 @@ import { BorderModule } from './BorderModule';
 import { CompanyCargoTools } from '../../services/notification/companyCargoTools';
 import { CompanyFilterTools } from '../../services/notification/companyFilterTools';
 import { DriverCargoTools } from '../../services/notification/driverCargoTools';
+import { CompanyDriverTools } from '../../services/driver/companyDriverTools';
 import { AppSectionTools } from '../../services/notification/appSectionTools';
 import { CargoContactSync } from '../../services/notification/cargoContactSync.service';
 import { InviteUsageNotifier } from '../../services/notification/inviteUsageNotifier.service';
@@ -191,6 +192,7 @@ import { DriverProfileTools } from '../../services/driver/driverProfileTools';
     CompanyFilterTools,
     // ابزارهای agent برای بارها و پروفایل راننده
     DriverCargoTools,
+    CompanyDriverTools,
     AppSectionTools,
     CargoContactSync,
     InviteUsageNotifier,

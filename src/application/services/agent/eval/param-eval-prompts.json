@@ -47,5 +47,8 @@
   {"tool":"list_company_suggested_cargo","text":"لیست بارهای صادراتی رو بیار","expect":{"tripType":"EXPORT"}},
   {"tool":"list_company_suggested_cargo","text":"بارهای وارداتی از ترکیه چی داریم","expect":{"tripType":"IMPORT","origin":"ترکیه"}},
   {"tool":"list_company_my_cargo","text":"بارهای داخلی کارتن که اعلام کردیم","expect":{"tripType":"DOMESTIC","cargoType":"کارتن"}},
-  {"tool":"list_driver_loads","text":"بارهای صادراتی تبریز رو نشونم بده","expect":{"tripType":"EXPORT","origin":"تبریز"}}
+  {"tool":"list_driver_loads","text":"بارهای صادراتی تبریز رو نشونم بده","expect":{"tripType":"EXPORT","origin":"تبریز"}},
+  {"tool":"list_company_drivers","text":"رانندگان بین‌المللی رو بیار","expect":{"driverKind":"INTERNATIONAL"}},
+  {"tool":"list_company_drivers","text":"راننده رضایی رو پیدا کن","expect":{"search":"رضایی"}},
+  {"tool":"list_company_drivers","text":"لیست رانندگان","expect":{}}
 ]

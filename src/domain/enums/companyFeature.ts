@@ -82,6 +82,7 @@ export const COMPANY_FEATURE_BY_AGENT_TOOL: Record<string, CompanyFeature> = {
   list_company_channels: CompanyFeature.Channels,
   add_company_channel: CompanyFeature.Channels,
   delete_company_channel: CompanyFeature.Channels,
+  list_company_drivers: CompanyFeature.Drivers,
 };
 
 /** بخش‌های open_app_section که صفحه‌ی یک منوی پولی‌اند. */

@@ -361,6 +361,12 @@ export class DriverProfileService {
    */
   /** viewerUserId: the company looking, for joinedBy (whose invite brought each driver in, if any) */
   async listByType(tripType: CargoTripType, page: number, pageSize: number, search?: string, viewerUserId?: string) {
+    return this.listByKinds([driverKindForLoad(tripType)], page, pageSize, search, viewerUserId);
+  }
+
+  /** listByType for drivers of any of these kinds (the assistant's «لیست رانندگان»: both unless one was named). */
+  async listByKinds(kinds: DriverKind[], page: number, pageSize: number, search?: string, viewerUserId?: string) {
+    const tripTypes = [...new Set(kinds.flatMap((kind) => DRIVER_KIND_TRIP_TYPES[kind]))];
     const term = search ? `%${toLatinDigits(search).trim().replace(/[\s-]/g, '')}%` : null;
     const where = `
          FROM "User" u
@@ -378,11 +384,11 @@ export class DriverProfileService {
                OR replace(concat_ws('', u."firstName", u."lastName", u.username), ' ', '') ILIKE $3
                OR u.mobile ILIKE $3
                OR regexp_replace(coalesce(p.plate, ''), '[\s-]', '', 'g') ILIKE $3)`;
-    const [{ total }] = await this.dataSource.query(`SELECT COUNT(DISTINCT u.id)::int AS total ${where}`, [RecordStatus.Active, DRIVER_KIND_TRIP_TYPES[driverKindForLoad(tripType)], term]);
+    const [{ total }] = await this.dataSource.query(`SELECT COUNT(DISTINCT u.id)::int AS total ${where}`, [RecordStatus.Active, tripTypes, term]);
     const rows: Array<{ id: string }> = await this.dataSource.query(
       `SELECT u.id, MIN(concat_ws(' ', u."firstName", u."lastName", u.username)) AS name ${where}
         GROUP BY u.id ORDER BY name LIMIT $4 OFFSET $5`,
-      [RecordStatus.Active, DRIVER_KIND_TRIP_TYPES[driverKindForLoad(tripType)], term, pageSize, (page - 1) * pageSize],
+      [RecordStatus.Active, tripTypes, term, pageSize, (page - 1) * pageSize],
     );
     const ids = rows.map((row) => row.id);
     const joinedBy = await this.joinedBy(ids, viewerUserId);
